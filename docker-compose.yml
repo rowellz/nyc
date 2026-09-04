@@ -1,0 +1,16 @@
+services:
+  nyc:
+    build: .
+    image: nyc-world:0.2.8
+    container_name: nyc-world
+    ports:
+      - "8080:8080"
+    environment:
+      # PORT and BASE_PATH must agree with the client's build-time base (/world).
+      PORT: 8080
+      BASE_PATH: /world
+      # ADMIN=1 makes every connecting player an admin (enables noclip fly, teleport).
+      ADMIN: "0"
+      # VERBOSE=1 logs the client's boot/crash telemetry beacons.
+      VERBOSE: "0"
+    restart: unless-stopped

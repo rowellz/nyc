@@ -1,0 +1,17 @@
+{
+  "name": "nyc-world-server",
+  "version": "0.2.8",
+  "private": true,
+  "description": "Reconstructed server for the recovered New York world client",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test-protocol.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

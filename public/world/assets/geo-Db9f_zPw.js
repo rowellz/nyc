@@ -1,0 +1,2 @@
+var e={lat:40.75362,lon:-73.98322},t=110574,n=111320*Math.cos(e.lat*Math.PI/180);function r(r,i){return{x:(r-e.lon)*n,z:-(i-e.lat)*t}}function i(r,i){return{lon:e.lon+r/n,lat:e.lat-i/t}}function a(e){return-(e*Math.PI)/180}function o(e){let t=-e*180/Math.PI;return t%=360,t<0&&(t+=360),t}function s(e){return Math.floor(e/256)}function c(e,t){return`${e}_${t}`}var l={south:40.68,west:-74.035,north:40.885,east:-73.9};export{c as a,s as i,a as n,i as o,r,o as s,l as t};
+//# sourceMappingURL=geo-Db9f_zPw.js.map

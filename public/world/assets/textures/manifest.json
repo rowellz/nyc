@@ -1,0 +1,925 @@
+[
+  {
+    "slug": "asphalt-fresh",
+    "use": "fresh dark asphalt, freshly repaved avenues",
+    "source": "ambientCG",
+    "sourceId": "Asphalt033",
+    "title": "Asphalt 033",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/Asphalt033",
+    "sizePx": [
+      2048,
+      2048
+    ],
+    "physicalSizeM": 2.5,
+    "files": {
+      "ao": "ao.jpg",
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 7552606,
+    "path": "assets/textures/asphalt-fresh/"
+  },
+  {
+    "slug": "asphalt-worn",
+    "use": "worn cracked/patched grey asphalt, most side streets",
+    "source": "Poly Haven",
+    "sourceId": "asphalt_02",
+    "title": "Asphalt 02",
+    "author": "Rob Tuytel",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/asphalt_02",
+    "sizePx": [
+      2048,
+      2048
+    ],
+    "physicalSizeM": 3,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 7001365,
+    "path": "assets/textures/asphalt-worn/"
+  },
+  {
+    "slug": "asphalt-dark",
+    "use": "dark dirty urban asphalt, bus lanes, under scaffolding, wet-look base",
+    "source": "Poly Haven",
+    "sourceId": "asphalt_03",
+    "title": "Asphalt 03",
+    "author": "Dario Barresi, Charlotte Baglioni",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/asphalt_03",
+    "sizePx": [
+      2048,
+      2048
+    ],
+    "physicalSizeM": 2.05,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 5667261,
+    "path": "assets/textures/asphalt-dark/"
+  },
+  {
+    "slug": "sidewalk-concrete",
+    "use": "poured concrete sidewalk slabs with saw-cut joints (NYC standard 5x5 ft flags)",
+    "source": "Poly Haven",
+    "sourceId": "concrete_pavement",
+    "title": "Concrete Pavement",
+    "author": "Charlotte Baglioni",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/concrete_pavement",
+    "sizePx": [
+      2048,
+      2048
+    ],
+    "physicalSizeM": 1.8,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 5378504,
+    "path": "assets/textures/sidewalk-concrete/"
+  },
+  {
+    "slug": "plaza-concrete",
+    "use": "broom-finished concrete in alternating squares: plazas, Times Square pedestrian zones, park paths",
+    "source": "Poly Haven",
+    "sourceId": "brushed_concrete",
+    "title": "Brushed Concrete ",
+    "author": "Dario Barresi, Dimitrios Savva",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/brushed_concrete",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 2.5,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 1000899,
+    "path": "assets/textures/plaza-concrete/"
+  },
+  {
+    "slug": "sidewalk-concrete-worn",
+    "use": "older stained/patched concrete sidewalk",
+    "source": "Poly Haven",
+    "sourceId": "concrete_pavement_02",
+    "title": "Concrete Pavement 02",
+    "author": "Charlotte Baglioni",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/concrete_pavement_02",
+    "sizePx": [
+      2048,
+      2048
+    ],
+    "physicalSizeM": 1.8,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 5405766,
+    "path": "assets/textures/sidewalk-concrete-worn/"
+  },
+  {
+    "slug": "curb-granite",
+    "use": "granite / bluestone curbs, plaza paving, subway stair treads",
+    "source": "Poly Haven",
+    "sourceId": "granite_tile_04",
+    "title": "Granite Tile 04",
+    "author": "Amal Kumar",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/granite_tile_04",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 2,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 850206,
+    "path": "assets/textures/curb-granite/"
+  },
+  {
+    "slug": "cobblestone-belgian-block",
+    "use": "grey granite Belgian block streets (SoHo, Tribeca, Meatpacking, DUMBO)",
+    "source": "ambientCG",
+    "sourceId": "PavingStones033",
+    "title": "Paving Stones 033",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/PavingStones033",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 1.5,
+    "files": {
+      "ao": "ao.jpg",
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 1343475,
+    "path": "assets/textures/cobblestone-belgian-block/"
+  },
+  {
+    "slug": "manhole-cover",
+    "use": "round cast-iron manhole cover DECAL (has opacity.jpg), ~0.8 m",
+    "source": "ambientCG",
+    "sourceId": "ManholeCover005",
+    "title": "Manhole Cover 005",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/ManholeCover005",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 0.8,
+    "files": {
+      "ao": "ao.jpg",
+      "color": "color.jpg",
+      "metalness": "metalness.jpg",
+      "normal": "normal.jpg",
+      "opacity": "opacity.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "decal": true,
+    "bytes": 1435147,
+    "path": "assets/textures/manhole-cover/"
+  },
+  {
+    "slug": "metal-diamond-plate",
+    "use": "diamond-plate steel: sidewalk cellar doors, truck steps, subway grates frames",
+    "source": "ambientCG",
+    "sourceId": "DiamondPlate009",
+    "title": "Diamond Plate 009",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/DiamondPlate009",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 1,
+    "files": {
+      "ao": "ao.jpg",
+      "color": "color.jpg",
+      "metalness": "metalness.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 1697462,
+    "path": "assets/textures/metal-diamond-plate/"
+  },
+  {
+    "slug": "tactile-paving",
+    "use": "ADA truncated-dome tactile strips at curb ramps (tint red for NYC)",
+    "source": "ambientCG",
+    "sourceId": "TactilePaving001",
+    "title": "Tactile Paving 001",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/TactilePaving001",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 0.8,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 752195,
+    "path": "assets/textures/tactile-paving/"
+  },
+  {
+    "slug": "brick-red-common",
+    "use": "red common brick, running bond: walk-ups, factories, most pre-1940 residential",
+    "source": "ambientCG",
+    "sourceId": "Bricks085",
+    "title": "Bricks 085",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/Bricks085",
+    "sizePx": [
+      1024,
+      512
+    ],
+    "physicalSizeM": 2.4,
+    "files": {
+      "ao": "ao.jpg",
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 519892,
+    "path": "assets/textures/brick-red-common/"
+  },
+  {
+    "slug": "brick-dark-tenement",
+    "use": "dark dirty brown-red brick: tenements, LES / East Village, rear walls",
+    "source": "ambientCG",
+    "sourceId": "Bricks097",
+    "title": "Bricks 097",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/Bricks097",
+    "sizePx": [
+      1024,
+      512
+    ],
+    "physicalSizeM": 2,
+    "files": {
+      "ao": "ao.jpg",
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 675374,
+    "path": "assets/textures/brick-dark-tenement/"
+  },
+  {
+    "slug": "brick-tan",
+    "use": "tan / yellow brick: 1920s-60s apartment houses, Stuy Town, Harlem",
+    "source": "ambientCG",
+    "sourceId": "Bricks075A",
+    "title": "Bricks 075 A",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/Bricks075A",
+    "sizePx": [
+      1024,
+      512
+    ],
+    "physicalSizeM": 2,
+    "files": {
+      "ao": "ao.jpg",
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 783504,
+    "path": "assets/textures/brick-tan/"
+  },
+  {
+    "slug": "brick-painted",
+    "use": "beige painted brick (tint to white/cream/black): storefronts, side walls, SoHo",
+    "source": "Poly Haven",
+    "sourceId": "painted_worn_brick",
+    "title": "Painted Worn Brick",
+    "author": "Dimitrios Savva",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/painted_worn_brick",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 1.8,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 1102092,
+    "path": "assets/textures/brick-painted/"
+  },
+  {
+    "slug": "brick-modern",
+    "use": "clean modern orange-red brick: 1970+ residential, brick-and-concrete slabs",
+    "source": "ambientCG",
+    "sourceId": "Bricks104",
+    "title": "Bricks 104",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/Bricks104",
+    "sizePx": [
+      1024,
+      512
+    ],
+    "physicalSizeM": 2,
+    "files": {
+      "ao": "ao.jpg",
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 415045,
+    "path": "assets/textures/brick-modern/"
+  },
+  {
+    "slug": "limestone-block",
+    "use": "clean light-grey ashlar limestone: prewar offices, banks, Park Ave apartment bases, NYPL",
+    "source": "Poly Haven",
+    "sourceId": "concrete_brick_wall_001",
+    "title": "Concrete Brick Wall 001",
+    "author": "Dimitrios Savva, Rico Cilliers",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/concrete_brick_wall_001",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 3,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 843593,
+    "path": "assets/textures/limestone-block/"
+  },
+  {
+    "slug": "stone-sooted",
+    "use": "soot-stained dark masonry with string course: Grand Central base, churches, old civic",
+    "source": "Poly Haven",
+    "sourceId": "large_sandstone_blocks",
+    "title": "Large Sandstone Blocks",
+    "author": "Rob Tuytel",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/large_sandstone_blocks",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 3,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 741729,
+    "path": "assets/textures/stone-sooted/"
+  },
+  {
+    "slug": "brownstone",
+    "use": "brownstone rowhouses: large brown sandstone blocks (tint toward #6b4a3a for the chocolate tone)",
+    "source": "Poly Haven",
+    "sourceId": "seaworn_sandstone_brick",
+    "title": "Seaworn Sandstone Brick",
+    "author": "Dimitrios Savva",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/seaworn_sandstone_brick",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 1.69,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 744337,
+    "path": "assets/textures/brownstone/"
+  },
+  {
+    "slug": "terracotta-glazed",
+    "use": "glazed terracotta cladding (Woolworth, Flatiron ornament bands, 1900-1930 towers)",
+    "source": "ambientCG",
+    "sourceId": "GlazedTerracotta001",
+    "title": "Glazed Terracotta 001",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/GlazedTerracotta001",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 1,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 268959,
+    "path": "assets/textures/terracotta-glazed/"
+  },
+  {
+    "slug": "metal-painted-castiron",
+    "use": "painted cast iron (white base, tint cream/grey/green): SoHo loft fronts, columns",
+    "source": "ambientCG",
+    "sourceId": "PaintedMetal012",
+    "title": "Painted Metal 012",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/PaintedMetal012",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 1,
+    "files": {
+      "ao": "ao.jpg",
+      "color": "color.jpg",
+      "metalness": "metalness.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 1185342,
+    "path": "assets/textures/metal-painted-castiron/"
+  },
+  {
+    "slug": "metal-painted-white",
+    "use": "white painted steel, scratched but intact: cleaner cast-iron / storefront frames / sidewalk shed posts",
+    "source": "ambientCG",
+    "sourceId": "Metal016",
+    "title": "Metal 016",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/Metal016",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 1,
+    "files": {
+      "color": "color.jpg",
+      "metalness": "metalness.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 906624,
+    "path": "assets/textures/metal-painted-white/"
+  },
+  {
+    "slug": "metal-painted-black",
+    "use": "black powder-coated steel: lamp posts, signal poles, fire escapes, railings, bollards",
+    "source": "ambientCG",
+    "sourceId": "Metal027",
+    "title": "Metal 027",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/Metal027",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 1,
+    "files": {
+      "color": "color.jpg",
+      "metalness": "metalness.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 400271,
+    "path": "assets/textures/metal-painted-black/"
+  },
+  {
+    "slug": "metal-painted-green",
+    "use": "painted green metal with rust: subway entrance railings, sign posts, benches, kiosks",
+    "source": "Poly Haven",
+    "sourceId": "green_metal_rust",
+    "title": "Green Metal Rust",
+    "author": "Rob Tuytel",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/green_metal_rust",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 1,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 386187,
+    "path": "assets/textures/metal-painted-green/"
+  },
+  {
+    "slug": "glass-dark",
+    "use": "reflective dark glass curtain wall panel (tiles one bay)",
+    "source": "ambientCG",
+    "sourceId": "Facade001",
+    "title": "Facade 001",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/Facade001",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 4,
+    "files": {
+      "color": "color.jpg",
+      "metalness": "metalness.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 381690,
+    "path": "assets/textures/glass-dark/"
+  },
+  {
+    "slug": "facade-skyscraper",
+    "use": "whole-floor curtain-wall facade strip w/ emissive windows (night), 1955+ towers",
+    "source": "ambientCG",
+    "sourceId": "Facade018A",
+    "title": "Facade 018 A",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/Facade018A",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 13,
+    "files": {
+      "ao": "ao.jpg",
+      "color": "color.jpg",
+      "emissive": "emissive.jpg",
+      "metalness": "metalness.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 1264459,
+    "path": "assets/textures/facade-skyscraper/"
+  },
+  {
+    "slug": "concrete-panels",
+    "use": "bare precast concrete panels: 1960-90 modernist / brutalist, parking garages",
+    "source": "Poly Haven",
+    "sourceId": "concrete",
+    "title": "Concrete",
+    "author": "Rob Tuytel",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/concrete",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 4,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 714718,
+    "path": "assets/textures/concrete-panels/"
+  },
+  {
+    "slug": "metal-corrugated",
+    "use": "corrugated steel: sheds, industrial, rooftop bulkheads, sidewalk-shed parapets",
+    "source": "ambientCG",
+    "sourceId": "CorrugatedSteel009",
+    "title": "Corrugated Steel 009",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/CorrugatedSteel009",
+    "sizePx": [
+      1024,
+      512
+    ],
+    "physicalSizeM": 1,
+    "files": {
+      "ao": "ao.jpg",
+      "color": "color.jpg",
+      "metalness": "metalness.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 433870,
+    "path": "assets/textures/metal-corrugated/"
+  },
+  {
+    "slug": "roof-tar-gravel",
+    "use": "built-up tar-and-gravel flat roofs (most NYC roofs seen from above)",
+    "source": "Poly Haven",
+    "sourceId": "tarred_gravel",
+    "title": "Tarred Gravel",
+    "author": "Dimitrios Savva",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/tarred_gravel",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 2.2,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 1206573,
+    "path": "assets/textures/roof-tar-gravel/"
+  },
+  {
+    "slug": "metal-rusty",
+    "use": "rusty steel sheet: water tower hoops, fire escapes, dumpsters, bridges",
+    "source": "Poly Haven",
+    "sourceId": "rusty_metal_04",
+    "title": "Rusty Metal 04",
+    "author": "Amal Kumar",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/rusty_metal_04",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 2,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 919731,
+    "path": "assets/textures/metal-rusty/"
+  },
+  {
+    "slug": "wood-planks-weathered",
+    "use": "weathered cedar staves: rooftop water towers, boardwalks, planters",
+    "source": "Poly Haven",
+    "sourceId": "weathered_planks",
+    "title": "Weathered Planks",
+    "author": "Dario Barresi, Dimitrios Savva",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/weathered_planks",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 2,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 530530,
+    "path": "assets/textures/wood-planks-weathered/"
+  },
+  {
+    "slug": "plywood",
+    "use": "plywood: scaffolding / sidewalk sheds (tint hunter green), construction fences",
+    "source": "Poly Haven",
+    "sourceId": "plywood",
+    "title": "Plywood",
+    "author": "Rob Tuytel",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/plywood",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 0.5,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 1001098,
+    "path": "assets/textures/plywood/"
+  },
+  {
+    "slug": "rubber-tire",
+    "use": "fine black rubber: tires, mudflaps, rubber mats",
+    "source": "ambientCG",
+    "sourceId": "Rubber004",
+    "title": "Rubber 004",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/Rubber004",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 0.75,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 1127640,
+    "path": "assets/textures/rubber-tire/"
+  },
+  {
+    "slug": "grass-lawn",
+    "use": "mown park lawn (Bryant Park, Sheep Meadow)",
+    "source": "ambientCG",
+    "sourceId": "Grass004",
+    "title": "Grass 004",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/Grass004",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 1.4,
+    "files": {
+      "ao": "ao.jpg",
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "bytes": 2183400,
+    "path": "assets/textures/grass-lawn/"
+  },
+  {
+    "slug": "grass-park",
+    "use": "patchy grass with leaves/twigs: park edges, medians, tree lawns",
+    "source": "Poly Haven",
+    "sourceId": "leafy_grass",
+    "title": "Leafy Grass",
+    "author": "Charlotte Baglioni",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/leafy_grass",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 2,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 1659145,
+    "path": "assets/textures/grass-park/"
+  },
+  {
+    "slug": "dirt-mulch",
+    "use": "park dirt / mulch: tree pits, planting beds, bare park ground",
+    "source": "Poly Haven",
+    "sourceId": "park_dirt",
+    "title": "Park Dirt",
+    "author": "Christopher Melani",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/park_dirt",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 3,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 1591957,
+    "path": "assets/textures/dirt-mulch/"
+  },
+  {
+    "slug": "bark-plane",
+    "use": "London plane bark (THE NYC street tree, ~15% of all street trees)",
+    "source": "Poly Haven",
+    "sourceId": "bark_platanus",
+    "title": "Bark Platanus",
+    "author": "Dimitrios Savva",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/bark_platanus",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 1.5,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 1175170,
+    "path": "assets/textures/bark-plane/"
+  },
+  {
+    "slug": "bark-oak",
+    "use": "generic furrowed brown bark: pin oak, honeylocust, callery pear, zelkova",
+    "source": "Poly Haven",
+    "sourceId": "bark_brown_02",
+    "title": "Bark Brown 02",
+    "author": "Rob Tuytel",
+    "license": "CC0 1.0",
+    "url": "https://polyhaven.com/a/bark_brown_02",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 1,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "roughness": "roughness.jpg",
+      "ao": "ao.jpg"
+    },
+    "bytes": 1427473,
+    "path": "assets/textures/bark-oak/"
+  },
+  {
+    "slug": "leaf-atlas",
+    "use": "green leaf ATLAS with opacity.jpg for tree cards / foliage clusters",
+    "source": "ambientCG",
+    "sourceId": "LeafSet024",
+    "title": "Leaf Set 024",
+    "author": "Lennart Demes / ambientCG.com",
+    "license": "CC0 1.0",
+    "url": "https://ambientcg.com/a/LeafSet024",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 0.4,
+    "files": {
+      "color": "color.jpg",
+      "normal": "normal.jpg",
+      "opacity": "opacity.jpg",
+      "roughness": "roughness.jpg"
+    },
+    "decal": true,
+    "bytes": 425630,
+    "path": "assets/textures/leaf-atlas/"
+  },
+  {
+    "slug": "water-normal",
+    "use": "tileable animated water normal map (rivers); the classic three.js waternormals",
+    "source": "three.js (mrdoob/three.js, examples/textures)",
+    "sourceId": "waternormals",
+    "title": "waternormals.jpg",
+    "author": "three.js authors",
+    "license": "MIT",
+    "url": "https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/waternormals.jpg",
+    "sizePx": [
+      1024,
+      1024
+    ],
+    "physicalSizeM": 20,
+    "files": {
+      "normal": "normal.jpg"
+    },
+    "bytes": 250457,
+    "path": "assets/textures/water-normal/"
+  }
+]
