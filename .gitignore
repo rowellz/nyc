@@ -1,0 +1,7 @@
+node_modules/
+
+# SvelteKit build output
+frontend/.svelte-kit/
+frontend/build/
+
+.DS_Store
