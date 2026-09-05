@@ -10,8 +10,15 @@ contract the client documents. Everything runs locally with no network access.
 
 ```bash
 docker compose up --build
-# then open http://localhost:8080/world/
+# the original service:   http://localhost:8080/world/
+# the SvelteKit port:     http://localhost:3000/
 ```
+
+Two containers serve the same city. `nyc` is the original reconstruction — a Node
+http server with the game welded into it. `web` is the same service **ported to
+SvelteKit**, which serves the client, the tiles, the REST API, its own pages and
+the authoritative game loop from one process. They do not talk to each other and
+do not share a world.
 
 ---
 
@@ -24,9 +31,11 @@ docker compose up --build
 | `public/world/assets/` | JS/CSS chunks, 161 textures (×2 variants), 8 character models, fonts | mirrored |
 | `src/` | 215 original TypeScript files, 62,887 lines | **extracted from source maps** |
 | `server/` | HTTP + WebSocket game server | **written from scratch** |
+| `web/` | The same service as a SvelteKit app | **ported from `server/`** |
 | `tools/` | Re-mirror and offline-patch scripts | written |
 
-The image is 268 MB, most of it the city.
+Most of each image is the city: `nyc` and `web` carry the same `public/`
+payload and end up within a few tens of MB of each other.
 
 ---
 
@@ -104,7 +113,7 @@ Everything is in-memory: **restarting the container resets all progress.**
 
 ### Tests
 
-38 protocol conformance checks driving a headless client through the real binary
+41 protocol conformance checks driving a headless client through the real binary
 codec — handshake, ping/pong, snapshot round-trip, the speed clamp, AOI culling,
 safe-zone immunity, damage/death/scoring, respawn, leaderboard, token reconnect:
 
@@ -112,6 +121,78 @@ safe-zone immunity, damage/death/scoring, respawn, leaderboard, token reconnect:
 cd server && npm install && npm test          # against localhost:8080
 PORT=8081 npm test                            # against a running container
 ```
+
+---
+
+## The SvelteKit port
+
+`web/` is the same service written as a SvelteKit app. It is a port, not a
+wrapper: the `web` container serves the mirrored client, the world tiles, the
+REST endpoints and the game socket itself, and never contacts `nyc`.
+
+```
+/                          overview, rendered from the live world
+/play                      launcher: quality, time, weather, viewpoint
+/spots                     the client's 29 named cameras
+/status                    players, weather, leaderboard, landmarks (polls every 2 s)
+
+GET  /world/*              static client + tiles          src/routes/world/[...file]
+GET  /world/api/admin/me   { admin: boolean }             src/routes/world/api/admin/me
+POST /world/api/telemetry  boot/crash beacons -> 204      src/routes/world/api/telemetry
+GET  /world/api/status     live world as JSON (new)       src/routes/world/api/status
+WS   /world/ws             JSON control + binary states   src/lib/server/net.js
+```
+
+Four things decided the shape of it:
+
+**The game had to come out of the http server.** `server/index.js` interleaves
+routing, the world and the socket in one file. `src/lib/server/world.js` is that
+simulation with the transport removed — it takes anything that can `send()` and
+`close()` — so the wire behaviour is unchanged while SvelteKit owns the routes.
+
+**SvelteKit cannot accept a WebSocket upgrade.** So `server.js` creates the http
+server, mounts adapter-node's handler on it, and attaches the socket alongside.
+`net.js` uses `noServer: true` and its own `upgrade` listener rather than
+`new WebSocketServer({ server, path })`, which aborts every upgrade that does not
+match its path — including Vite's HMR socket. The same wiring runs under
+`vite dev`, so the real client is playable against the dev server.
+
+**The world is loaded twice, and must exist once.** `server.js` imports the game
+directly; SvelteKit bundles its own copy for the routes. `runtime.js` parks the
+instance on a `Symbol.for` key, so the pages and the API read the same live world
+the socket is mutating — the overview and `/status` are rendered from it directly,
+with no HTTP hop and no second WebSocket.
+
+**Tile headers are load-bearing.** Tiles are raw gzip served as
+`application/gzip` with no `Content-Encoding`; announcing the encoding would make
+the browser inflate them and the streamer worker, which sniffs the magic bytes
+itself, would fail. `static.js` reproduces the original's headers exactly —
+verified by diffing both servers' responses.
+
+`src/lib/shared/` holds `protocol.js` and `constants.js`, unchanged apart from
+being ESM, mirroring the recovered `src/shared/` that both halves import.
+
+### Configuration
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` | `3000` | listen port |
+| `HOST` | `0.0.0.0` | bind address |
+| `BASE_PATH` | `/world` | prefix for the game, its API and the socket |
+| `ADMIN` | `0` | `1` grants every player admin (noclip fly, teleport) |
+| `VERBOSE` | `0` | `1` logs the client's telemetry beacons |
+
+### Working on it
+
+```bash
+cd web && npm install
+npm run dev            # http://localhost:5173 — pages, game and socket, with HMR
+npm run build && npm start
+npm test               # the server/ protocol suite, against localhost:3000
+```
+
+`npm run dev` needs `public/` beside it, which it is in this repo; set
+`PUBLIC_DIR` to point elsewhere.
 
 ---
 
@@ -148,7 +229,15 @@ In the browser console, `__game.teleport(x, z)` moves you anywhere in the city;
 
 ## Verified
 
-- All 38 protocol checks pass, against both a local process and the container.
+- All 41 protocol checks in `server/test-protocol.js` pass against the original
+  service, and against the SvelteKit port — from source, from `vite dev`, and from
+  the built `web` image.
+- The two services return byte-identical headers for the client, the hashed
+  assets, the character models and the gzip tiles; the only difference is that
+  SvelteKit sets `content-length` on the JSON API responses, where the original
+  used chunked encoding.
+- Every one of the 403 non-tile files under `public/world/`, plus a sample of the
+  3,697 tiles, comes back 200 from the port at exactly its on-disk size.
 - The real client boots in Chromium with **zero failed requests**: all 14 modules
   load (`atmosphere, environment, streets, buildings, landmarks, props, vehicles,
   character, combat, audio, ui` + core), 3,710 tile requests succeed, and it
@@ -173,7 +262,11 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
 - **Weather is synthetic.** The real server reports `source: 'nws'` (US National
   Weather Service); this one drifts through conditions locally and reports
   `'fallback'`, which is a value the client already handles.
-- **No persistence.** Profiles live in memory, keyed by token.
+- **No persistence.** Profiles live in memory, keyed by token. The two containers
+  each hold their own world, so a player in one is invisible in the other.
+- **The port has not been opened in a browser here.** Its protocol conformance
+  and every byte it serves were checked programmatically, but the Chromium boot
+  in *Verified* above was run against `nyc`, not `web`.
 - **`src/` does not build.** It is the recovered source for reading and reference.
   Type-only files (`context.ts`, `world.ts`) were erased at compile time and are
   absent, and there is no `vite.config`, `package.json`, or `index.html` for it.

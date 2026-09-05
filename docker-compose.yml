@@ -1,10 +1,13 @@
 services:
+  # The original reconstructed service: a Node http server with the game welded
+  # into it. Kept alongside the port so the two can be compared directly; the
+  # web service below does the same job and does not talk to it.
   nyc:
     build: .
     image: nyc-world:0.2.8
     container_name: nyc-world
     ports:
-      - "8080:8080"
+      - "8081:8080"
     environment:
       # PORT and BASE_PATH must agree with the client's build-time base (/world).
       PORT: 8080
@@ -12,5 +15,26 @@ services:
       # ADMIN=1 makes every connecting player an admin (enables noclip fly, teleport).
       ADMIN: "0"
       # VERBOSE=1 logs the client's boot/crash telemetry beacons.
+      VERBOSE: "0"
+    restart: unless-stopped
+
+  # The same service ported to SvelteKit: the mirrored client and tiles, the REST
+  # endpoints, the pages and the authoritative game loop, all in one process.
+  # Its world is its own — the two containers do not share players or scores.
+  web:
+    build:
+      # The repo root, because the image also carries public/.
+      context: .
+      dockerfile: web/Dockerfile
+    image: nyc-world-web:0.2.8
+    container_name: nyc-web
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
+      # The client is built with BASE_URL=/world/, so this stays /world.
+      BASE_PATH: /world
+      ADMIN: "0"
       VERBOSE: "0"
     restart: unless-stopped
