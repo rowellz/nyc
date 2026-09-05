@@ -84,36 +84,6 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ admin: ADMIN }));
     return;
   }
-  // Live world state for the SvelteKit frontend to render server-side. Not part
-  // of the original protocol - added for frontend/, which has no WebSocket of its own.
-  if (p === `${BASE}/api/status`) {
-    const online = new Set([...players.values()].map((x) => x.profile));
-    const leaderboard = [...byToken.values()]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10)
-      .map((prof, i) => ({ rank: i + 1, name: prof.name, score: prof.score, kills: prof.kills, online: online.has(prof) }));
-    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-    res.end(JSON.stringify({
-      version: P.GAME_VERSION,
-      protocol: P.PROTOCOL_VERSION,
-      playersOnline: players.size,
-      profilesSeen: byToken.size,
-      uptimeSeconds: Math.round((Date.now() - t0) / 1000),
-      serverTime: serverTime(),
-      dayFraction: dayFraction(),
-      dayLength: C.DAY_LENGTH_SECONDS,
-      weather,
-      safeZone: C.SAFE_ZONE,
-      landmarks: C.LANDMARKS.length,
-      landmarksDiscovered: discoveredGlobally.size,
-      players: [...players.values()].map((q) => ({
-        id: q.id, name: q.name, score: q.profile.score, kills: q.profile.kills,
-        dead: q.dead, x: Math.round(q.state.x), z: Math.round(q.state.z),
-      })),
-      leaderboard,
-    }));
-    return;
-  }
   if (p === `${BASE}/api/telemetry`) {
     let body = '';
     req.on('data', (c) => { if (body.length < 8192) body += c; });

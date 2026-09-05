@@ -1,12 +1,9 @@
 services:
-  # The game: static client, world tiles, and the authoritative WebSocket server.
   nyc:
     build: .
     image: nyc-world:0.2.8
     container_name: nyc-world
     ports:
-      # Published so the game is still reachable directly at /world/ without the
-      # frontend. The svelte service reaches it over the compose network instead.
       - "8080:8080"
     environment:
       # PORT and BASE_PATH must agree with the client's build-time base (/world).
@@ -16,22 +13,4 @@ services:
       ADMIN: "0"
       # VERBOSE=1 logs the client's boot/crash telemetry beacons.
       VERBOSE: "0"
-    restart: unless-stopped
-
-  # The frontend: SvelteKit site (landing, viewpoints, status) with the game
-  # mounted at /play. Proxies /world/* to nyc, so the browser sees one origin.
-  svelte:
-    build: ./frontend
-    image: nyc-frontend:0.2.8
-    container_name: nyc-svelte
-    ports:
-      - "3000:3000"
-    environment:
-      PORT: 3000
-      HOST: 0.0.0.0
-      GAME_ORIGIN: http://nyc:8080
-      GAME_BASE_PATH: /world
-    depends_on:
-      nyc:
-        condition: service_healthy
     restart: unless-stopped

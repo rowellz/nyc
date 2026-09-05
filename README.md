@@ -10,26 +10,8 @@ contract the client documents. Everything runs locally with no network access.
 
 ```bash
 docker compose up --build
-# SvelteKit frontend  ->  http://localhost:3000
-# game directly       ->  http://localhost:8080/world/
+# then open http://localhost:8080/world/
 ```
-
----
-
-## The two services
-
-| Service | Port | What it does |
-|---|---|---|
-| `nyc` | 8080 | The game: static client, world tiles, and the authoritative WebSocket server. |
-| `svelte` | 3000 | SvelteKit frontend: landing, viewpoint gallery, live status, and the game itself at `/play`. Proxies `/world/*` — including the WebSocket upgrade — to `nyc`. |
-
-`svelte` is the front door. Everything the browser touches comes from one origin
-on :3000, which is what lets the game bundle mount inside a Svelte route
-unmodified: the client computes its socket URL as `${location.host}/world/ws` and
-loads its chunks from absolute `/world/assets/*` paths baked in at build time.
-
-The game stays published on :8080 too, so it still runs standalone without the
-frontend.
 
 ---
 
@@ -37,7 +19,6 @@ frontend.
 
 | Path | What it is | Provenance |
 |---|---|---|
-| `frontend/` | SvelteKit app (site routes + game shell + proxy) | **written from scratch** |
 | `public/world/` | The client, byte-for-byte as served | mirrored |
 | `public/world/world/` | 3,697 map tiles + `index.json` + `areas.json` | mirrored |
 | `public/world/assets/` | JS/CSS chunks, 161 textures (×2 variants), 8 character models, fonts | mirrored |
@@ -45,7 +26,7 @@ frontend.
 | `server/` | HTTP + WebSocket game server | **written from scratch** |
 | `tools/` | Re-mirror and offline-patch scripts | written |
 
-Images: `nyc-world` 268 MB (mostly the city), `nyc-frontend` 138 MB.
+The image is 268 MB, most of it the city.
 
 ---
 
@@ -130,55 +111,7 @@ safe-zone immunity, damage/death/scoring, respawn, leaderboard, token reconnect:
 ```bash
 cd server && npm install && npm test          # against localhost:8080
 PORT=8081 npm test                            # against a running container
-PORT=3000 npm test                            # through the SvelteKit WS proxy
 ```
-
-And a frontend smoke test (needs Playwright) covering the site routes and the
-`/play` boot path:
-
-```bash
-npm i -g playwright && playwright install chromium
-NODE_PATH=$(npm root -g) BASE=http://localhost:3000 node tools/test-frontend.cjs
-```
-
----
-
-## The frontend
-
-`frontend/` is a SvelteKit app (Svelte 5, `adapter-node`).
-
-| Route | What it is |
-|---|---|
-| `/` | Landing page. Server-renders live player count, in-game clock and weather. |
-| `/spots` | All 29 camera viewpoints, grouped, with time/weather/quality controls that build the play URL. |
-| `/status` | Live world state — players in the city, leaderboard, weather, day cycle. Polls every 5 s. |
-| `/play` | The game itself, mounted in the route. |
-
-**How `/play` works.** The 3D client is the original compiled bundle — an ES module
-that expects `#ui`, `#loading` and `#fatal` to exist, then prepends its own
-`<canvas>` to `<body>`. The route renders exactly that markup and dynamically
-imports the module, so the real boot path (crash guard, quality detection, Rapier
-physics, tile streaming) runs inside a Svelte page. Its URL parameters come
-straight from `location.search`, so `/play?spot=…` behaves just like
-`/world/?spot=…`. Leaving the route stops the render loop and removes the canvas.
-
-Because the filenames are content-hashed, `+page.server.ts` reads the script and
-stylesheet tags out of the served `index.html` at request time rather than pinning
-a hash that changes on every re-mirror.
-
-The frontend adds one endpoint to the game server, `/world/api/status`, since the
-site renders world state server-side and has no WebSocket of its own.
-
-### Developing the frontend
-
-```bash
-cd frontend
-npm install
-GAME_ORIGIN=http://127.0.0.1:8080 npm run dev   # Vite proxies /world to the game
-```
-
-Vite's dev proxy and `frontend/server.js` do the same job; only `server.js` runs in
-the image.
 
 ---
 
@@ -186,16 +119,13 @@ the image.
 
 The client has a built-in camera mode, recovered in `src/client/src/core/spots.ts`.
 `?spot=<id>` flies to a fixed viewpoint and skips the entry form — handy for
-screenshots, and the fastest way to confirm the stack renders:
+screenshots, and the fastest way to confirm the container renders:
 
 ```
-http://localhost:3000/play?spot=times-square&time=13:30&weather=clear&nohud=1
-http://localhost:3000/play?spot=aerial-midtown&time=18:00
-http://localhost:3000/play?spot=brooklyn-bridge
+http://localhost:8080/world/?spot=times-square&time=13:30&weather=clear&nohud=1
+http://localhost:8080/world/?spot=aerial-midtown&time=18:00
+http://localhost:8080/world/?spot=brooklyn-bridge
 ```
-
-The same parameters work against the game directly on
-`http://localhost:8080/world/?spot=…`.
 
 29 spots exist: `bryant-park`, `times-square`, `empire-state`, `flatiron`, `soho`,
 `wall-street`, `brooklyn-bridge`, `columbus-circle`, `chinatown`, `harlem`,
@@ -218,16 +148,7 @@ In the browser console, `__game.teleport(x, z)` moves you anywhere in the city;
 
 ## Verified
 
-- All 38 protocol checks pass three ways: against a local process, against the
-  `nyc` container directly, and **through the SvelteKit WebSocket proxy** on :3000.
-- `tools/test-frontend.cjs` passes against the running stack: site routes render,
-  `/play` server-renders the hashed bundle reference and the DOM the client
-  expects, and the bundle boots — creating its canvas inside the Svelte route and
-  streaming the world index (all 3,697 tiles) through the proxy, with no failed
-  requests and no page errors.
-- The full game boots inside `/play` end to end: `window.__ready`, all 14 modules,
-  5,033,735 triangles rendered, and the canvas correctly torn down on navigating
-  away.
+- All 38 protocol checks pass, against both a local process and the container.
 - The real client boots in Chromium with **zero failed requests**: all 14 modules
   load (`atmosphere, environment, streets, buildings, landmarks, props, vehicles,
   character, combat, audio, ui` + core), 3,710 tile requests succeed, and it
@@ -253,13 +174,6 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
   Weather Service); this one drifts through conditions locally and reports
   `'fallback'`, which is a value the client already handles.
 - **No persistence.** Profiles live in memory, keyed by token.
-- **The frontend does not reimplement the 3D engine.** It cannot: the engine is
-  62,887 lines of recovered TypeScript that no longer builds (see below), so
-  `/play` mounts the original compiled bundle. SvelteKit owns routing, the site,
-  and the shell around it — not the renderer.
-- **`/status` polls rather than subscribing.** The authoritative feed is the game
-  WebSocket, which belongs to the client; the page reads a small JSON endpoint
-  every 5 s instead of holding a second socket.
 - **`src/` does not build.** It is the recovered source for reading and reference.
   Type-only files (`context.ts`, `world.ts`) were erased at compile time and are
   absent, and there is no `vite.config`, `package.json`, or `index.html` for it.
