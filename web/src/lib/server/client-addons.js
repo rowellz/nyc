@@ -6,7 +6,17 @@
  * rewritten as it is served: each addon is a plain script in web/static/, loaded
  * after the client's own bundle, that reaches the running game through
  * `window.__game`. Only this service serves them.
+ *
+ * In development one more tag goes in: Vite's HMR client, which is what receives
+ * the reload the watcher in vite.config.js sends when the mirrored bundle
+ * changes. Nothing else would inject it — these pages are served as bytes off
+ * disk, not rendered by SvelteKit.
  */
+
+const DEV = process.env.NODE_ENV !== 'production';
+
+/** Pages that take addons also take the dev client; everything else is untouched. */
+const DEV_TAGS = DEV ? '<script type="module" src="/@vite/client"></script>' : '';
 
 /** Addon scripts per page, relative to PUBLIC_DIR. Injected in order. */
 export const ADDONS = {
@@ -37,7 +47,7 @@ const tagsFor = (scripts) => scripts.map((src) => `<script src="${src}" defer></
 export function addonsFor(rel) {
   const scripts = ADDONS[rel];
   if (!scripts || !scripts.length) return undefined;
-  const tags = tagsFor(scripts);
+  const tags = DEV_TAGS ? `${DEV_TAGS}\n${tagsFor(scripts)}` : tagsFor(scripts);
   return (html) => {
     // safe.html has no <body> of its own, so fall back to the closing <html>.
     for (const marker of ['</body>', '</html>']) {

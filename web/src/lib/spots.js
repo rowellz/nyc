@@ -32,6 +32,7 @@ export const SPOTS = [
   { id: 'lower-east-side', name: 'Orchard & Rivington, LES', lat: 40.7204769, lon: -73.9890967, heading: 201.5, pitch: 3, h: 1.7 },
   { id: 'upper-west', name: 'Amsterdam Ave & 79th, Upper West Side', lat: 40.7829622, lon: -73.9783154, heading: 28.6, pitch: 3, h: 1.7 },
   { id: 'fdr', name: 'FDR Drive looking north at 34th', lat: 40.7433285, lon: -73.9721087, heading: 25.4, pitch: 2, h: 1.7 },
+  { id: 'cross-bronx', name: 'Cross Bronx Expressway at the Alexander Hamilton Bridge, looking east into the Bronx', lat: 40.8450068, lon: -73.9265363, heading: 105, pitch: -2, h: 14.7 },
   { id: 'skyline-hudson', name: 'Midtown skyline from 400 m offshore in the Hudson', lat: 40.7516307, lon: -74.0135723, heading: 80, pitch: 6, h: 10.4 },
   { id: 'skyline-east', name: 'Midtown skyline from the East River', lat: 40.74600, lon: -73.95900, heading: 260, pitch: 8, h: 3 },
   { id: 'aerial-midtown', name: 'Aerial over Midtown looking south', lat: 40.76500, lon: -73.98000, heading: 195, pitch: -35, h: 260 },

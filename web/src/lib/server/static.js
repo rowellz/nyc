@@ -6,11 +6,21 @@
  * sniffs the gzip magic bytes itself, so announcing the encoding would make the
  * browser inflate them first and the decoder would see JSON it cannot parse.
  * Cache-control matches the origin too — immutable for content-hashed assets,
- * no-cache for HTML.
+ * no-cache for HTML — except in development, see DEV below.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
+
+/**
+ * In development nothing is cached. The mirrored client is patched in place (see
+ * the bridge-builder fixes in the README) and its filenames carry the *origin's*
+ * content hashes, which do not change when the bytes behind them do — so the
+ * production `immutable` header would pin a browser to a stale worker for a year
+ * and hide every edit. Worker scripts are the worst of it: they are fetched once
+ * and cached hard, so even a reload keeps running the old build.
+ */
+const DEV = process.env.NODE_ENV !== 'production';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -67,7 +77,8 @@ export async function serveStatic(relPath, options = {}) {
     'content-type': MIME[ext] || 'application/octet-stream',
     'content-length': String(st.size),
     'x-content-type-options': 'nosniff',
-    'cache-control': ext === '.html' ? 'no-cache'
+    'cache-control': DEV ? 'no-store'
+      : ext === '.html' ? 'no-cache'
       : rel.includes('/assets/') ? 'public, max-age=31536000, immutable'
       : 'public, max-age=14400',
   };

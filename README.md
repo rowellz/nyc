@@ -387,9 +387,62 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
   Type-only files (`context.ts`, `world.ts`) were erased at compile time and are
   absent, and there is no `vite.config`, `package.json`, or `index.html` for it.
   The container serves the original compiled bundle, not a rebuild of `src/`.
-- One deliberate modification to the mirrored bundle: `tools/patch-offline.js`
-  repoints the web-font `<link>` from Google Fonts to the vendored copy. Upstream
-  already ships system-font fallbacks, so this only removes a network round-trip.
+- Two deliberate modifications to the mirrored bundle:
+  - `tools/patch-offline.js` repoints the web-font `<link>` from Google Fonts to
+    the vendored copy. Upstream already ships system-font fallbacks, so this only
+    removes a network round-trip.
+  - `assets/tile.worker-*.js` carries three bug fixes to the bridge builder:
+    - Adjacent decks of one elevated structure (a ramp beside the motorway it
+      merges with, or the two carriageways of a viaduct) used to be walled off
+      from each other by a parapet each, with an unreachable slot between them.
+    - A deck took its height from the OSM `layer` tag alone, so where one span of
+      a continuous roadway is tagged a layer above the next — routine, since
+      `layer` only records what passes over what — the two met at a shared node
+      at different heights and the deck simply stepped. 80 of the city's 760
+      shared bridge nodes broke this way, by up to 11 m on the Brooklyn Bridge
+      and by 6 m on the Riverside Drive viaduct at W 138th. Decks meeting at a
+      node now agree on one height and ramp to their own crown from it.
+    - A ramp joining a motorway at a gore angle failed the "beside me" test that
+      drops the parapet between two decks, so its barrier ran out across the
+      lanes it was merging into. A deck edge that lands *on* a neighbouring
+      carriageway at the same height now drops its wall whatever the angle.
+
+    `buildBridges` was rewritten in place from the fixed
+    `src/client/src/streets/bridges.ts`, using the bundle's own minified helper
+    names. Because `src/` does not build, the two have to be kept in step by
+    hand.
+
+## Developing on the client
+
+```bash
+docker compose --profile dev up web-dev   # http://localhost:5173/world/
+```
+
+`web-dev` runs the same service under `vite dev`, with `web/src`, `web/static`
+and the whole mirrored `public/` tree bind-mounted, so edits land without an
+image rebuild. Saving a file under `public/world/assets/` reloads the page: the
+watcher is in `web/vite.config.js`, and the reload reaches the mirrored client
+through Vite's HMR client, which `client-addons.js` injects into `index.html`
+alongside the usual addons. `web/src` gets SvelteKit's own HMR as normal.
+
+It is a full page reload rather than a module swap, which is what the client can
+actually use — it is one compiled bundle with no HMR boundaries, and the tile
+worker rebuilds its geometry from scratch on load anyway.
+
+Two things make this necessary rather than a convenience:
+
+- **`docker compose up` bakes `public/` into the image** (`COPY public/`), so
+  without the bind mount an edit to the client is invisible until `--build`.
+- **The production service sends `immutable, max-age=31536000` for
+  `/world/assets/`**, and the mirrored filenames carry the *origin's* content
+  hashes, which do not change when the bytes behind them do. A browser that
+  loaded the page once will keep the old bundle — worker scripts especially,
+  since a reload does not revalidate them. In development `static.js` sends
+  `no-store` instead. On the production service on :3000, a hard reload
+  (Cmd/Ctrl-Shift-R) is the way to pick up a rebuilt bundle.
+
+If saving a file does not reload, the bind mount is not delivering filesystem
+events; set `VITE_POLL: "1"` on the `web-dev` service.
 
 ## Re-mirroring
 

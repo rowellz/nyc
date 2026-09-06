@@ -38,3 +38,43 @@ services:
       ADMIN: "0"
       VERBOSE: "0"
     restart: unless-stopped
+
+  # The same service under `vite dev`, for working on the client:
+  #
+  #   docker compose --profile dev up web-dev   ->  http://localhost:5173/world/
+  #
+  # web/src, web/static and the whole mirrored public/ tree are bind-mounted, and
+  # vite.config.js watches the client bundle under public/world/assets, so saving
+  # an edit there reloads the browser. In development static.js also drops the
+  # `immutable` cache header the production service sends: the mirrored files
+  # carry the *origin's* content hashes, which do not change when the bytes
+  # behind them do, so without that a browser keeps running the old worker.
+  #
+  # A separate profile and a separate port, so `docker compose up` still brings
+  # up only the production service on 3000.
+  web-dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: web/Dockerfile.dev
+    image: nyc-world-web-dev:0.2.8
+    container_name: nyc-web-dev
+    ports:
+      - "5173:5173"
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: 5173
+      BASE_PATH: /world
+      ADMIN: "1"
+      VERBOSE: "1"
+      # Bind mounts do not always deliver inotify events on macOS and Windows.
+      # Set to 1 if saving a file does not reload the page.
+      VITE_POLL: "0"
+    volumes:
+      - ./web/src:/app/src:ro
+      - ./web/static:/app/static:ro
+      - ./web/vite.config.js:/app/vite.config.js:ro
+      - ./web/svelte.config.js:/app/svelte.config.js:ro
+      - ./web/jsconfig.json:/app/jsconfig.json:ro
+      - ./public:/app/public:ro
