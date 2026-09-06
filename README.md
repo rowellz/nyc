@@ -10,8 +10,15 @@ contract the client documents. Everything runs locally with no network access.
 
 ```bash
 docker compose up --build
-# then open http://localhost:8080/world/
+# the original service:   http://localhost:8080/world/
+# the SvelteKit port:     http://localhost:3000/
 ```
+
+Two containers serve the same city. `nyc` is the original reconstruction — a Node
+http server with the game welded into it. `web` is the same service **ported to
+SvelteKit**, which serves the client, the tiles, the REST API, its own pages and
+the authoritative game loop from one process. They do not talk to each other and
+do not share a world.
 
 ---
 
@@ -24,9 +31,11 @@ docker compose up --build
 | `public/world/assets/` | JS/CSS chunks, 161 textures (×2 variants), 8 character models, fonts | mirrored |
 | `src/` | 215 original TypeScript files, 62,887 lines | **extracted from source maps** |
 | `server/` | HTTP + WebSocket game server | **written from scratch** |
+| `web/` | The same service as a SvelteKit app | **ported from `server/`** |
 | `tools/` | Re-mirror and offline-patch scripts | written |
 
-The image is 268 MB, most of it the city.
+Most of each image is the city: `nyc` and `web` carry the same `public/`
+payload and end up within a few tens of MB of each other.
 
 ---
 
@@ -104,7 +113,7 @@ Everything is in-memory: **restarting the container resets all progress.**
 
 ### Tests
 
-38 protocol conformance checks driving a headless client through the real binary
+41 protocol conformance checks driving a headless client through the real binary
 codec — handshake, ping/pong, snapshot round-trip, the speed clamp, AOI culling,
 safe-zone immunity, damage/death/scoring, respawn, leaderboard, token reconnect:
 
@@ -112,6 +121,185 @@ safe-zone immunity, damage/death/scoring, respawn, leaderboard, token reconnect:
 cd server && npm install && npm test          # against localhost:8080
 PORT=8081 npm test                            # against a running container
 ```
+
+---
+
+## The SvelteKit port
+
+`web/` is the same service written as a SvelteKit app. It is a port, not a
+wrapper: the `web` container serves the mirrored client, the world tiles, the
+REST endpoints and the game socket itself, and never contacts `nyc`.
+
+```
+/                          overview, rendered from the live world
+/play                      launcher: quality, time, weather, viewpoint
+/spots                     the client's 29 named cameras
+/status                    players, weather, leaderboard, landmarks (polls every 2 s)
+
+GET  /world/*              static client + tiles          src/routes/world/[...file]
+GET  /world/api/admin/me   { admin: boolean }             src/routes/world/api/admin/me
+POST /world/api/telemetry  boot/crash beacons -> 204      src/routes/world/api/telemetry
+GET  /world/api/status     live world as JSON (new)       src/routes/world/api/status
+WS   /world/ws             JSON control + binary states   src/lib/server/net.js
+```
+
+Four things decided the shape of it:
+
+**The game had to come out of the http server.** `server/index.js` interleaves
+routing, the world and the socket in one file. `src/lib/server/world.js` is that
+simulation with the transport removed — it takes anything that can `send()` and
+`close()` — so the wire behaviour is unchanged while SvelteKit owns the routes.
+
+**SvelteKit cannot accept a WebSocket upgrade.** So `server.js` creates the http
+server, mounts adapter-node's handler on it, and attaches the socket alongside.
+`net.js` uses `noServer: true` and its own `upgrade` listener rather than
+`new WebSocketServer({ server, path })`, which aborts every upgrade that does not
+match its path — including Vite's HMR socket. The same wiring runs under
+`vite dev`, so the real client is playable against the dev server.
+
+**The world is loaded twice, and must exist once.** `server.js` imports the game
+directly; SvelteKit bundles its own copy for the routes. `runtime.js` parks the
+instance on a `Symbol.for` key, so the pages and the API read the same live world
+the socket is mutating — the overview and `/status` are rendered from it directly,
+with no HTTP hop and no second WebSocket.
+
+**Tile headers are load-bearing.** Tiles are raw gzip served as
+`application/gzip` with no `Content-Encoding`; announcing the encoding would make
+the browser inflate them and the streamer worker, which sniffs the magic bytes
+itself, would fail. `static.js` reproduces the original's headers exactly —
+verified by diffing both servers' responses.
+
+`src/lib/shared/` holds `protocol.js` and `constants.js`, unchanged apart from
+being ESM, mirroring the recovered `src/shared/` that both halves import.
+
+### Changing the client without touching `public/`
+
+The compiled client is shared with `nyc` and stays byte-for-byte as mirrored, so
+this service adds to it on the way out instead: `client-addons.js` appends script
+tags to the pages it extends — `index.html` and `safe.html` — as they are served,
+and the scripts live in `web/static/`. They
+reach the running game through `window.__game`, the handle `main.ts` already
+exposes for playtesting. Every other file goes out untransformed.
+
+Four addons ship today.
+
+**`look-stick.js` gives touch devices a thumbstick for the camera**, in both of
+the client's modes.
+
+*Play mode.* Upstream (`src/client/src/ui/touch.ts`) has a movement stick
+bottom-left and a drag-anywhere look zone, but no right stick. The addon adds one
+to the client's own overlay, in the opposite corner, moving the action buttons
+above itself, and feeds `input.addTouchLook()`. Going through that method rather
+than the gamepad path means it also picks up the mouse-sensitivity multiplier and
+the aim-down-sights slowdown, and goes quiet whenever input is blocked.
+
+*Camera mode (`?spot=` / `?fly=`).* Nothing worked here on a phone, and none of
+it was one missing feature — the client closes three separate doors. It builds
+`InputManager` with `enabled: false`, so `addTouchLook()` and `setTouchMove()`
+are both no-ops. `ui/index.ts` computes `touchActive` with `!st.screenshotMode`,
+so the touch overlay is never un-hidden, and its sticks would be inert anyway.
+And the free camera looks by **mouse** drag — `mousedown` on the canvas then
+`mousemove` on window — which a touch drag never produces, while it reads
+movement straight off `input.keys`. So in camera mode the addon puts up its own
+overlay with both sticks and drives those two paths directly: the left stick
+holds WASD in `input.keys` (and `ShiftLeft` at the rim, which the free camera
+reads as "fast"), and the right stick synthesises the mouse drag.
+
+*Getting there at all.* On iOS, camera mode used to lock itself out. The client
+keeps a crash guard in localStorage (`core/crashGuard.ts`): each load pushes a
+start, and only `markReady()` forgives it — two unforgiven starts in five minutes
+and `boot.ts` opens safe mode before any game code runs. Off iOS `markReady()`
+fires at the first drawn frame; on iOS it fires from one place only, when
+`shots.ready` flips, and that is the full screenshot contract — every module
+built, near tiles decoded, no outstanding work. In camera mode on a phone that
+is minutes away, because iOS constructs the city one module per 1.5 s slot after
+the first frame. So a visit you gave up on counted as a crash, two of them locked
+you out, and iOS safe mode is a `location.replace()` to `/world/safe.html`, which
+drops the query string and lands you in Bryant Park in play mode.
+
+`camera-boot.js` applies the rule every other platform already gets: in camera
+mode, once the renderer has drawn and the page has stayed up for 20 s, the start
+is marked clean. An out-of-memory kill happens while the city is still being
+built, well before that, and is still caught — and the addon stands down
+completely on a page error, on the client's own safe-mode panel, on a page that
+never drew, and for a record another tab now owns. `?bootguard=0` restores the
+strict rule. `safe-return.js` covers the other half: it puts the viewpoint you
+were opening back on the safe-mode page, carrying the `safe=1` that lets one load
+through the guard, instead of only offering the trip to Bryant Park.
+
+Rates come from the client, not from taste. `core/input.ts` drives the gamepad's
+right stick at 720 px/s past a 0.15 dead zone, so the look stick uses those
+numbers. The two modes turn a pixel into a different angle — `character/camera.ts`
+uses 0.0022 rad/px, `core/screenshot.ts` uses 0.0035 — so camera mode is scaled
+by their ratio and both feel the same under the thumb.
+
+**`water-reflection.js` takes the reflections off the river**, all of them, by
+default. The water (`environment/water.ts`) reflects in four ways, and they are
+four separate knobs:
+
+1. The **environment map** — the sky, through a Fresnel term at ior 1.33. This is
+   `envMapIntensity`, 0.8 upstream: the broad sheen on the Hudson.
+2. A **planar skyline mirror** — a half-res render of the far-LOD layer through a
+   camera reflected about the water plane, mixed in by Fresnel. This is what puts
+   towers in the river, and it is off on the `mobile` preset upstream, so phones
+   never had it.
+3. Two **extra sun lobes** the client's shader patch adds by hand, a tight GGX
+   glitter at `pow(envMu, 26)` and a broad one at `pow(envMu, 6)`.
+4. The ordinary **PBR specular highlight**, which answers the sun and every
+   street lamp. `specularIntensity` is 1 upstream, and this is the one that keeps
+   a bright streak on the water after the other three are gone — the easiest to
+   miss, because nothing in the water shader mentions it.
+
+Two of them are ordinary material properties. The other two are bare expressions
+in the client's shader with no uniform to turn, so the addon chains a second
+compile hook and adds them. That is safe because `environment/patch.ts`
+`chainCompile` was written for it: assigning `onBeforeCompile` runs your hook
+*after* the material's own patch rather than replacing it. The anchors are
+verbatim GLSL from `water.ts`, which survives bundling because it lives in
+template literals — and the test asserts each appears exactly once in the shipped
+chunk, so a re-mirror that changes the shader fails loudly instead of leaving the
+river glossy.
+
+| Param | Effect |
+|---|---|
+| `?water=0` | no reflections at all — the default here |
+| `?water=1` | upstream, untouched |
+| `?water=0.35` | a dulled river that still reflects a little |
+| `?waterglitter=0.6` | sun and lamp specular on its own scale; without it, the glitter follows `?water` |
+
+`__water.scale` and `__water.glitter` retune both live, with no recompile.
+
+| Param | Effect |
+|---|---|
+| `?bootguard=0` | keep the client's strict crash-guard rule in camera mode |
+| `?lookstick=0` | off in both modes |
+| `?lookstick=1` | force it on with a mouse, for testing on a desktop (it reveals the overlay too, since the client keeps it hidden without touch hardware) |
+| `?looksens=480` | pixels per second at full deflection (default 720) |
+
+`__lookStick.rate = 480` retunes it live from the console.
+
+### Configuration
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` | `3000` | listen port |
+| `HOST` | `0.0.0.0` | bind address |
+| `BASE_PATH` | `/world` | prefix for the game, its API and the socket |
+| `ADMIN` | `0` | `1` grants every player admin (noclip fly, teleport) |
+| `VERBOSE` | `0` | `1` logs the client's telemetry beacons |
+
+### Working on it
+
+```bash
+cd web && npm install
+npm run dev            # http://localhost:5173 — pages, game and socket, with HMR
+npm run build && npm start
+npm test               # the server/ protocol suite, against localhost:3000
+npm run test:ui        # the look stick, driven through jsdom (no server needed)
+```
+
+`npm run dev` needs `public/` beside it, which it is in this repo; set
+`PUBLIC_DIR` to point elsewhere.
 
 ---
 
@@ -148,7 +336,24 @@ In the browser console, `__game.teleport(x, z)` moves you anywhere in the city;
 
 ## Verified
 
-- All 38 protocol checks pass, against both a local process and the container.
+- All 41 protocol checks in `server/test-protocol.js` pass against the original
+  service, and against the SvelteKit port — from source, from `vite dev`, and from
+  the built `web` image.
+- The two services return byte-identical headers for the client, the hashed
+  assets, the character models and the gzip tiles; the only difference is that
+  SvelteKit sets `content-length` on the JSON API responses, where the original
+  used chunked encoding.
+- Every one of the 403 non-tile files under `public/world/`, plus a sample of the
+  3,697 tiles, comes back 200 from the port at exactly its on-disk size — and
+  still does with the addon injection in place, which rewrites `index.html` only.
+- The addons' 98 checks pass under jsdom: where it installs, when it stays
+  out of the way, the deltas it feeds for full, half, diagonal and dead-zone
+  deflection, and, in camera mode, the keys it holds and the synthetic mouse drag
+  it emits; plus when the crash guard is and is not forgiven, where the safe-mode
+  page sends you, and — against the real shipped chunk, not a mock — that the
+  water shader patch still applies. **They have not been rendered in a browser** —
+  there is none on the machine this was built on, so the water change in
+  particular is verified as a correct patch, not as a look.
 - The real client boots in Chromium with **zero failed requests**: all 14 modules
   load (`atmosphere, environment, streets, buildings, landmarks, props, vehicles,
   character, combat, audio, ui` + core), 3,710 tile requests succeed, and it
@@ -173,7 +378,11 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
 - **Weather is synthetic.** The real server reports `source: 'nws'` (US National
   Weather Service); this one drifts through conditions locally and reports
   `'fallback'`, which is a value the client already handles.
-- **No persistence.** Profiles live in memory, keyed by token.
+- **No persistence.** Profiles live in memory, keyed by token. The two containers
+  each hold their own world, so a player in one is invisible in the other.
+- **The port has not been opened in a browser here.** Its protocol conformance
+  and every byte it serves were checked programmatically, but the Chromium boot
+  in *Verified* above was run against `nyc`, not `web`.
 - **`src/` does not build.** It is the recovered source for reading and reference.
   Type-only files (`context.ts`, `world.ts`) were erased at compile time and are
   absent, and there is no `vite.config`, `package.json`, or `index.html` for it.
