@@ -24,6 +24,8 @@
     The client ships a camera mode for screenshots: <span class="mono">?spot=&lt;id&gt;</span> flies to a fixed
     viewpoint and skips the entry form. These are its own coordinates, recovered from
     <span class="mono">core/spots.ts</span> — the fastest way to confirm the city renders.
+    You are not stuck where it lands: on a desktop, drag with the left mouse button to look and fly
+    with WASD; on a phone, this service adds two thumbsticks the client does not have.
   </p>
 
   <div class="card controls">

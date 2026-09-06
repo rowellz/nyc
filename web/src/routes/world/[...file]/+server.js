@@ -8,6 +8,7 @@
  */
 import { redirect } from '@sveltejs/kit';
 
+import { addonsFor } from '$lib/server/client-addons.js';
 import { serveStatic } from '$lib/server/static.js';
 
 // The client is built with BASE_URL=/world/ and asks for basePath('/world'), so
@@ -23,9 +24,10 @@ export async function GET({ params, url, request }) {
   if (!file && !url.pathname.endsWith('/')) {
     redirect(302, `${url.pathname}/${url.search}`);
   }
-  // /world/ -> public/world/index.html
+  // /world/ -> public/world/index.html. Pages this service extends get its
+  // addon tags appended; everything else goes out exactly as mirrored.
   const rel = file ? `world/${file}` : 'world/index.html';
-  return serveStatic(rel, { method: request.method });
+  return serveStatic(rel, { method: request.method, transform: addonsFor(rel) });
 }
 
 export const HEAD = GET;

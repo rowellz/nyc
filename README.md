@@ -172,6 +172,112 @@ verified by diffing both servers' responses.
 `src/lib/shared/` holds `protocol.js` and `constants.js`, unchanged apart from
 being ESM, mirroring the recovered `src/shared/` that both halves import.
 
+### Changing the client without touching `public/`
+
+The compiled client is shared with `nyc` and stays byte-for-byte as mirrored, so
+this service adds to it on the way out instead: `client-addons.js` appends script
+tags to the pages it extends — `index.html` and `safe.html` — as they are served,
+and the scripts live in `web/static/`. They
+reach the running game through `window.__game`, the handle `main.ts` already
+exposes for playtesting. Every other file goes out untransformed.
+
+Four addons ship today.
+
+**`look-stick.js` gives touch devices a thumbstick for the camera**, in both of
+the client's modes.
+
+*Play mode.* Upstream (`src/client/src/ui/touch.ts`) has a movement stick
+bottom-left and a drag-anywhere look zone, but no right stick. The addon adds one
+to the client's own overlay, in the opposite corner, moving the action buttons
+above itself, and feeds `input.addTouchLook()`. Going through that method rather
+than the gamepad path means it also picks up the mouse-sensitivity multiplier and
+the aim-down-sights slowdown, and goes quiet whenever input is blocked.
+
+*Camera mode (`?spot=` / `?fly=`).* Nothing worked here on a phone, and none of
+it was one missing feature — the client closes three separate doors. It builds
+`InputManager` with `enabled: false`, so `addTouchLook()` and `setTouchMove()`
+are both no-ops. `ui/index.ts` computes `touchActive` with `!st.screenshotMode`,
+so the touch overlay is never un-hidden, and its sticks would be inert anyway.
+And the free camera looks by **mouse** drag — `mousedown` on the canvas then
+`mousemove` on window — which a touch drag never produces, while it reads
+movement straight off `input.keys`. So in camera mode the addon puts up its own
+overlay with both sticks and drives those two paths directly: the left stick
+holds WASD in `input.keys` (and `ShiftLeft` at the rim, which the free camera
+reads as "fast"), and the right stick synthesises the mouse drag.
+
+*Getting there at all.* On iOS, camera mode used to lock itself out. The client
+keeps a crash guard in localStorage (`core/crashGuard.ts`): each load pushes a
+start, and only `markReady()` forgives it — two unforgiven starts in five minutes
+and `boot.ts` opens safe mode before any game code runs. Off iOS `markReady()`
+fires at the first drawn frame; on iOS it fires from one place only, when
+`shots.ready` flips, and that is the full screenshot contract — every module
+built, near tiles decoded, no outstanding work. In camera mode on a phone that
+is minutes away, because iOS constructs the city one module per 1.5 s slot after
+the first frame. So a visit you gave up on counted as a crash, two of them locked
+you out, and iOS safe mode is a `location.replace()` to `/world/safe.html`, which
+drops the query string and lands you in Bryant Park in play mode.
+
+`camera-boot.js` applies the rule every other platform already gets: in camera
+mode, once the renderer has drawn and the page has stayed up for 20 s, the start
+is marked clean. An out-of-memory kill happens while the city is still being
+built, well before that, and is still caught — and the addon stands down
+completely on a page error, on the client's own safe-mode panel, on a page that
+never drew, and for a record another tab now owns. `?bootguard=0` restores the
+strict rule. `safe-return.js` covers the other half: it puts the viewpoint you
+were opening back on the safe-mode page, carrying the `safe=1` that lets one load
+through the guard, instead of only offering the trip to Bryant Park.
+
+Rates come from the client, not from taste. `core/input.ts` drives the gamepad's
+right stick at 720 px/s past a 0.15 dead zone, so the look stick uses those
+numbers. The two modes turn a pixel into a different angle — `character/camera.ts`
+uses 0.0022 rad/px, `core/screenshot.ts` uses 0.0035 — so camera mode is scaled
+by their ratio and both feel the same under the thumb.
+
+**`water-reflection.js` takes the reflections off the river**, all of them, by
+default. The water (`environment/water.ts`) reflects in four ways, and they are
+four separate knobs:
+
+1. The **environment map** — the sky, through a Fresnel term at ior 1.33. This is
+   `envMapIntensity`, 0.8 upstream: the broad sheen on the Hudson.
+2. A **planar skyline mirror** — a half-res render of the far-LOD layer through a
+   camera reflected about the water plane, mixed in by Fresnel. This is what puts
+   towers in the river, and it is off on the `mobile` preset upstream, so phones
+   never had it.
+3. Two **extra sun lobes** the client's shader patch adds by hand, a tight GGX
+   glitter at `pow(envMu, 26)` and a broad one at `pow(envMu, 6)`.
+4. The ordinary **PBR specular highlight**, which answers the sun and every
+   street lamp. `specularIntensity` is 1 upstream, and this is the one that keeps
+   a bright streak on the water after the other three are gone — the easiest to
+   miss, because nothing in the water shader mentions it.
+
+Two of them are ordinary material properties. The other two are bare expressions
+in the client's shader with no uniform to turn, so the addon chains a second
+compile hook and adds them. That is safe because `environment/patch.ts`
+`chainCompile` was written for it: assigning `onBeforeCompile` runs your hook
+*after* the material's own patch rather than replacing it. The anchors are
+verbatim GLSL from `water.ts`, which survives bundling because it lives in
+template literals — and the test asserts each appears exactly once in the shipped
+chunk, so a re-mirror that changes the shader fails loudly instead of leaving the
+river glossy.
+
+| Param | Effect |
+|---|---|
+| `?water=0` | no reflections at all — the default here |
+| `?water=1` | upstream, untouched |
+| `?water=0.35` | a dulled river that still reflects a little |
+| `?waterglitter=0.6` | sun and lamp specular on its own scale; without it, the glitter follows `?water` |
+
+`__water.scale` and `__water.glitter` retune both live, with no recompile.
+
+| Param | Effect |
+|---|---|
+| `?bootguard=0` | keep the client's strict crash-guard rule in camera mode |
+| `?lookstick=0` | off in both modes |
+| `?lookstick=1` | force it on with a mouse, for testing on a desktop (it reveals the overlay too, since the client keeps it hidden without touch hardware) |
+| `?looksens=480` | pixels per second at full deflection (default 720) |
+
+`__lookStick.rate = 480` retunes it live from the console.
+
 ### Configuration
 
 | Variable | Default | Meaning |
@@ -189,6 +295,7 @@ cd web && npm install
 npm run dev            # http://localhost:5173 — pages, game and socket, with HMR
 npm run build && npm start
 npm test               # the server/ protocol suite, against localhost:3000
+npm run test:ui        # the look stick, driven through jsdom (no server needed)
 ```
 
 `npm run dev` needs `public/` beside it, which it is in this repo; set
@@ -237,7 +344,16 @@ In the browser console, `__game.teleport(x, z)` moves you anywhere in the city;
   SvelteKit sets `content-length` on the JSON API responses, where the original
   used chunked encoding.
 - Every one of the 403 non-tile files under `public/world/`, plus a sample of the
-  3,697 tiles, comes back 200 from the port at exactly its on-disk size.
+  3,697 tiles, comes back 200 from the port at exactly its on-disk size — and
+  still does with the addon injection in place, which rewrites `index.html` only.
+- The addons' 98 checks pass under jsdom: where it installs, when it stays
+  out of the way, the deltas it feeds for full, half, diagonal and dead-zone
+  deflection, and, in camera mode, the keys it holds and the synthetic mouse drag
+  it emits; plus when the crash guard is and is not forgiven, where the safe-mode
+  page sends you, and — against the real shipped chunk, not a mock — that the
+  water shader patch still applies. **They have not been rendered in a browser** —
+  there is none on the machine this was built on, so the water change in
+  particular is verified as a correct patch, not as a look.
 - The real client boots in Chromium with **zero failed requests**: all 14 modules
   load (`atmosphere, environment, streets, buildings, landmarks, props, vehicles,
   character, combat, audio, ui` + core), 3,710 tile requests succeed, and it

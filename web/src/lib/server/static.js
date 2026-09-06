@@ -39,7 +39,10 @@ function resolvePublicDir() {
 /**
  * Serve one file out of PUBLIC_DIR.
  * @param {string} relPath path relative to PUBLIC_DIR, e.g. "world/assets/main.js"
- * @param {{ method?: string }} [options]
+ * @param {{ method?: string, transform?: (text: string) => string }} [options]
+ *   `transform` rewrites the file as UTF-8 text before it goes out, which is how
+ *   the client's index.html picks up this service's addons. It reads the whole
+ *   file instead of streaming it, so keep it for small ones.
  * @returns {Promise<Response>}
  */
 export async function serveStatic(relPath, options = {}) {
@@ -68,6 +71,15 @@ export async function serveStatic(relPath, options = {}) {
       : rel.includes('/assets/') ? 'public, max-age=31536000, immutable'
       : 'public, max-age=14400',
   };
+
+  if (options.transform) {
+    const body = options.transform(await fs.promises.readFile(file, 'utf8'));
+    headers['content-length'] = String(Buffer.byteLength(body));
+    if ((options.method || 'GET').toUpperCase() === 'HEAD') {
+      return new Response(null, { status: 200, headers });
+    }
+    return new Response(body, { status: 200, headers });
+  }
 
   if ((options.method || 'GET').toUpperCase() === 'HEAD') {
     return new Response(null, { status: 200, headers });

@@ -20,6 +20,7 @@
     ['R', 'reload'],
     ['1–4', 'switch weapon'],
     ['F', 'enter or leave a vehicle'],
+    ['Touch', 'left stick walks, right stick looks, buttons on the right'],
   ];
 </script>
 
@@ -72,7 +73,8 @@
     {#if spot}
       <p class="note faint">
         Picking a viewpoint puts the client in screenshot mode: it flies the camera there and
-        skips the entry form, so you watch rather than play.
+        skips the entry form, so you watch rather than play. On a phone both thumbsticks still
+        work there — left flies the camera, right aims it.
       </p>
     {/if}
 
@@ -91,7 +93,11 @@
     </dl>
     <p class="faint note">
       In the browser console, <span class="mono">__game.teleport(x, z)</span> moves you anywhere in
-      the city and <span class="mono">__stats()</span> reports renderer counters.
+      the city and <span class="mono">__stats()</span> reports renderer counters. On phones this
+      service adds the camera stick the mirrored client lacks — turn it off with
+      <span class="mono">?lookstick=0</span>, or retune it with
+      <span class="mono">?looksens=480</span>. The river is matte here — no sky, skyline
+      or sun reflection; <span class="mono">?water=1</span> restores the original.
     </p>
   </div>
 </section>
