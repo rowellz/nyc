@@ -26,7 +26,7 @@ export function buildMarkings(env: TileEnv, marks: MarkBuilder, grid: SurfaceGri
   const surfaceRoads = new RoadIndex(env.tile.roads, r => !r.bridge && !r.tunnel && r.lanes > 0);
   let currentRoad: RoadSegment | null = null, frameRoads = surfaceRoads;
   const deckAt = (x: number, z: number) => currentRoad ? env.roadAt(currentRoad, x, z) : 0;
-  const baseAt = (x: number, z: number) => currentRoad?.bridge ? deckAt(x, z) : paintHeightAt(x, z);
+  const baseAt = (x: number, z: number) => currentRoad && env.roadTriangles(currentRoad).length ? deckAt(x, z) : paintHeightAt(x, z);
   /** road frame for the wear shader: (rx, rz, c, laneCode) with lane offset = dot(p, (rx, rz)) - c */
   const frameAt = (x: number, z: number): number[] => {
     const near = frameRoads.nearest(x, z, 30);
@@ -58,7 +58,7 @@ export function buildMarkings(env: TileEnv, marks: MarkBuilder, grid: SurfaceGri
     const laneW = Math.min(3.3, r.width / lanes);
     const total = polylineLength(r.pts);
     // Highway way boundaries are often just layer/tag changes, not junctions.
-    const endGap = r.bridge || r.cls === 'motorway' || r.cls === 'trunk' ? 0 : 7;
+    const endGap = r.bridge || env.roadTriangles(r).length || r.cls === 'motorway' || r.cls === 'trunk' ? 0 : 7;
     const line = (offset: number, dashed: boolean, region: readonly number[]) => {
       let along = 0;
       for (let i = 1; i < r.pts.length; i++) {
@@ -76,7 +76,7 @@ export function buildMarkings(env: TileEnv, marks: MarkBuilder, grid: SurfaceGri
             if (hi <= lo) continue;
             const d = (lo + hi) / 2 - along;
             const x = pts[0][0] + dx * d, z = pts[0][1] + dz * d;
-            if (!r.bridge && env.tile.crossings.some(c => Math.hypot(c.x - x, c.z - z) < 4)) continue;
+            if (!r.bridge && deckAt(x, z) < 0.3 && env.tile.crossings.some(c => Math.hypot(c.x - x, c.z - z) < 4)) continue;
             paint(x, z, dx, dz, hi - lo, 0.12, region);
           }
         }

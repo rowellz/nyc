@@ -131,7 +131,7 @@ export class Traffic {
         if (transitFeed || isAvenue(lane.road) && buses < Math.floor(ctx.quality.maxTraffic / 25)) kind = 'bus';
         const along = range[0] + hash01(id, 19) * (range[1] - range[0]);
         const x = lane.ax + lane.dx * along, z = lane.az + lane.dz * along;
-        const y = trafficHeight(ctx.world, lane.road, x, z, lane.road.bridge ? ground(ctx, x, z, lane.road) : 0), spec = KINDS[kind];
+        const y = trafficHeight(ctx.world, lane.road, x, z, ground(ctx, x, z, lane.road)), spec = KINDS[kind];
         // A radial exclusion around curbside cars sealed off every nearby through lane.
         // Project the other footprint into this lane: queue clearance is longitudinal,
         // not a ten-metre lateral exclusion from parking and adjacent traffic.
@@ -176,7 +176,7 @@ export class Traffic {
       c.turn = c.next ? lane.dx * c.next.dz - lane.dz * c.next.dx : 0;
       let desired = lane.speed * (Math.abs(c.turn) > 0.3 && remain < 16 ? 0.45 : 1);
       let gap = Infinity;
-      const signal = lane.road.tunnel || lane.road.bridge ? null : signals?.signalFor?.(c.x, c.z, lane.dx, lane.dz);
+      const signal = lane.road.tunnel || lane.road.bridge || c.y > 0.3 ? null : signals?.signalFor?.(c.x, c.z, lane.dx, lane.dz);
       if (signal && signal.state !== 'green' && (signal.state === 'red' || signal.dist > c.speed * 0.8 + spec.front)) {
         const ahead = (signal.stopX - c.x) * lane.dx + (signal.stopZ - c.z) * lane.dz;
         if (ahead > 0) gap = Math.max(0, ahead - spec.front - 1);
@@ -222,7 +222,7 @@ export class Traffic {
       const follow = Math.min(1, dt * 15);
       c.x += (c.lane.ax + c.lane.dx * c.along - c.x) * follow;
       c.z += (c.lane.az + c.lane.dz * c.along - c.z) * follow;
-      c.y = trafficHeight(ctx.world, c.lane.road, c.x, c.z, c.lane.road.bridge ? ground(ctx, c.x, c.z, c.lane.road) : 0);
+      c.y = trafficHeight(ctx.world, c.lane.road, c.x, c.z, ground(ctx, c.x, c.z, c.lane.road));
       c.spin -= c.speed * dt / spec.wheelRadius;
       c.siren = c.kind === 'nypd' && Math.sin(t * 0.035 + c.age * 0.01) > 0.985;
       poseMatrix(c);

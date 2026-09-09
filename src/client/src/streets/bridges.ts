@@ -1,5 +1,6 @@
 import { buildTunnels } from './tunnels.js';
 import { supportPlanner } from './supports.js';
+import { clearanceProfile } from './ramps.js';
 /**
  * Elevated roadways (RoadSegment.bridge): deck ribbon at the layer height, ramping to ground at nodes
  * shared with ground-level roads and to whatever height its neighbours agreed on at nodes shared with
@@ -120,7 +121,12 @@ function densify(pts: Pt[], s0: number, maxLen: number): { pts: Pt[]; s: number[
 
 /** deck half-width, crown height and height-along-arc-length: the profile buildBridges gives this segment. */
 function deckProfile(env: TileEnv, r: RoadSegment): { hw: number; H: number; hAt: (s: number) => number } {
+  return clearanceProfile(env, r, baseDeckProfile);
+}
+
+function baseDeckProfile(env: TileEnv, r: RoadSegment): { hw: number; H: number; hAt: (s: number) => number } {
   const foot = !VEHICULAR.has(r.cls);
+  if (!r.bridge) return { hw: Math.max(foot ? 1.2 : 3.2, r.width / 2), H: 0, hAt: () => 0 };
   const L = polylineLength(r.pts);
   const e = r.pts[r.pts.length - 1];
   const h0 = nodeHeight(env, r.pts[0][0], r.pts[0][1], r);
@@ -189,9 +195,10 @@ function deckNeighbours(env: TileEnv): DeckNeighbour[] {
   const out: DeckNeighbour[] = [];
   const seen = new Set<number>();
   for (const r of env.ctx.world.roadsNear(cx, cz, reach)) {
-    if (seen.has(r.id) || !r.bridge || r.tunnel || r.pts.length < 2 || !VEHICULAR.has(r.cls)) continue;
+    if (seen.has(r.id) || r.tunnel || r.pts.length < 2 || !VEHICULAR.has(r.cls)) continue;
     seen.add(r.id);
-    const { hw, hAt } = deckProfile(env, r);
+    const { hw, H, hAt } = deckProfile(env, r);
+    if (H < 0.05) continue;
     const pad = hw + JOIN_GAP;
     const bb: BBox = { minX: Infinity, minZ: Infinity, maxX: -Infinity, maxZ: -Infinity };
     const cum = [0];
@@ -256,7 +263,7 @@ export function buildBridges(env: TileEnv, gb: GroundBuilder, sb: StructBuilder,
   const joins = deckNeighbours(env);
   const planSupport = supportPlanner(env, deckProfile);
   for (const r of tile.roads) {
-    if (!r.bridge || r.tunnel || seen.has(r.id) || r.pts.length < 2) continue;
+    if (r.tunnel || seen.has(r.id) || r.pts.length < 2) continue;
     seen.add(r.id);
     const foot = !VEHICULAR.has(r.cls);
     if (r.cls === 'steps') continue;
@@ -264,6 +271,7 @@ export function buildBridges(env: TileEnv, gb: GroundBuilder, sb: StructBuilder,
     if (L < 2) continue;
     // H is the crown deckProfile settled on, not deckHeightFor's raw layer height: the piers below follow it
     const { hw, H, hAt } = deckProfile(env, r);
+    if (H < 0.05) continue;
     const slabT = foot ? 0.4 : r.cls === 'motorway' || r.cls === 'trunk' ? 1.0 : 1.4;
     const steel = !foot && r.cls !== 'motorway' && r.cls !== 'trunk';
     const fascia: [number, number, number] = foot ? CONCRETE : steel ? (r.layer <= 1 ? STEEL_GREEN : STEEL_GREY) : CONCRETE;

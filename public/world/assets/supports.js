@@ -65,7 +65,7 @@ export function supportPlanner(env, deckProfile) {
   const tunnels = tunnelNetwork(env.tile.roads);
   const roads = [...new Map(env.tile.roads.filter(r => r.pts.length > 1 && !['steps', 'footway', 'pedestrian', 'cycleway'].includes(r.cls))
     .map(r => [r.id, r])).values()].map(road => {
-    const profile = road.bridge && !road.tunnel ? deckProfile(env, road) : null;
+    const profile = !road.tunnel ? deckProfile(env, road) : null;
     let along = 0;
     const segments = [];
     for (let i = 1; i < road.pts.length; i++) {

@@ -59,8 +59,8 @@ export function buildStreetTile(input: TileInput): BuiltStreetTile {
     roadbeds: indexPolygons([...tile.roadbeds, ...tile.parking]),
     hydrants: tile.props.filter(p => p.kind === 'hydrant'),
     deckAt: (x, z) => deckHeightIn(bridge.decks, x, z),
-    roadAt: (r, x, z) => r.bridge ? roadDeckHeight(bridge.decks, r.id, x, z) : 0,
-    roadTriangles: r => r.bridge ? roadDeckTriangles(bridge.decks, r.id) : [],
+    roadAt: (r, x, z) => roadDeckHeight(bridge.decks, r.id, x, z),
+    roadTriangles: r => roadDeckTriangles(bridge.decks, r.id),
     seed: hash2(tile.tx, tile.tz) * 10000,
   };
   buildRoadbed({ ...env, roadsV: new RoadIndex(roads, r => VEHICULAR.has(r.cls) && !r.tunnel && !r.bridge) }, road);

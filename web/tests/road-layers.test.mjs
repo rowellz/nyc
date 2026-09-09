@@ -1,3 +1,4 @@
+import { clearanceProfile } from '../../public/world/assets/ramps.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
@@ -13,7 +14,7 @@ const surface = road(13, [[-128, 80], [384, 80]], { cls: 'primary', bridge: fals
 const makeTile = (roads, extra = {}) => ({ key: '0_0', tx: 0, tz: 0, roads, buildings: [], roadbeds: [], sidewalks: [], medians: [], parks: [], water: [],
   parking: [], plazas: [], crossings: [], trees: [], props: [], groundElev: 0, ...extra });
 let result;
-const sandbox = { console, performance, self: { postMessage: r => { result = r; } }, $roadDeckTriangles: roadDeckTriangles, $triangleHeight: triangleHeight, $roadDeckHeight: roadDeckHeight, $supportPlanner: supportPlanner,
+const sandbox = { console, performance, self: { postMessage: r => { result = r; } }, $clearanceProfile: clearanceProfile, $roadDeckTriangles: roadDeckTriangles, $triangleHeight: triangleHeight, $roadDeckHeight: roadDeckHeight, $supportPlanner: supportPlanner,
   $tunnelBuild: tunnels.buildTunnels, $tunnelNetwork: tunnels.tunnelNetwork, $tunnelCut: tunnels.cutBuilder };
 vm.createContext(sandbox);
 vm.runInContext(readFileSync(new URL('../../public/world/assets/tile.worker-Ai2ZdmRL.js', import.meta.url), 'utf8').replace(/^import .*$/gm, ''), sandbox);
@@ -73,7 +74,7 @@ console.log('PASS arrival order is stable and surface asphalt follows the road b
 const main = road(21, [[-128, 128], [384, 128]], { width: 16, layer: 3 });
 const underneath = road(22, [[-128, 128], [384, 128]], { width: 20, bridge: false });
 const q = { x: 128, z: 128, dx: 1, dz: 0 };
-const constantProfiles = (_env, r) => ({ hw: r.width / 2, hAt: () => r.layer === 3 ? 18 : 13 });
+const constantProfiles = (_env, r) => ({ hw: r.width / 2, hAt: () => !r.bridge ? 0 : r.layer === 3 ? 18 : 13 });
 const planner = roads => supportPlanner({ tile: { roads } }, constantProfiles);
 const ordinary = planner([main])(main, q, 8, 17, 1, 0.55);
 assert.deepEqual(ordinary.offsets, [-4, 4]);
@@ -147,6 +148,25 @@ for (const bridge of [false, true]) {
 }
 console.log('PASS short surface and elevated highway connectors keep their markings through way boundaries');
 
+// The tagged bridge starts only five metres before an underpass. Its approach
+// must carry the climb instead of forcing the bridge endpoint down into traffic.
+const approachRoad = road(51, [[5, 128], [100, 128]], { bridge: false, layer: 0, width: 8 });
+const shortRamp = road(52, [[100, 128], [245, 128]], { width: 8 });
+const underRamp = road(53, [[105, 5], [105, 250]], { bridge: false, layer: 0, width: 10 });
+const rampTile = await build([approachRoad, shortRamp, underRamp]);
+assert(roadDeckHeight(rampTile.decks, shortRamp.id, 105, 128) - 1 >= 4.8, 'slab clears the road beneath');
+for (const x of [100, 102, 105, 108, 110]) for (const z of [124, 128, 132]) {
+  assert(roadDeckHeight(rampTile.decks, shortRamp.id, x, z) - 1 >= 4.8, 'clearance covers the full overlapping roadway widths');
+}
+const approachEnd = roadDeckHeight(rampTile.decks, approachRoad.id, 100, 128);
+assert(approachEnd > 5.8, 'the approach remains elevated at the bridge tag boundary');
+assert(Math.abs(approachEnd - roadDeckHeight(rampTile.decks, shortRamp.id, 100, 128)) < 0.001, 'approach and bridge meet without a step');
+assert.equal(roadDeckHeight(rampTile.decks, approachRoad.id, 5, 128), 0, 'the far approach still lands at street level');
+checkPaintSurface(rampTile, p => p[1] > 0.2);
+const reorderedRamp = await build([underRamp, shortRamp, approachRoad]);
+assert.deepEqual(sortedVertices(rampTile.meshes[0]), sortedVertices(reorderedRamp.meshes[0]));
+console.log('PASS short ramps clear full road widths, extend smoothly into approaches, and preserve their ground connection');
+
 assert.equal(roadDeckHeight([
   { roadId: 1, pts: [{ x: 254, z: 100, h: 6 }, { x: 255, z: 101, h: 7 }] },
   { roadId: 2, pts: [{ x: 254, z: 100, h: 18 }, { x: 256, z: 102, h: 18 }] },
@@ -165,6 +185,17 @@ for (const key of ['16_-41', '17_-41', '17_-40']) {
   const tile = city.get(key); assert(tile);
   await sandbox.self.onmessage({ data: { id: 2, input: { tile, roads: [...cityRoads.values()], quality: { level: 'mobile', shadows: false } } } });
   assert(!result.error, result.error);
+  if (key === '17_-40') {
+    for (const [upperId, lowerId, x, z] of [
+      [8119542000, 121772578000, 4398.237253797577, -10197.276869772999],
+      [8119552000, 121772578000, 4437.895901514511, -10193.745978086132],
+      [46593920000, 121772578000, 4414.062463027695, -10194.777168593708],
+      [46593921000, 121772578000, 4427.392647882964, -10193.828596251735],
+    ]) {
+      const clearance = roadDeckHeight(result.built.decks, upperId, x, z) - roadDeckHeight(result.built.decks, lowerId, x, z) - 1;
+      assert(clearance >= 4.8, `Highbridge ramp ${upperId} has ${clearance} m of clearance`);
+    }
+  }
   const mesh = result.built.meshes[2], p = mesh.attributes.position.data;
   checkPaintSurface(result.built, p => p[1] > 0.2);
   for (let i = 0; i < mesh.index.length; i += 3) {

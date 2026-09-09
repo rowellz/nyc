@@ -1,3 +1,4 @@
+import { clearanceProfile } from '../../public/world/assets/ramps.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -48,7 +49,7 @@ console.log('PASS exact approach cuts preserve neighbouring streets and tunnel c
 let built;
 const workerCode = readFileSync(new URL('../../public/world/assets/tile.worker-Ai2ZdmRL.js', import.meta.url), 'utf8').replace(/^import .*$/gm, '');
 const sandbox = { console, performance, self: { postMessage: result => { built = result; } },
-  $roadDeckTriangles: roadDeckTriangles, $triangleHeight: triangleHeight, $roadDeckHeight: roadDeckHeight, $supportPlanner: supportPlanner, $tunnelBuild: tunnels.buildTunnels, $tunnelNetwork: tunnels.tunnelNetwork, $tunnelCut: tunnels.cutBuilder };
+  $clearanceProfile: clearanceProfile, $roadDeckTriangles: roadDeckTriangles, $triangleHeight: triangleHeight, $roadDeckHeight: roadDeckHeight, $supportPlanner: supportPlanner, $tunnelBuild: tunnels.buildTunnels, $tunnelNetwork: tunnels.tunnelNetwork, $tunnelCut: tunnels.cutBuilder };
 vm.createContext(sandbox); vm.runInContext(workerCode, sandbox);
 const quality = { level: 'mobile', shadows: false };
 await sandbox.self.onmessage({ data: { id: 1, input: { tile: tile(), roads, quality } } });

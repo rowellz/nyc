@@ -70,7 +70,7 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
       ? walkHeightIn(rec.walkCollision, x, z, rec.tile.tx * TILE_SIZE, rec.tile.tz * TILE_SIZE) : 0);
   }
   function roadHeight(road: RoadSegment, x: number, z: number): number {
-    if (!road.bridge || !Number.isFinite(x) || !Number.isFinite(z)) return 0;
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return 0;
     const rec = tiles.get(tileKey(Math.floor(x / TILE_SIZE), Math.floor(z / TILE_SIZE)));
     return rec ? roadDeckHeight(rec.decks, road.id, x, z) : 0;
   }
@@ -196,7 +196,7 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
     for (const r of changed.roads) if (r.pts.length > 1) bounds.push(ringBBox(r.pts));
     for (const rec of tiles.values()) {
       const x = rec.tile.tx * TILE_SIZE, z = rec.tile.tz * TILE_SIZE;
-      if (!bounds.some(b => b.maxX >= x - 80 && b.minX <= x + TILE_SIZE + 80 && b.maxZ >= z - 80 && b.minZ <= z + TILE_SIZE + 80)) continue;
+      if (!bounds.some(b => b.maxX >= x - 256 && b.minX <= x + TILE_SIZE + 256 && b.maxZ >= z - 256 && b.minZ <= z + TILE_SIZE + 256)) continue;
       rec.revision++;
       rec.job?.cancel();
       if (worker) { rec.job = builds.job(`streets:${rec.tile.key}`); dirty.add(rec); }
@@ -223,7 +223,8 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
   function inputFor(rec: TileRecord): TileInput {
     const t = rec.tile;
     const roads = new Map<number, RoadSegment>();
-    for (const r of ctx.world.roadsNear((t.tx + 0.5) * TILE_SIZE, (t.tz + 0.5) * TILE_SIZE, TILE_SIZE / 2 + 80)) roads.set(r.id, r);
+    // Clearance can carry a climb through several short approach ways.
+    for (const r of ctx.world.roadsNear((t.tx + 0.5) * TILE_SIZE, (t.tz + 0.5) * TILE_SIZE, TILE_SIZE / 2 + 256)) roads.set(r.id, r);
     for (const r of t.roads) roads.set(r.id, r);
     // Bridge ramp decisions also need roads at endpoints outside this tile.
     for (const r of Array.from(roads.values())) if (r.bridge || r.tunnel) {
