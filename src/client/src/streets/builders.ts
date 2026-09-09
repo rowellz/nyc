@@ -7,6 +7,7 @@ import type { RoadSegment, Tile } from '@shared/world';
 import type { GameContext } from '@/core/context';
 import type { BBox, IndexedPolygon, RoadIndex } from './geom2d';
 import { clipConvex } from './geom2d';
+import { triangleHeight } from './supports.js';
 
 export interface TileEnv {
   // Only these services are needed by the builders, including in the geometry worker.
@@ -19,6 +20,9 @@ export interface TileEnv {
   hydrants: { x: number; z: number }[];
   /** deck height at a world point (0 on the ground); valid after the bridge phase */
   deckAt: (x: number, z: number) => number;
+  /** The sampled deck belonging to one road, even under another deck. */
+  roadAt: (road: RoadSegment, x: number, z: number) => number;
+  roadTriangles: (road: RoadSegment) => number[][][];
   seed: number;
 }
 
@@ -107,10 +111,9 @@ export class MarkBuilder {
    * flat quad centred at (cx, cz) with long axis d (unit), size len x width. mode 0 = tile (repeat every `tileM` m), 1 = stretch.
    * frame = (rx, rz, c, laneCode): road frame so paint can wear in the wheel tracks; lane offset = dot(p, (rx, rz)) - c.
    */
-  quad(cx: number, cz: number, y: number, dx: number, dz: number, len: number, width: number, region: readonly number[], mode: number, health: number, metal: number, darken: number, tileM = 1, heightAt?: (x: number, z: number) => number, frame: readonly number[] = NO_FRAME, clip?: BBox): void {
+  quad(cx: number, cz: number, y: number, dx: number, dz: number, len: number, width: number, region: readonly number[], mode: number, health: number, metal: number, darken: number, tileM = 1, heightAt?: (x: number, z: number) => number, frame: readonly number[] = NO_FRAME, clip?: BBox, surface: number[][][] = []): void {
     const rx = -dz, rz = dx; // right of travel
     const hl = len / 2, hw = width / 2;
-    const base = this.pos.length / 3;
     const corners: [number, number, number, number][] = [
       [-hl, -hw, 0, 0],
       [hl, -hw, 1, 0],
@@ -120,21 +123,36 @@ export class MarkBuilder {
     let points: [number, number][] = corners.map(([a, b]) => [cx + dx * a + rx * b, cz + dz * a + rz * b]);
     if (clip) points = clipConvex(points, [[clip.minX, clip.minZ], [clip.maxX, clip.minZ], [clip.maxX, clip.maxZ], [clip.minX, clip.maxZ]]);
     if (points.length < 3) return;
-    for (const [x, z] of points) {
-      const a = (x - cx) * dx + (z - cz) * dz, b = (x - cx) * rx + (z - cz) * rz;
-      const u = (a + hl) / len, v = (b + hw) / width;
-      const yy = y + (heightAt ? heightAt(x, z) : 0);
-      this.pos.push(x, yy, z);
-      this.nrm.push(0, 1, 0);
-      if (mode === 1) this.local.push(u, v);
-      else this.local.push((a + hl) / tileM, (b + hw) / tileM);
-      this.region.push(region[0], region[1], region[2], region[3]);
-      this.m.push(health, mode, metal, darken);
-      this.t.push(frame[0], frame[1], frame[2], frame[3]);
+    // Split paint at deck triangle edges: sampling only the four corners can
+    // bury the centre of a dash inside a convex ramp or a mitered bend.
+    const pieces: { points: [number, number][]; triangle?: number[][] }[] = [];
+    if (surface.length) {
+      const xs = points.map(p => p[0]), zs = points.map(p => p[1]);
+      const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs);
+      for (const triangle of surface) {
+        if (triangle.every(p => p[0] < minX) || triangle.every(p => p[0] > maxX) || triangle.every(p => p[2] < minZ) || triangle.every(p => p[2] > maxZ)) continue;
+        const cut = clipConvex(points, triangle.map(p => [p[0], p[2]]));
+        if (cut.length >= 3) pieces.push({ points: cut, triangle });
+      }
+    } else pieces.push({ points });
+    for (const piece of pieces) {
+      const base = this.pos.length / 3;
+      for (const [x, z] of piece.points) {
+        const a = (x - cx) * dx + (z - cz) * dz, b = (x - cx) * rx + (z - cz) * rz;
+        const u = (a + hl) / len, v = (b + hw) / width;
+        const yy = y + (piece.triangle ? triangleHeight(piece.triangle, x, z)?.height ?? 0 : heightAt ? heightAt(x, z) : 0);
+        this.pos.push(x, yy, z);
+        this.nrm.push(0, 1, 0);
+        if (mode === 1) this.local.push(u, v);
+        else this.local.push((a + hl) / tileM, (b + hw) / tileM);
+        this.region.push(region[0], region[1], region[2], region[3]);
+        this.m.push(health, mode, metal, darken);
+        this.t.push(frame[0], frame[1], frame[2], frame[3]);
+      }
+      // +y facing: points ordered (-hl,-hw) (hl,-hw) (hl,hw) (-hl,hw); with right = (-dz,dx) the y-normal of
+      // (p1-p0)x(p2-p0) is d x r (in xz) = dx*rz - dz*rx = dx*dx + dz*dz > 0 -> flip to keep CCW from above
+      for (let i = 1; i + 1 < piece.points.length; i++) this.idx.push(base, base + i + 1, base + i);
     }
-    // +y facing: points ordered (-hl,-hw) (hl,-hw) (hl,hw) (-hl,hw); with right = (-dz,dx) the y-normal of
-    // (p1-p0)x(p2-p0) is d x r (in xz) = dx*rz - dz*rx = dx*dx + dz*dz > 0 -> flip to keep CCW from above
-    for (let i = 1; i + 1 < points.length; i++) this.idx.push(base, base + i + 1, base + i);
   }
 
   /** vertical quad (curb inlets): centre (cx, y, cz), along d, facing normal n (unit, horizontal) */

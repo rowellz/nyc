@@ -1,3 +1,4 @@
+import { trafficHeight, tunnelConnections } from '../streets/tunnels.js';
 import type { GameContext } from '@/core/context';
 import { hash01, KINDS, pickKind } from './kinds';
 import { createObstacle, distance2, ground, makeCar, poseMatrix, removeBody, type Car } from './model';
@@ -37,7 +38,7 @@ export class Traffic {
   constructor(private ctx: GameContext, private roads: Roads) {}
 
   private choose(car: TrafficCar): Lane | null {
-    const choices = (this.roads.outgoing.get(car.lane.end) ?? []).filter(l => l.dx * car.lane.dx + l.dz * car.lane.dz > -0.8);
+    const choices = tunnelConnections(this.roads, car.lane).filter(l => l.dx * car.lane.dx + l.dz * car.lane.dz > -0.8);
     let best: Lane | null = null, score = -Infinity;
     for (let i = 0; i < choices.length; i++) {
       const l = choices[i], dot = l.dx * car.lane.dx + l.dz * car.lane.dz;
@@ -130,7 +131,7 @@ export class Traffic {
         if (transitFeed || isAvenue(lane.road) && buses < Math.floor(ctx.quality.maxTraffic / 25)) kind = 'bus';
         const along = range[0] + hash01(id, 19) * (range[1] - range[0]);
         const x = lane.ax + lane.dx * along, z = lane.az + lane.dz * along;
-        const y = ground(ctx, x, z), spec = KINDS[kind];
+        const y = trafficHeight(ctx.world, lane.road, x, z, lane.road.bridge ? ground(ctx, x, z, lane.road) : 0), spec = KINDS[kind];
         // A radial exclusion around curbside cars sealed off every nearby through lane.
         // Project the other footprint into this lane: queue clearance is longitudinal,
         // not a ten-metre lateral exclusion from parking and adjacent traffic.
@@ -175,7 +176,7 @@ export class Traffic {
       c.turn = c.next ? lane.dx * c.next.dz - lane.dz * c.next.dx : 0;
       let desired = lane.speed * (Math.abs(c.turn) > 0.3 && remain < 16 ? 0.45 : 1);
       let gap = Infinity;
-      const signal = signals?.signalFor?.(c.x, c.z, lane.dx, lane.dz);
+      const signal = lane.road.tunnel || lane.road.bridge ? null : signals?.signalFor?.(c.x, c.z, lane.dx, lane.dz);
       if (signal && signal.state !== 'green' && (signal.state === 'red' || signal.dist > c.speed * 0.8 + spec.front)) {
         const ahead = (signal.stopX - c.x) * lane.dx + (signal.stopZ - c.z) * lane.dz;
         if (ahead > 0) gap = Math.max(0, ahead - spec.front - 1);
@@ -200,7 +201,7 @@ export class Traffic {
       const junction = this.roads.outgoing.get(lane.end)?.some(l => l.dx * lane.dx + l.dz * lane.dz < 0.8) ?? false;
       if (!signal && junction && remain < spec.front + 7) {
         c.wait += dt;
-        const occupied = this.cars.some(o => o !== c && o.lane !== lane && Math.hypot(o.x - lane.bx, o.z - lane.bz) < 5 && o.speed > 0.5);
+        const occupied = this.cars.some(o => o !== c && Math.abs(o.y - c.y) < 3 && o.lane !== lane && Math.hypot(o.x - lane.bx, o.z - lane.bz) < 5 && o.speed > 0.5);
         if (c.wait < 0.65 || occupied) gap = Math.min(gap, Math.max(0, remain - spec.front - 2));
       }
       if (!c.next && remain < 12) desired = Math.min(desired, Math.max(0, remain - 1));
@@ -221,7 +222,7 @@ export class Traffic {
       const follow = Math.min(1, dt * 15);
       c.x += (c.lane.ax + c.lane.dx * c.along - c.x) * follow;
       c.z += (c.lane.az + c.lane.dz * c.along - c.z) * follow;
-      c.y = c.lane.road.bridge ? ground(ctx, c.x, c.z) : 0;
+      c.y = trafficHeight(ctx.world, c.lane.road, c.x, c.z, c.lane.road.bridge ? ground(ctx, c.x, c.z, c.lane.road) : 0);
       c.spin -= c.speed * dt / spec.wheelRadius;
       c.siren = c.kind === 'nypd' && Math.sin(t * 0.035 + c.age * 0.01) > 0.985;
       poseMatrix(c);

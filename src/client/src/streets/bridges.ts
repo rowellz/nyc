@@ -1,3 +1,5 @@
+import { buildTunnels } from './tunnels.js';
+import { supportPlanner } from './supports.js';
 /**
  * Elevated roadways (RoadSegment.bridge): deck ribbon at the layer height, ramping to ground at nodes
  * shared with ground-level roads and to whatever height its neighbours agreed on at nodes shared with
@@ -11,8 +13,10 @@ import { KIND } from './materials';
 import { ROAD_Y, kindForSurface, ribbon } from './roadbed';
 
 export interface DeckSample {
+  roadId: number;
   pts: { x: number; z: number; h: number }[];
   hw: number;
+  surface: number[];
 }
 
 export interface BridgeOut {
@@ -39,7 +43,7 @@ function isGroundNode(env: TileEnv, x: number, z: number, self: RoadSegment): bo
   const near = env.ctx.world.roadsNear(x, z, 3);
   let any = false;
   for (const r of near) {
-    if (r === self || r.id === self.id || r.bridge || r.tunnel) continue;
+    if (r === self || r.id === self.id || r.bridge) continue;
     if (!VEHICULAR.has(r.cls) && !(r.cls === self.cls)) continue;
     const a = r.pts[0], b = r.pts[r.pts.length - 1];
     if (Math.hypot(a[0] - x, a[1] - z) < 0.6 || Math.hypot(b[0] - x, b[1] - z) < 0.6) return true;
@@ -250,6 +254,7 @@ export function buildBridges(env: TileEnv, gb: GroundBuilder, sb: StructBuilder,
   const seen = new Set<number>();
   const low = env.ctx.quality.level === 'low';
   const joins = deckNeighbours(env);
+  const planSupport = supportPlanner(env, deckProfile);
   for (const r of tile.roads) {
     if (!r.bridge || r.tunnel || seen.has(r.id) || r.pts.length < 2) continue;
     seen.add(r.id);
@@ -303,7 +308,8 @@ export function buildBridges(env: TileEnv, gb: GroundBuilder, sb: StructBuilder,
           }
         }
       }
-      out.decks.push({ pts: d.pts.map((p, i) => ({ x: p[0], z: p[1], h: hs[i] })), hw });
+      const surface = left.flatMap((l, i) => [l, right[i]].flatMap(v => [gb.pos[v * 3], gb.pos[v * 3 + 1] - ROAD_Y, gb.pos[v * 3 + 2]]));
+      out.decks.push({ roadId: r.id, pts: d.pts.map((p, i) => ({ x: p[0], z: p[1], h: hs[i] })), hw, surface });
       // collider: copy the deck top
       const cb = out.cpos.length / 3;
       for (let i = 0; i < left.length; i++) {
@@ -379,8 +385,11 @@ export function buildBridges(env: TileEnv, gb: GroundBuilder, sb: StructBuilder,
         const rx = -q.dz, rz = q.dx;
         const top = h + ROAD_Y - slabT;
         const capH = foot ? 0.5 : 1.0;
+        const cwid = foot ? 0.35 : 0.55;
+        const support = planSupport(r, q, hw, top, capH, cwid);
+        if (!support) continue;
         // cap beam
-        const cw = hw + 0.3, cd = 0.5;
+        const cw = support.halfWidth, cd = 0.5;
         const b = [
           [q.x - rx * cw - q.dx * cd, top - capH, q.z - rz * cw - q.dz * cd],
           [q.x + rx * cw - q.dx * cd, top - capH, q.z + rz * cw - q.dz * cd],
@@ -389,10 +398,9 @@ export function buildBridges(env: TileEnv, gb: GroundBuilder, sb: StructBuilder,
         ];
         const t = b.map((p) => [p[0], top, p[2]]);
         solid(sb, b, t, CONCRETE, 0, out, false);
-        const cols = hw > 6 ? [-hw * 0.5, hw * 0.5] : [0];
+        const cols = support.offsets;
         for (const off of cols) {
           const cx = q.x + rx * off, cz = q.z + rz * off;
-          const cwid = foot ? 0.35 : 0.55;
           const cb = [
             [cx - rx * cwid - q.dx * cwid, 0, cz - rz * cwid - q.dz * cwid],
             [cx + rx * cwid - q.dx * cwid, 0, cz + rz * cwid - q.dz * cwid],
@@ -461,58 +469,16 @@ function post(sb: StructBuilder, cx: number, cy: number, cz: number, ux: number,
   solid(sb, bot, top, color, mat, null, false);
 }
 
-/** tunnel portals at the ends of vehicular tunnel segments that connect to surface roads */
+/** Open tunnel interiors, including collidable floors and ceilings. */
 export function buildPortals(env: TileEnv, sb: StructBuilder, out: BridgeOut): void {
-  const { tile, rect } = env;
-  const seen = new Set<number>();
-  for (const r of tile.roads) {
-    if (!r.tunnel || seen.has(r.id) || !VEHICULAR.has(r.cls) || r.cls === 'service' || r.pts.length < 2) continue;
-    seen.add(r.id);
-    for (const atStart of [true, false]) {
-      const p = atStart ? r.pts[0] : r.pts[r.pts.length - 1];
-      if (!inRect(rect, p[0], p[1])) continue;
-      // connected to a surface road?
-      const near = env.ctx.world.roadsNear(p[0], p[1], 3);
-      let surface = false;
-      for (const o of near) {
-        if (o.id === r.id || o.tunnel) continue;
-        const a = o.pts[0], b = o.pts[o.pts.length - 1];
-        if (Math.hypot(a[0] - p[0], a[1] - p[1]) < 0.6 || Math.hypot(b[0] - p[0], b[1] - p[1]) < 0.6) surface = true;
-      }
-      if (!surface) continue;
-      const q = pointAlong(r.pts, atStart ? Math.min(6, polylineLength(r.pts) / 2) : Math.max(0, polylineLength(r.pts) - Math.min(6, polylineLength(r.pts) / 2)));
-      // direction INTO the tunnel
-      let dx = q.x - p[0], dz = q.z - p[1];
-      const l = Math.hypot(dx, dz) || 1;
-      dx /= l; dz /= l;
-      const rx = -dz, rz = dx;
-      const hw = Math.max(4, r.width / 2) + 0.6;
-      const depth = 8, wallT = 0.6, height = 5.2;
-      const box = (o0: number, o1: number, d0: number, d1: number, y0: number, y1: number, color: [number, number, number], collide: boolean) => {
-        const b = [
-          [p[0] + rx * o0 + dx * d0, y0, p[1] + rz * o0 + dz * d0],
-          [p[0] + rx * o1 + dx * d0, y0, p[1] + rz * o1 + dz * d0],
-          [p[0] + rx * o1 + dx * d1, y0, p[1] + rz * o1 + dz * d1],
-          [p[0] + rx * o0 + dx * d1, y0, p[1] + rz * o0 + dz * d1],
-        ];
-        const t = b.map((v) => [v[0], y1, v[2]]);
-        solid(sb, b, t, color, 0, out, collide);
-      };
-      box(-hw - wallT, -hw, 0, depth, 0, height, CONCRETE, true);
-      box(hw, hw + wallT, 0, depth, 0, height, CONCRETE, true);
-      box(-hw - wallT, hw + wallT, 0, depth, height, height + 1.2, CONCRETE, false);
-      // dark mouth: a black slab 1.5 m in (also the collider that stops cars)
-      box(-hw, hw, 1.5, 2.0, 0, height, [0.012, 0.012, 0.014], true);
-      // the tunnel floor between the mouth and the walls
-      box(-hw, hw, 0, 1.5, -0.05, 0.02, [0.2, 0.2, 0.2], false);
-    }
-  }
+  buildTunnels(env, sb, out);
 }
 
 /** height of the highest deck over a point (0 = ground). Uses the tile's deck samples. */
-export function deckHeightIn(decks: DeckSample[], x: number, z: number): number {
+export function deckHeightIn(decks: DeckSample[], x: number, z: number, roadId?: number): number {
   let best = 0;
   for (const d of decks) {
+    if (roadId !== undefined && d.roadId !== roadId) continue;
     const pts = d.pts;
     for (let i = 0; i + 1 < pts.length; i++) {
       const a = pts[i], b = pts[i + 1];

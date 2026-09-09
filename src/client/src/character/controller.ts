@@ -220,7 +220,7 @@ export class LocalController {
     if (this.vy > 0.01) this.grounded = false;
     // last-resort ground clamp
     const half = this.capsuleHalf + PLAYER_RADIUS;
-    const g = this.phys.groundHeight(nx, nz);
+    const g = this.phys.groundHeight(nx, nz, ny - half);
     if (ny - half < g - 0.3) {
       ny = g + half + 0.02;
       this.vy = 0;

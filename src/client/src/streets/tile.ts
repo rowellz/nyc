@@ -1,3 +1,5 @@
+import { tunnelNetwork, cutBuilder } from './tunnels.js';
+import { roadDeckHeight, roadDeckTriangles } from './supports.js';
 /** Worker-safe orchestration of the existing geometry builders. */
 import type * as THREE from 'three';
 import { splitCollider, type ColliderChunk } from '../buildings/transfer';
@@ -57,9 +59,11 @@ export function buildStreetTile(input: TileInput): BuiltStreetTile {
     roadbeds: indexPolygons([...tile.roadbeds, ...tile.parking]),
     hydrants: tile.props.filter(p => p.kind === 'hydrant'),
     deckAt: (x, z) => deckHeightIn(bridge.decks, x, z),
+    roadAt: (r, x, z) => r.bridge ? roadDeckHeight(bridge.decks, r.id, x, z) : 0,
+    roadTriangles: r => r.bridge ? roadDeckTriangles(bridge.decks, r.id) : [],
     seed: hash2(tile.tx, tile.tz) * 10000,
   };
-  buildRoadbed(env, road);
+  buildRoadbed({ ...env, roadsV: new RoadIndex(roads, r => VEHICULAR.has(r.cls) && !r.tunnel && !r.bridge) }, road);
   const walks: SidewalkResult = { ramps: [], curbs: [] };
   for (const _ of buildSidewalks(env, walk, walks)) { /* Worker owns the whole job. */ }
   const paved = indexPolygons([...tile.sidewalks, ...tile.plazas, ...tile.roadbeds]);
@@ -83,6 +87,9 @@ export function buildStreetTile(input: TileInput): BuiltStreetTile {
       }
     }
   }
+  const tunnels = tunnelNetwork(roads);
+  cutBuilder(road, tunnels);
+  cutBuilder(walk, tunnels);
   grid.rasterize(road.pos, road.idx, road.aA);
   grid.rasterize(walk.pos, walk.idx, walk.aA);
   const groundEnd = road.idx.length;
@@ -90,7 +97,7 @@ export function buildStreetTile(input: TileInput): BuiltStreetTile {
   buildPortals(env, structure, bridge);
   grid.rasterize(road.pos, road.idx.slice(groundEnd), road.aA, Infinity);
   const walkCollision = buildWalkCollision(walk, walks.curbs, ox, oz);
-  buildMarkings(env, marks, grid, walks, (x, z) => Math.max(env.deckAt(x, z),
+  buildMarkings(env, marks, grid, walks, (x, z) => Math.max(0,
     walkHeightIn(walkCollision, Math.max(ox, Math.min(ox + TILE_SIZE - 1e-4, x)),
       Math.max(oz, Math.min(oz + TILE_SIZE - 1e-4, z)), ox, oz) - ROAD_Y));
   return {

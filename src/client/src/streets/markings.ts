@@ -1,8 +1,8 @@
 /** Placement glue for the author's paint/utility atlas. One merged mesh per tile. */
-import type { Crossing, Pt, Tile } from '@shared/world';
+import type { Crossing, Pt, RoadSegment, Tile } from '@shared/world';
 import { TILE_SIZE } from '@shared/geo';
 import { MarkBuilder, type TileEnv } from './builders';
-import { clipPolylineToRect, hash2, pointAlong, polylineLength, yawToDir } from './geom2d';
+import { RoadIndex, clipPolylineToRect, hash2, pointAlong, polylineLength, yawToDir } from './geom2d';
 import { ROAD_Y } from './roadbed';
 import { WALK_Y, type SidewalkResult } from './sidewalk';
 import type { SurfaceGrid } from './surface';
@@ -20,12 +20,16 @@ export function crossingsInTile(tile: Tile, neighbors: Iterable<Tile>): Crossing
   return [...found.values()];
 }
 
-export function buildMarkings(env: TileEnv, marks: MarkBuilder, grid: SurfaceGrid, walks: SidewalkResult, paintHeightAt = env.deckAt): void {
+export function buildMarkings(env: TileEnv, marks: MarkBuilder, grid: SurfaceGrid, walks: SidewalkResult, paintHeightAt: (x: number, z: number) => number = () => 0): void {
   const owned = (x: number, z: number) => x >= grid.ox && x < grid.ox + TILE_SIZE && z >= grid.oz && z < grid.oz + TILE_SIZE;
   const clip = { minX: grid.ox, minZ: grid.oz, maxX: grid.ox + TILE_SIZE, maxZ: grid.oz + TILE_SIZE };
+  const surfaceRoads = new RoadIndex(env.tile.roads, r => !r.bridge && !r.tunnel && r.lanes > 0);
+  let currentRoad: RoadSegment | null = null, frameRoads = surfaceRoads;
+  const deckAt = (x: number, z: number) => currentRoad ? env.roadAt(currentRoad, x, z) : 0;
+  const baseAt = (x: number, z: number) => currentRoad?.bridge ? deckAt(x, z) : paintHeightAt(x, z);
   /** road frame for the wear shader: (rx, rz, c, laneCode) with lane offset = dot(p, (rx, rz)) - c */
   const frameAt = (x: number, z: number): number[] => {
-    const near = env.roadsV.nearest(x, z, 30);
+    const near = frameRoads.nearest(x, z, 30);
     if (!near) return [0, 0, 0, 0];
     const rx = -near.dz, rz = near.dx;
     const lanes = Math.max(1, Math.min(10, near.seg.lanes || 1));
@@ -34,9 +38,9 @@ export function buildMarkings(env: TileEnv, marks: MarkBuilder, grid: SurfaceGri
   const paint = (x: number, z: number, dx: number, dz: number, len: number, width: number, region: readonly number[] = ATLAS.white, stretch = false) => {
     // A bar can straddle a curb: corner-only samples interpolate below the plaza
     // at its centre. Retain that paving clearance without flattening bridge ramps.
-    const paving = Math.max(0, paintHeightAt(x, z) - env.deckAt(x, z));
-    const heightAt = (px: number, pz: number) => Math.max(paintHeightAt(px, pz), env.deckAt(px, pz) + paving);
-    marks.quad(x, z, ROAD_Y + 0.012, dx, dz, len, width, region, stretch ? 1 : 0, 0.66 + hash2(x, z) * 0.3, 0, 0, 1, heightAt, frameAt(x, z), clip);
+    const paving = Math.max(0, baseAt(x, z) - deckAt(x, z));
+    const heightAt = (px: number, pz: number) => Math.max(baseAt(px, pz), deckAt(px, pz) + paving);
+    marks.quad(x, z, ROAD_Y + 0.012, dx, dz, len, width, region, stretch ? 1 : 0, 0.66 + hash2(x, z) * 0.3, 0, 0, 1, heightAt, frameAt(x, z), clip, currentRoad ? env.roadTriangles(currentRoad) : []);
     grid.paint.push({ cx: x, cz: z, dx, dz, hl: len / 2, hw: width / 2 });
   };
   /** oil drips where cars idle at a signal: a few lane-centre stains just behind the stop line */
@@ -44,13 +48,17 @@ export function buildMarkings(env: TileEnv, marks: MarkBuilder, grid: SurfaceGri
     if (!owned(x, z)) return;
     const h = hash2(seed, x + z);
     if (h > 0.3) return;
-    marks.quad(x, z, ROAD_Y + 0.010, dx, dz, 0.45 + 0.55 * h, 0.2 + 0.2 * hash2(seed + 1, z), ATLAS.oil, 1, 0.55 + 0.3 * h, 0, 0, 1, env.deckAt);
+    marks.quad(x, z, ROAD_Y + 0.010, dx, dz, 0.45 + 0.55 * h, 0.2 + 0.2 * hash2(seed + 1, z), ATLAS.oil, 1, 0.55 + 0.3 * h, 0, 0, 1, deckAt);
   };
   for (const { seg: r } of env.roadsV.segs) {
     if (r.tunnel || r.lanes < 1 || r.cls === 'service') continue;
+    currentRoad = r;
+    frameRoads = new RoadIndex([r], () => true);
     const lanes = Math.max(1, Math.min(10, r.lanes));
     const laneW = Math.min(3.3, r.width / lanes);
     const total = polylineLength(r.pts);
+    // Highway way boundaries are often just layer/tag changes, not junctions.
+    const endGap = r.bridge || r.cls === 'motorway' || r.cls === 'trunk' ? 0 : 7;
     const line = (offset: number, dashed: boolean, region: readonly number[]) => {
       let along = 0;
       for (let i = 1; i < r.pts.length; i++) {
@@ -60,15 +68,15 @@ export function buildMarkings(env: TileEnv, marks: MarkBuilder, grid: SurfaceGri
         const dx = (b[0] - a[0]) / len, dz = (b[1] - a[1]) / len;
         const pts: Pt[] = [[a[0] - dz * offset, a[1] + dx * offset], [b[0] - dz * offset, b[1] + dx * offset]];
         for (const piece of clipPolylineToRect(pts, env.rect)) {
-          const start = Math.max(along + piece.s0, 7);
-          const end = Math.min(along + piece.s0 + polylineLength(piece.pts), total - 7);
+          const start = Math.max(along + piece.s0, endGap);
+          const end = Math.min(along + piece.s0 + polylineLength(piece.pts), total - endGap);
           // Dash phase comes from the uncut source road, including across tile boundaries.
           for (let s = dashed ? Math.floor(start / 12) * 12 : start; s < end; s += dashed ? 12 : 3) {
             const lo = Math.max(start, s), hi = Math.min(end, s + 3);
             if (hi <= lo) continue;
             const d = (lo + hi) / 2 - along;
             const x = pts[0][0] + dx * d, z = pts[0][1] + dz * d;
-            if (env.tile.crossings.some(c => Math.hypot(c.x - x, c.z - z) < 4)) continue;
+            if (!r.bridge && env.tile.crossings.some(c => Math.hypot(c.x - x, c.z - z) < 4)) continue;
             paint(x, z, dx, dz, hi - lo, 0.12, region);
           }
         }
@@ -96,12 +104,14 @@ export function buildMarkings(env: TileEnv, marks: MarkBuilder, grid: SurfaceGri
       }
     }
   }
+  currentRoad = null;
+  frameRoads = surfaceRoads;
   for (const c of env.tile.crossings) {
     const [dx, dz] = yawToDir(c.yaw);
     const rx = -dz, rz = dx;
     for (let s = -c.width / 2 + 0.5; s < c.width / 2; s += 1) paint(c.x + dx * s, c.z + dz * s, rx, rz, 3, 0.4);
     for (const side of [-1, 1]) paint(c.x + rx * 1.65 * side, c.z + rz * 1.65 * side, dx, dz, c.width, 0.12);
-    const near = env.roadsV.nearest(c.x, c.z, 30);
+    const near = surfaceRoads.nearest(c.x, c.z, 30);
     if (near) {
       const directions = near.seg.oneway ? [1] : [-1, 1];
       for (const side of directions) {
@@ -125,7 +135,7 @@ export function buildMarkings(env: TileEnv, marks: MarkBuilder, grid: SurfaceGri
     }
   }
   const metal = (x: number, z: number, dx: number, dz: number, len: number, width: number, y: number, region: readonly number[], tiled = false) => {
-    marks.quad(x, z, y, dx, dz, len, width, region, tiled ? 0 : 1, 1, 1, 0, 1, env.deckAt);
+    marks.quad(x, z, y, dx, dz, len, width, region, tiled ? 0 : 1, 1, 1, 0, 1, deckAt);
     grid.metal.push({ cx: x, cz: z, dx, dz, hl: len / 2, hw: width / 2 });
   };
   for (const p of env.tile.props) {
@@ -134,7 +144,7 @@ export function buildMarkings(env: TileEnv, marks: MarkBuilder, grid: SurfaceGri
     if (p.kind === 'trash_can' && env.ctx.quality.level !== 'low' && owned(p.x, p.z)) {
       // drips and spills around the base of a litter basket
       const h = hash2(p.x, p.z), h2 = hash2(p.z, p.x + 3);
-      marks.quad(p.x + dx * 0.15, p.z + dz * 0.15, WALK_Y + 0.012, dx, dz, 1.2 + 0.7 * h, 0.9 + 0.5 * h2, ATLAS.oil, 1, 0.5 + 0.3 * h, 0, 0, 1, env.deckAt);
+      marks.quad(p.x + dx * 0.15, p.z + dz * 0.15, WALK_Y + 0.012, dx, dz, 1.2 + 0.7 * h, 0.9 + 0.5 * h2, ATLAS.oil, 1, 0.5 + 0.3 * h, 0, 0, 1, deckAt);
     }
     if (p.kind === 'sewer_grate') metal(p.x, p.z, dx, dz, 0.9, 0.55, ROAD_Y + 0.012, ATLAS.sewerGrate);
     if (p.kind === 'subway_grate') metal(p.x, p.z, dx, dz, p.len ?? 6, 1.2, WALK_Y + 0.012, ATLAS.subwayGrate, true);

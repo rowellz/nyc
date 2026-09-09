@@ -1,0 +1,177 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
+import vm from 'node:vm';
+import * as tunnels from '../../public/world/assets/tunnels.js';
+import { supportPlanner, roadDeckHeight, roadDeckTriangles, triangleHeight } from '../../public/world/assets/supports.js';
+
+const road = (id, pts, extra = {}) => ({ id, pts, cls: 'motorway', width: 12, lanes: 3, oneway: true,
+  layer: 1, bridge: true, tunnel: false, ...extra });
+const lower = road(11, [[-128, 128], [384, 128]]);
+const upper = road(12, [[128, -128], [128, 384]], { layer: 3 });
+const surface = road(13, [[-128, 80], [384, 80]], { cls: 'primary', bridge: false, layer: 0, lanes: 2, width: 8 });
+const makeTile = (roads, extra = {}) => ({ key: '0_0', tx: 0, tz: 0, roads, buildings: [], roadbeds: [], sidewalks: [], medians: [], parks: [], water: [],
+  parking: [], plazas: [], crossings: [], trees: [], props: [], groundElev: 0, ...extra });
+let result;
+const sandbox = { console, performance, self: { postMessage: r => { result = r; } }, $roadDeckTriangles: roadDeckTriangles, $triangleHeight: triangleHeight, $roadDeckHeight: roadDeckHeight, $supportPlanner: supportPlanner,
+  $tunnelBuild: tunnels.buildTunnels, $tunnelNetwork: tunnels.tunnelNetwork, $tunnelCut: tunnels.cutBuilder };
+vm.createContext(sandbox);
+vm.runInContext(readFileSync(new URL('../../public/world/assets/tile.worker-Ai2ZdmRL.js', import.meta.url), 'utf8').replace(/^import .*$/gm, ''), sandbox);
+async function build(roads, extra = {}) {
+  await sandbox.self.onmessage({ data: { id: 1, input: { tile: makeTile(roads, extra), roads, quality: { level: 'mobile', shadows: false } } } });
+  assert(!result.error, result.error);
+  return result.built;
+}
+
+const built = await build([lower, upper, surface]);
+const marks = built.meshes[2].attributes, positions = marks.position.data;
+// The wear frame identifies which road emitted a marking, independent of its height.
+const frame = marks.aT.data;
+assert(frame, `missing road wear frame: ${Object.keys(marks)}`);
+let lowerAtCrossing = 0, upperAtCrossing = 0, surfaceAtCrossing = 0;
+for (let i = 0; i < positions.length / 3; i++) {
+  const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
+  const rx = frame[i * 4], rz = frame[i * 4 + 1], laneCode = frame[i * 4 + 3];
+  if (Math.abs(rx) < 0.01 && rz > 0.99 && laneCode < 100) {
+    assert(y < 7.05, `lower markings jumped to ${y}`);
+    if (Math.abs(x - 128) < 8) { assert(Math.abs(y - 7.032) < 0.002); lowerAtCrossing++; }
+  }
+  if (rx < -0.99 && Math.abs(rz) < 0.01 && Math.abs(z - 128) < 8) { assert(y > 17.9); upperAtCrossing++; }
+  if (laneCode > 100) {
+    assert(y < 0.2, `surface marking climbed to ${y}`);
+    if (Math.abs(x - 128) < 8) surfaceAtCrossing++;
+  }
+}
+assert(lowerAtCrossing && upperAtCrossing && surfaceAtCrossing);
+assert(built.decks.every(d => d.roadId === 11 || d.roadId === 12));
+console.log('PASS lower, upper, and surface markings retain their own elevations at overlapping crossings');
+
+// Changing road arrival order cannot change the emitted markings.
+const reversed = await build([surface, upper, lower]);
+const sortedVertices = mesh => {
+  const a = mesh.attributes.position.data, out = [];
+  for (let i = 0; i < a.length; i += 3) out.push(`${a[i]},${a[i + 1]},${a[i + 2]}`);
+  return out.sort();
+};
+assert.deepEqual(sortedVertices(built.meshes[2]), sortedVertices(reversed.meshes[2]));
+
+const paintedGround = await build([upper, surface], {
+  roadbeds: [[[[125, 75], [131, 75], [131, 85], [125, 85]]]],
+  crossings: [{ x: 128, z: 80, yaw: 0, width: 8, signal: false }],
+  props: [{ kind: 'manhole', x: 128, z: 80, yaw: 0 }],
+});
+const ground = paintedGround.meshes[0].attributes;
+let groundCorners = 0;
+for (let i = 0; i < ground.position.data.length / 3; i++) {
+  if (Math.abs(ground.position.data[i * 3 + 1] - 0.02) > 0.001) continue;
+  assert(ground.aB.data[i * 4] > 0.99, 'ground asphalt wear follows the ground road direction');
+  groundCorners++;
+}
+assert(groundCorners >= 4);
+console.log('PASS arrival order is stable and surface asphalt follows the road below the overpass');
+
+const main = road(21, [[-128, 128], [384, 128]], { width: 16, layer: 3 });
+const underneath = road(22, [[-128, 128], [384, 128]], { width: 20, bridge: false });
+const q = { x: 128, z: 128, dx: 1, dz: 0 };
+const constantProfiles = (_env, r) => ({ hw: r.width / 2, hAt: () => r.layer === 3 ? 18 : 13 });
+const planner = roads => supportPlanner({ tile: { roads } }, constantProfiles);
+const ordinary = planner([main])(main, q, 8, 17, 1, 0.55);
+assert.deepEqual(ordinary.offsets, [-4, 4]);
+const shifted = planner([main, underneath])(main, q, 8, 17, 1, 0.55);
+assert(shifted && shifted.offsets.length === 2);
+assert(shifted.offsets.every(o => Math.abs(o) > 10 + Math.SQRT2 * 0.55 + 1), 'columns clear full lane widths plus a shoulder');
+assert(shifted.halfWidth > Math.max(...shifted.offsets.map(Math.abs)), 'cap beam reaches the relocated columns');
+const crossing = road(23, [[128, -128], [128, 384]], { bridge: false, width: 20 });
+assert.equal(planner([main, crossing])(main, q, 8, 17, 1, 0.55), null, 'omit a station that cannot straddle a crossing');
+assert(planner([main, crossing])(main, { ...q, x: 153 }, 8, 17, 1, 0.55), 'keep the next clear station');
+const closeDeck = { ...underneath, bridge: true, layer: 2 };
+assert.equal(planner([main, closeDeck])(main, q, 8, 17, 1, 0.55), null, 'omit a low crossbeam over a lower deck');
+console.log('PASS supports relocate beside roads, widen their beams, and omit obstructed or low-clearance stations');
+
+const supported = await build([main, underneath]);
+let columnFaces = 0;
+for (let i = 0; i < supported.colliderIdx.length; i += 3) {
+  const pts = Array.from(supported.colliderIdx.slice(i, i + 3), v => Array.from(supported.colliderPos.slice(v * 3, v * 3 + 3)));
+  const ys = pts.map(p => p[1]), xs = pts.map(p => p[0]), zs = pts.map(p => p[2]);
+  if (Math.min(...ys) !== 0 || Math.max(...ys) < 2 || Math.max(...xs) - Math.min(...xs) > 1.2 || Math.max(...zs) - Math.min(...zs) > 1.2) continue;
+  assert(pts.every(p => Math.abs(p[2] - 128) > 11), 'served column collider must clear the roadway below');
+  columnFaces++;
+}
+assert(columnFaces > 0, 'the served builder still emits safe supporting columns');
+console.log('PASS served worker places real support colliders outside the lower motorway');
+
+// Use the rendered asphalt, not its centreline sampler, as the reference.
+function checkPaintSurface(tile, predicate = () => true) {
+  const asphalt = tile.meshes[0], paint = tile.meshes[2];
+  const a = asphalt.attributes.position.data, p = paint.attributes.position.data;
+  const faces = [];
+  for (let i = 0; i < asphalt.index.length; i += 3) {
+    faces.push(Array.from(asphalt.index.slice(i, i + 3), v => Array.from(a.slice(v * 3, v * 3 + 3))));
+  }
+  let checked = 0;
+  for (let i = 0; i < paint.index.length; i += 3) {
+    const points = Array.from(paint.index.slice(i, i + 3), v => Array.from(p.slice(v * 3, v * 3 + 3)));
+    const centre = [0, 1, 2].map(j => points.reduce((sum, v) => sum + v[j], 0) / 3);
+    if (!predicate(centre)) continue;
+    const [x, y, z] = centre;
+    let closest = Infinity;
+    for (const [a, b, c] of faces) {
+      if ([a, b, c].every(v => v[0] < x - 0.002) || [a, b, c].every(v => v[0] > x + 0.002) || [a, b, c].every(v => v[2] < z - 0.002) || [a, b, c].every(v => v[2] > z + 0.002)) continue;
+      const det = (b[0] - a[0]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[0] - a[0]);
+      if (Math.abs(det) < 1e-8) continue;
+      const u = ((x - a[0]) * (c[2] - a[2]) - (z - a[2]) * (c[0] - a[0])) / det;
+      const v = ((b[0] - a[0]) * (z - a[2]) - (b[2] - a[2]) * (x - a[0])) / det;
+      if (u < -1e-3 || v < -1e-3 || u + v > 1.001) continue;
+      const delta = y - (a[1] + u * (b[1] - a[1]) + v * (c[1] - a[1]));
+      if (Math.abs(delta - 0.012) < Math.abs(closest - 0.012)) closest = delta;
+    }
+    assert(Math.abs(closest - 0.012) < 0.003, `paint at ${centre} is ${closest} m above asphalt`);
+    checked++;
+  }
+  assert(checked > 0);
+  return checked;
+}
+const curved = road(31, [[-40, 65], [80, 65], [100, 120], [230, 120], [290, 200]]);
+const curvedTile = await build([curved, upper]);
+assert(checkPaintSurface(curvedTile, p => p[1] > 0.2 && p[1] < 7.1) > 100);
+console.log('PASS paint remains above the rendered curved ramp, including inside each dash');
+
+for (const bridge of [false, true]) {
+  const short = road(32, [[120, 100], [130, 100]], { bridge });
+  const shortTile = await build([short, upper]);
+  const p = shortTile.meshes[2].attributes.position.data;
+  const near = [];
+  for (let i = 0; i < p.length; i += 3) if (p[i + 1] < 7.1 && Math.abs(p[i + 2] - 100) < 6) near.push(p[i]);
+  assert(near.length > 0, 'a ten-meter highway connector retains markings under an overpass');
+  assert(Math.min(...near) <= 120.001 && Math.max(...near) >= 129.999, 'edge lines reach both way boundaries');
+}
+console.log('PASS short surface and elevated highway connectors keep their markings through way boundaries');
+
+assert.equal(roadDeckHeight([
+  { roadId: 1, pts: [{ x: 254, z: 100, h: 6 }, { x: 255, z: 101, h: 7 }] },
+  { roadId: 2, pts: [{ x: 254, z: 100, h: 18 }, { x: 256, z: 102, h: 18 }] },
+], 1, 256, 102), 8, 'an offset lane crossing a clipped deck end extends its own slope');
+
+const city = new Map(), cityRoads = new Map();
+for (let x = 15; x <= 18; x++) for (let z = -42; z <= -39; z++) {
+  const key = `${x}_${z}`;
+  let bytes;
+  try { bytes = readFileSync(new URL(`../../public/world/world/tiles/${key}.json.gz`, import.meta.url)); }
+  catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+  const tile = JSON.parse(gunzipSync(bytes)); city.set(key, tile);
+  for (const road of tile.roads) cityRoads.set(road.id, road);
+}
+for (const key of ['16_-41', '17_-41', '17_-40']) {
+  const tile = city.get(key); assert(tile);
+  await sandbox.self.onmessage({ data: { id: 2, input: { tile, roads: [...cityRoads.values()], quality: { level: 'mobile', shadows: false } } } });
+  assert(!result.error, result.error);
+  const mesh = result.built.meshes[2], p = mesh.attributes.position.data;
+  checkPaintSurface(result.built, p => p[1] > 0.2);
+  for (let i = 0; i < mesh.index.length; i += 3) {
+    const points = Array.from(mesh.index.slice(i, i + 3), v => Array.from(p.slice(v * 3, v * 3 + 3)));
+    const rise = Math.max(...points.map(v => v[1])) - Math.min(...points.map(v => v[1]));
+    const run = Math.max(...points.flatMap(a => points.map(b => Math.hypot(a[0] - b[0], a[2] - b[2]))));
+    assert(!(rise > 3 && rise > run), `${key}: marking rose ${rise} m over ${run} m`);
+  }
+}
+console.log('PASS actual Highbridge paint stays above the asphalt without vertical stretches at tile edges');

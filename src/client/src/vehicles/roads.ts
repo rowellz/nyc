@@ -17,7 +17,7 @@ export interface Lane {
 
 const node = (x: number, z: number, layer: number) => `${Math.round(x * 2)},${Math.round(z * 2)},${layer}`;
 const roadKey = (r: RoadSegment) => `${r.id}:${r.pts.map(p => p.join(',')).join(';')}`;
-const driveable = (r: RoadSegment) => !r.tunnel && !['pedestrian', 'footway', 'cycleway', 'steps'].includes(r.cls);
+const driveable = (r: RoadSegment) => !['pedestrian', 'footway', 'cycleway', 'steps'].includes(r.cls);
 
 export const PARKING_INSET = 2.4; // car centre from curb, not from a through-lane centre
 const LANE_WIDTH = 3.3;
@@ -26,6 +26,10 @@ const PARKED_HALF_WIDTH = Math.max(...Object.values(KINDS).filter(s => s.parkedW
 
 /** Reserve parking before dividing a one-way carriageway, including odd lane counts. */
 export function laneOffsets(r: RoadSegment): number[] {
+  if (r.tunnel && r.oneway) {
+    const count = Math.max(1, r.lanes), width = Math.min(3.3, (r.width - 1) / count);
+    return Array.from({ length: count }, (_, i) => (i - (count - 1) / 2) * width);
+  }
   if (!r.oneway) return [Math.min(1.65, r.width / 4)];
   if (r.lanes < 3) return [r.lanes === 2 ? LANE_WIDTH / 2 : 0];
   const half = Math.max(0, r.width / 2 - PARKING_INSET - PARKED_HALF_WIDTH - TRAFFIC_HALF_WIDTH - 0.3);
@@ -79,7 +83,7 @@ export class Roads {
         }
         this.refs.set(key, { count: 1, lanes });
       }
-      if (!['primary', 'secondary', 'tertiary', 'residential'].includes(r.cls) || r.bridge || r.width < 7) continue;
+      if (!['primary', 'secondary', 'tertiary', 'residential'].includes(r.cls) || r.bridge || r.tunnel || r.width < 7) continue;
       for (let i = 0; i < r.pts.length - 1; i++) {
         const a = r.pts[i], b = r.pts[i + 1];
         const length = Math.hypot(b[0] - a[0], b[1] - a[1]);

@@ -387,7 +387,7 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
   Type-only files (`context.ts`, `world.ts`) were erased at compile time and are
   absent, and there is no `vite.config`, `package.json`, or `index.html` for it.
   The container serves the original compiled bundle, not a rebuild of `src/`.
-- Two deliberate modifications to the mirrored bundle:
+- Deliberate modifications to the mirrored bundle:
   - `tools/patch-offline.js` repoints the web-font `<link>` from Google Fonts to
     the vendored copy. Upstream already ships system-font fallbacks, so this only
     removes a network round-trip.
@@ -411,6 +411,40 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
     `src/client/src/streets/bridges.ts`, using the bundle's own minified helper
     names. Because `src/` does not build, the two have to be kept in step by
     hand.
+
+  - `tools/patch-tunnels.mjs` replaces blocked tunnel mouths with continuous
+    underground roads, walls, ceilings, lane markings, and colliders. Traffic
+    uses the same elevation profiles, connects through tunnel portals across
+    OSM layer changes, and ignores surface traffic lights while underground.
+    Approach openings are cut out of the ground, paving, and ground collider;
+    the water and distant ground planes no longer fill those openings.
+
+    Elevations are synthetic: a 10% grade descends to at most 8 m below ground.
+    Short tunnels use shallower profiles to keep their entrances connected.
+    This is not surveyed NYC tunnel geometry. The shared implementation is
+    `src/client/src/streets/tunnels.js`; run `node tools/patch-tunnels.mjs` after
+    editing it to update the served copy. The guarded patch also reapplies the
+    client hooks after re-mirroring the same upstream chunks. Run
+    `npm --prefix web run test:tunnels` for geometry and traffic regressions.
+
+  - `tools/patch-foundations.mjs` raises buildings whose footprints overlap a
+    vehicular tunnel to the entrance roof height (6.025 m). The complete building,
+    rooftop props, collision mesh, and distant model move together. A thin
+    foundation slab closes the underside while preserving tunnel clearance.
+    Overlap tests include road width and respect courtyards. A small city-wide
+    tunnel index keeps results independent of tile loading order; regenerate
+    it with `node tools/index-tunnels.mjs` after changing the map tiles, then run
+    `node tools/patch-foundations.mjs`. The shared rules live in
+    `src/client/src/buildings/foundations.js`.
+
+  - `tools/patch-road-layers.mjs` keeps road markings attached to their own
+    sampled decks, including at tile borders, and keeps surface paint and
+    asphalt wear below overpasses. Bridge columns move outside lower roadways
+    with wider support beams, or skip stations that cannot provide clearance.
+    Run this patch after `patch-tunnels.mjs` when re-mirroring; it transplants
+    the recovered markings builder and copies `streets/supports.js` into the
+    served worker. Run `npm --prefix web run test:roads` for stacked-road,
+    support-collider, and actual Highbridge tile regressions.
 
 ## Developing on the client
 

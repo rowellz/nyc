@@ -1,3 +1,4 @@
+import { syncTunnelTerrain } from '../streets/tunnels.js';
 /**
  * Ground: one 256 m quad per tile at y = 0 with a per-tile MeshStandardMaterial (shared program, per-tile mask
  * uniform) that blends asphalt / concrete / lawn / worn dirt / gravel from the coverage mask using world-space,
@@ -308,7 +309,7 @@ export function createGround(ctx: { worldGroup: THREE.Group; quality: { shadows:
     if (slot === undefined || !farMesh) return;
     const pos = farMesh.geometry.getAttribute('position') as THREE.BufferAttribute;
     // The detailed ground discards water pixels. The far layer must not plug those holes.
-    for (let j = 0; j < 4; j++) pos.setY(slot * 4 + j, loaded ? WATER_LEVEL - 2 : -0.25);
+    for (let j = 0; j < 4; j++) pos.setY(slot * 4 + j, loaded ? -100 : -0.25);
     pos.addUpdateRange(slot * 12, 12);
     pos.needsUpdate = true;
   }
@@ -355,6 +356,7 @@ export function createGround(ctx: { worldGroup: THREE.Group; quality: { shadows:
     mesh.name = `env-ground-${tile.key}`;
     mesh.matrixAutoUpdate = false;
     parent.add(mesh);
+    syncTunnelTerrain(ctx, tile);
     let seawall: THREE.Mesh | null = null;
     let extras: THREE.Group | null = null;
     if (tile.water.length) {

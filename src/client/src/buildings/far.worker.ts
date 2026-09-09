@@ -1,3 +1,4 @@
+import { buildingFoundation } from './foundations.js';
 import { basePath as __launchBasePath, mountedFetch as __launchFetch } from '@/core/basePath';
 /**
  * Far-skyline worker: fetches EVERY tile in the world index (nearest first, a few in flight), keeps only
@@ -110,19 +111,19 @@ export function buildChunk(c: ChunkState, land: Set<number>, minHeight: number):
   const towers: number[] = [];
   const landmarkRanges: LandmarkRange[] = [];
   let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-  let count = 0;
+  let count = 0, foundationY = 0;
   const vert = (x: number, y: number, z: number, r: number, g: number, b: number, style: number, h: number, seed: number,
     floorH: number, gfH: number, u: number, length: number, wallId: number): number => {
     const rx = x - ox, rz = z - oz;
-    pos.push(rx, y, rz);
+    pos.push(rx, y + foundationY, rz);
     data.push(Math.round(r * 255), Math.round(g * 255), Math.round(b * 255), style);
     info.push(h, seed, floorH, gfH);
     uv.push(u, y);
     wall.push(length, wallId);
     if (rx < minX) minX = rx;
     if (rx > maxX) maxX = rx;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
+    if (y + foundationY < minY) minY = y + foundationY;
+    if (y + foundationY > maxY) maxY = y + foundationY;
     if (rz < minZ) minZ = rz;
     if (rz > maxZ) maxZ = rz;
     return pos.length / 3 - 1;
@@ -169,6 +170,7 @@ export function buildChunk(c: ChunkState, land: Set<number>, minHeight: number):
     cap(ring, y1, capTint, FAR_STYLE_ROOF, seed, 3, 3);
   };
   for (const b of c.buildings) {
+    foundationY = buildingFoundation(b);
     const indexStart = idx.length;
     const h = Math.max(3, b.height);
     if (h < minHeight) continue;
@@ -263,7 +265,7 @@ export function buildChunk(c: ChunkState, land: Set<number>, minHeight: number):
       }
       if (b.hasWaterTower && propArea > 90) {
         const t = take(4.2, 4.2);
-        if (t) towers.push(t[0] - ox, propY, t[1] - oz, 4 + hash4(seed, 42) * 2);
+        if (t) towers.push(t[0] - ox, propY + foundationY, t[1] - oz, 4 + hash4(seed, 42) * 2);
       }
     }
     if (land.has(b.id)) landmarkRanges.push({ bin: b.id, start: indexStart, count: idx.length - indexStart });

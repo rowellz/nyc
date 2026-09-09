@@ -1,3 +1,4 @@
+import { buildingFoundation, foundationSlab } from './foundations.js';
 /**
  * Tile geometry builder (pure TS, runs in builder.worker.ts or on the main thread as a fallback).
  *
@@ -180,11 +181,12 @@ export function buildTile(input: BuildInput): BuiltTile {
       skipped++;
       continue;
     }
+    B.baseY = buildingFoundation(b);
     const outer = poly[0];
     const indexStart = B.idx.n, colliderStart = B.cidx.n;
     const bb = ringBBox(outer);
     const h = Math.max(3, b.height);
-    lookup.push(b.id, bb.minX, bb.minZ, bb.maxX, bb.maxZ, h);
+    lookup.push(b.id, bb.minX, bb.minZ, bb.maxX, bb.maxZ, h + B.baseY);
     const seed = seedOf(b.id);
     const P = buildingParams(b, seed);
     const styleSeed = P.style * 65536 + seed;
@@ -260,7 +262,8 @@ export function buildTile(input: BuildInput): BuiltTile {
       } else tiers.push({ ring: outer, holes: poly.slice(1), base: 0, top: h, edges });
     } else tiers.push({ ring: outer, holes: poly.slice(1), base: 0, top: h, edges });
 
-    const baseFlags = (P.commercial ? FLAG_COMMERCIAL : 0) | (P.painted ? FLAG_PAINTED : 0) | (P.balconies ? FLAG_BALCONIES : 0);
+    // Raised facades have no street-level shops; keep both shader and baked shop details off.
+    const baseFlags = (P.commercial && !B.baseY ? FLAG_COMMERCIAL : 0) | (P.painted ? FLAG_PAINTED : 0) | (P.balconies ? FLAG_BALCONIES : 0);
     const parapetH = pitched ? 0 : P.style === 5 ? 1.0 : PARAPET_H;
     const roofMat = roofMaterial(seed);
     const roofCol: [number, number, number] = roofPalette(seed, roofMat);
@@ -427,7 +430,7 @@ export function buildTile(input: BuildInput): BuiltTile {
         const cwLobby = P.style === 5 && e === entrance && e.len > 8 && P.gfH >= 4.5;
         if (cwLobby) B.glassCanopy(e, seed);
         // storefronts
-        if (P.commercial && e.len >= 4 && P.style !== 9 && P.style !== 10 && P.gfH >= 3.5 && !cwLobby) B.storefronts(e, P, seed);
+        if (P.commercial && !B.baseY && e.len >= 4 && P.style !== 9 && P.style !== 10 && P.gfH >= 3.5 && !cwLobby) B.storefronts(e, P, seed);
         // brownstone stoop + areaway fence
         if (P.style === 1 && e === entrance && e.len >= 4.5 && h > 6) B.stoop(e, P, seed);
         // apartment-house lobby: canvas canopy on two posts over the glazed entrance (shader `lobby`)
@@ -435,6 +438,7 @@ export function buildTile(input: BuildInput): BuiltTile {
         if (!P.commercial && lobby && e === entrance && e.len >= 5 && h > 12 && hash4(seed, 38, wallIdx(e)) < 0.6) B.canopy(e, P, seed);
       }
     }
+    foundationSlab(B, poly);
     if (land.has(b.id)) {
       landmarkRanges.push({ bin: b.id, start: indexStart, count: B.idx.n - indexStart });
       landmarkColliderRanges.push({ bin: b.id, start: colliderStart, count: B.cidx.n - colliderStart });
@@ -598,6 +602,7 @@ const LIGHTBOX_COLORS: [number, number, number][] = [
 ];
 
 class Baker {
+  baseY = 0;
   pos = new F32();
   nrm = new F32();
   uv = new F32();
@@ -616,6 +621,7 @@ class Baker {
   }
 
   vert(x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number, a: VAttrs): number {
+    y += this.baseY;
     const rx = x - this.ox, rz = z - this.oz;
     this.pos.push3(rx, y, rz);
     this.nrm.push3(nx, ny, nz);
@@ -654,6 +660,7 @@ class Baker {
   }
 
   colWall(e: Edge, y0: number, y1: number): void {
+    y0 += this.baseY; y1 += this.baseY;
     const base = this.cpos.n / 3;
     this.cpos.push3(e.ax - this.ox, y0, e.az - this.oz);
     this.cpos.push3(e.bx - this.ox, y0, e.bz - this.oz);
@@ -664,6 +671,7 @@ class Baker {
   }
 
   colCap(poly: Polygon, y: number): void {
+    y += this.baseY;
     const tris = triangulate(poly);
     if (!tris.length) return;
     const base = this.cpos.n / 3;

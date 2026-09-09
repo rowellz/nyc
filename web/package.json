@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "start": "node server.js",
     "test": "PORT=${PORT:-3000} NODE_PATH=./node_modules node ../server/test-protocol.js",
-    "test:ui": "node tests/look-stick.test.mjs && node tests/camera-boot.test.mjs && node tests/water-reflection.test.mjs"
+    "test:ui": "node tests/look-stick.test.mjs && node tests/camera-boot.test.mjs && node tests/water-reflection.test.mjs",
+    "test:tunnels": "node tests/tunnels.test.mjs && node tests/foundations.test.mjs",
+    "test:roads": "node tests/road-layers.test.mjs"
   },
   "dependencies": {
     "ws": "^8.21.3"

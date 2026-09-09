@@ -1,3 +1,5 @@
+import { syncTunnelTerrain, tunnelSupport } from './tunnels.js';
+import { roadDeckHeight } from './supports.js';
 /** Streaming/lifetime glue for the streets builders. World geometry stays static between tile changes. */
 import * as THREE from 'three';
 import type { GameContext, GameModule } from '@/core/context';
@@ -20,6 +22,8 @@ export interface StreetsModule extends GameModule {
   surfaceAt(x: number, z: number): string | null;
   /** Highest street support: elevated roadway, 0.15 m sidewalk, curb-cut slope, or zero on road/ground. */
   deckHeight(x: number, z: number): number;
+  /** Height of the road a traffic lane belongs to, including under other decks. */
+  roadHeight(road: RoadSegment, x: number, z: number): number;
 }
 
 interface TileRecord {
@@ -65,12 +69,17 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
     return Math.max(deckHeightIn(rec.decks, x, z), rec.walkCollision
       ? walkHeightIn(rec.walkCollision, x, z, rec.tile.tx * TILE_SIZE, rec.tile.tz * TILE_SIZE) : 0);
   }
+  function roadHeight(road: RoadSegment, x: number, z: number): number {
+    if (!road.bridge || !Number.isFinite(x) || !Number.isFinite(z)) return 0;
+    const rec = tiles.get(tileKey(Math.floor(x / TILE_SIZE), Math.floor(z / TILE_SIZE)));
+    return rec ? roadDeckHeight(rec.decks, road.id, x, z) : 0;
+  }
   // Character safety clamps, pedestrian roots and vehicle placement all use this
   // existing API. Preserve core land/water and landmark decks; own only this overlay.
   const baseGroundHeight = ctx.physics.groundHeight;
-  const groundHeight = (x: number, z: number) => {
+  const groundHeight = (x: number, z: number, referenceY?: number) => {
     const base = baseGroundHeight.call(ctx.physics, x, z), street = deckHeight(x, z);
-    return street > 0 ? Math.max(base, street) : base;
+    return tunnelSupport(ctx.world, x, z, referenceY, street > 0 ? Math.max(base, street) : base);
   };
   ctx.physics.groundHeight = groundHeight;
   const dirty = new Set<TileRecord>();
@@ -283,6 +292,7 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
       grid.metal = built.metal;
       rec.grid = grid;
       rec.decks = built.decks;
+      syncTunnelTerrain(ctx, rec.tile);
       yield;
       if (built.walkCollision.index.length) {
         while (ctx.physics.ready === false) yield;
@@ -335,6 +345,7 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
       return tiles.get(tileKey(Math.floor(x / TILE_SIZE), Math.floor(z / TILE_SIZE)))?.grid?.query(x, z) ?? null;
     },
     deckHeight,
+    roadHeight,
     dispose() {
       builds.dispose();
       if (disposed) return;
