@@ -1,3 +1,5 @@
+import { roadFootprints } from '../../public/world/assets/fixtures.js';
+import { deckEdges, barrierRuns } from '../../public/world/assets/edges.js';
 import { clearanceProfile } from '../../public/world/assets/ramps.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -14,7 +16,7 @@ const surface = road(13, [[-128, 80], [384, 80]], { cls: 'primary', bridge: fals
 const makeTile = (roads, extra = {}) => ({ key: '0_0', tx: 0, tz: 0, roads, buildings: [], roadbeds: [], sidewalks: [], medians: [], parks: [], water: [],
   parking: [], plazas: [], crossings: [], trees: [], props: [], groundElev: 0, ...extra });
 let result;
-const sandbox = { console, performance, self: { postMessage: r => { result = r; } }, $clearanceProfile: clearanceProfile, $roadDeckTriangles: roadDeckTriangles, $triangleHeight: triangleHeight, $roadDeckHeight: roadDeckHeight, $supportPlanner: supportPlanner,
+const sandbox = { console, performance, self: { postMessage: r => { result = r; } }, $roadFootprints: roadFootprints, $deckEdges: deckEdges, $barrierRuns: barrierRuns, $clearanceProfile: clearanceProfile, $roadDeckTriangles: roadDeckTriangles, $triangleHeight: triangleHeight, $roadDeckHeight: roadDeckHeight, $supportPlanner: supportPlanner,
   $tunnelBuild: tunnels.buildTunnels, $tunnelNetwork: tunnels.tunnelNetwork, $tunnelCut: tunnels.cutBuilder };
 vm.createContext(sandbox);
 vm.runInContext(readFileSync(new URL('../../public/world/assets/tile.worker-Ai2ZdmRL.js', import.meta.url), 'utf8').replace(/^import .*$/gm, ''), sandbox);
@@ -206,3 +208,105 @@ for (const key of ['16_-41', '17_-41', '17_-40']) {
   }
 }
 console.log('PASS actual Highbridge paint stays above the asphalt without vertical stretches at tile edges');
+
+const narrow = road(81, [[-80, 128], [128, 128]], { width: 8, lanes: 2 });
+const wide = road(82, [[128, 128], [380, 128]], { width: 18, lanes: 2 });
+const connected = [narrow, wide];
+const narrowEdges = deckEdges(narrow, connected, 4), wideEdges = deckEdges(wide, connected, 9);
+assert.deepEqual(narrowEdges(208), wideEdges(0), 'both ways agree on the width and direction at their seam');
+for (const [edges, length] of [[narrowEdges, 208], [wideEdges, 252]]) {
+  let previous = edges(0);
+  for (let s = 0.5; s <= length; s += 0.5) {
+    const next = edges(s);
+    for (let side = 0; side < 2; side++) assert(Math.abs(next[side][1] - previous[side][1]) <= 0.061, 'width changes taper instead of stepping sideways');
+    previous = next;
+  }
+}
+const joinSpur = deckEdges(narrow, [narrow], 4, q => q.s >= 100 && q.s <= 104 ? [1.6, 0] : [0, 0]);
+for (let s = 75; s < 125; s += 0.5) assert(Math.abs(joinSpur(s + 0.5)[0][1] - joinSpur(s)[0][1]) <= 0.050001, 'an isolated join adjustment cannot form a jagged spur');
+const seamTile = await build(connected);
+const seamEdges = id => {
+  const deck = seamTile.decks.find(d => d.roadId === id);
+  const i = deck.pts.findIndex(p => Math.abs(p.x - 128) < 0.001 && Math.abs(p.z - 128) < 0.001);
+  assert(i >= 0);
+  return Array.from(deck.surface.slice(i * 6, i * 6 + 6));
+};
+assert.deepEqual(seamEdges(narrow.id), seamEdges(wide.id), 'rendered asphalt and collider copies have matching seam vertices');
+for (let x = 125; x <= 131; x += 0.5) {
+  const edges = x <= 128 ? narrowEdges(x + 80) : wideEdges(x - 128);
+  for (let side = 0; side < 2; side++) {
+    const z = edges[side][1] + (side ? -0.38 : 0.38);
+    let covered = false;
+    for (let i = 0; i < seamTile.colliderIdx.length && !covered; i += 3) {
+      const face = Array.from(seamTile.colliderIdx.slice(i, i + 3), v => Array.from(seamTile.colliderPos.slice(v * 3, v * 3 + 3)));
+      const sample = triangleHeight(face, x, z);
+      covered = sample?.inside && sample.height > 7.7 && sample.height < 7.9;
+    }
+    assert(covered, `barrier collider is continuous across the tapered seam at ${x},${z}`);
+  }
+}
+checkPaintSurface(seamTile, p => p[1] > 0.2);
+const reverseSeam = await build([...connected].reverse());
+assert.deepEqual(sortedVertices(seamTile.meshes[0]), sortedVertices(reverseSeam.meshes[0]));
+assert.deepEqual(barrierRuns([0, 7, 0], [4, 7, 0], p => p[0] >= 3), [[[0, 7, 0], [3, 7, 0]]], 'a merge covering one end opens only that part of a barrier');
+console.log('PASS abrupt width changes and isolated join spurs become gradual, matching deck edges without oversized barrier gaps');
+
+// Include the Cross Bronx bridge approaches shown in the second reported area.
+for (let x = 19; x <= 20; x++) for (let z = -42; z <= -38; z++) {
+  let tile;
+  try { tile = JSON.parse(gunzipSync(readFileSync(new URL(`../../public/world/world/tiles/${x}_${z}.json.gz`, import.meta.url)))); }
+  catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+  for (const r of tile.roads) cityRoads.set(r.id, r);
+}
+// Actual width discontinuities from both reported highway areas.
+for (const [aId, bId] of [[121772578000, 1504770029000], [121772577000, 42435675000], [1081036135000, 1081036137000],
+  [1303959654000, 1303959655000], [538804346000, 46620618000], [1303959655000, 1303647211000]]) {
+  const a = cityRoads.get(aId), b = cityRoads.get(bId); assert(a && b);
+  const all = [...cityRoads.values()], ae = deckEdges(a, all, Math.max(3.2, a.width / 2)), be = deckEdges(b, all, Math.max(3.2, b.width / 2));
+  const length = r => r.pts.slice(1).reduce((s, p, i) => s + Math.hypot(p[0] - r.pts[i][0], p[1] - r.pts[i][1]), 0);
+  let matched = false;
+  for (const aEnd of [false, true]) for (const bEnd of [false, true]) {
+    const p = aEnd ? a.pts.at(-1) : a.pts[0], q = bEnd ? b.pts.at(-1) : b.pts[0];
+    if (Math.hypot(p[0] - q[0], p[1] - q[1]) > 0.01) continue;
+    const A = ae(aEnd ? length(a) : 0), B = be(bEnd ? length(b) : 0);
+    assert(A.every(v => B.some(w => Math.hypot(v[0] - w[0], v[1] - w[1]) < 0.001)), `${aId}/${bId}: actual road edges match at the width change`);
+    matched = true;
+  }
+  assert(matched);
+}
+console.log('PASS six real Highbridge and Cross Bronx highway width transitions now share continuous edges');
+
+// An opposed carriageway widens at its way boundary. The nominal-width test
+// mistakes this overlap for a median and leaves concrete in the merged pavement.
+const fixtureMain = road(90, [[-128, 128], [384, 128]], { width: 16 });
+const fixtureNarrow = road(91, [[128, 114], [-128, 114]], { width: 6.4 });
+const fixtureWide = road(92, [[384, 114], [128, 114]], { width: 20 });
+const fixtureTile = await build([fixtureMain, fixtureNarrow, fixtureWide]);
+const mainDeck = fixtureTile.decks.find(d => d.roadId === 90);
+const barrierAt = (x, z, tile = fixtureTile) => {
+  for (let i = 0; i < tile.colliderIdx.length; i += 3) {
+    const face = Array.from(tile.colliderIdx.slice(i, i + 3), v => Array.from(tile.colliderPos.slice(v * 3, v * 3 + 3)));
+    const y = triangleHeight(face, x, z);
+    if (y?.inside && y.height > 7.7 && y.height < 7.9) return true;
+  }
+  return false;
+};
+let fixturesChecked = 0;
+for (let i = 0; i < mainDeck.surface.length; i += 6) {
+  const x = mainDeck.surface[i];
+  if (x < 110 || x > 124) continue;
+  assert(!barrierAt(x + 0.1, mainDeck.surface[i + 2] + 0.38), 'remove median concrete inside the widened opposing pavement');
+  assert(barrierAt(x + 0.1, mainDeck.surface[i + 5] - 0.38), 'retain the exposed outer motorway barrier');
+  fixturesChecked++;
+}
+assert(fixturesChecked >= 3);
+console.log('PASS widened merges clear interior barrier colliders and retain exposed outer barriers');
+
+const baselineSandbox = { ...sandbox, $roadFootprints: () => ({ obstructs: () => false }), self: { postMessage: r => { result = r; } } };
+vm.createContext(baselineSandbox);
+vm.runInContext(readFileSync(new URL('../../public/world/assets/tile.worker-Ai2ZdmRL.js', import.meta.url), 'utf8').replace(/^import .*$/gm, ''), baselineSandbox);
+const fixtureRoads = [fixtureMain, fixtureNarrow, fixtureWide];
+await baselineSandbox.self.onmessage({ data: { id: 1, input: { tile: makeTile(fixtureRoads), roads: fixtureRoads, quality: { level: 'mobile', shadows: false } } } });
+assert(!result.error, result.error);
+const withoutFootprints = result.built;
+assert(barrierAt(118.25, 118.88, withoutFootprints), 'regression reproduces the old barrier across the widened lane');

@@ -1,4 +1,6 @@
+import { roadFootprints as $roadFootprints } from './fixtures.js';
 // NYC functional tunnels v1
+import { deckEdges as $deckEdges, barrierRuns as $barrierRuns } from './edges.js';
 // NYC ramp clearance v1
 import { clearanceProfile as $clearanceProfile } from './ramps.js';
 // NYC road layers v1
@@ -170,132 +172,526 @@ function $facingDeck(list,skipId,ex,ez,h,ux,uz){
   }
   return best;
 }
-function Rr(env,gb,sb,out){
-  let{tile,rect}=env,seen=new Set,low=env.ctx.quality.level===`low`,joins=$deckNeighbours(env),planSupport=$supportPlanner(env,$deckProfile);
-  for(let r of tile.roads){
-    if(r.tunnel||seen.has(r.id)||r.pts.length<2)continue;
+const $edgeBridgeBuilder=(()=>{
+const roadFootprints=$roadFootprints,deckEdges=$deckEdges,barrierRuns=$barrierRuns,buildTunnels=$tunnelBuild,supportPlanner=$supportPlanner,clearanceProfile=$clearanceProfile,GroundBuilder=vr,VEHICULAR=dr,clipPolylineToRect=cr,hash2=Z,pointAlong=or,polylineLength=ar,KIND=Q,ROAD_Y=Sr,kindForSurface=Cr,ribbon=Er;
+/**
+ * Elevated roadways (RoadSegment.bridge): deck ribbon at the layer height, ramping to ground at nodes
+ * shared with ground-level roads and to whatever height its neighbours agreed on at nodes shared with
+ * other decks, slab + fascia + parapet (Jersey barrier on highways, iron railing on old viaducts), piers
+ * every 25 m, colliders. Tunnel portals for RoadSegment.tunnel ends.
+ */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const CONCRETE                           = [0.66, 0.64, 0.6];
+const CONCRETE_DARK                           = [0.5, 0.49, 0.46];
+const STEEL_GREEN                           = [0.2, 0.26, 0.24];
+const STEEL_GREY                           = [0.36, 0.37, 0.39];
+const IRON                           = [0.07, 0.07, 0.075];
+
+function deckHeightFor(r             )         {
+  const foot = r.cls === 'footway' || r.cls === 'steps' || r.cls === 'pedestrian' || r.cls === 'cycleway';
+  if (r.layer >= 3) return 18;
+  if (r.layer === 2) return foot ? 9 : 13;
+  if (/bridge/i.test(r.name ?? '') && (r.cls === 'trunk' || r.cls === 'motorway') && r.layer >= 2) return 20;
+  return 7;
+}
+
+function isGroundNode(env         , x        , z        , self             )          {
+  const near = env.ctx.world.roadsNear(x, z, 3);
+  let any = false;
+  for (const r of near) {
+    if (r === self || r.id === self.id || r.bridge) continue;
+    if (!VEHICULAR.has(r.cls) && !(r.cls === self.cls)) continue;
+    const a = r.pts[0], b = r.pts[r.pts.length - 1];
+    if (Math.hypot(a[0] - x, a[1] - z) < 0.6 || Math.hypot(b[0] - x, b[1] - z) < 0.6) return true;
+    any = true;
+  }
+  void any;
+  // a bridge end shared with nothing at all: ramp down (OSM often tags only the elevated part)
+  let shared = false;
+  for (const r of near) {
+    if (r === self || r.id === self.id) continue;
+    const a = r.pts[0], b = r.pts[r.pts.length - 1];
+    if (Math.hypot(a[0] - x, a[1] - z) < 0.6 || Math.hypot(b[0] - x, b[1] - z) < 0.6) shared = true;
+  }
+  return !shared;
+}
+
+function smooth(t        )         {
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return t * t * (3 - 2 * t);
+}
+
+// OSM `layer` is a stacking hint, not a survey: two spans of one continuous roadway are routinely tagged
+// layer=1 and layer=2 (or 0 and 3) where they pass each other, and deckHeightFor turns that into a 6 m --
+// on the Brooklyn Bridge an 11 m -- vertical cliff at the node they share. So a deck no longer decides its
+// end heights alone: every deck meeting at a node agrees on one height there, and each ramps to its own
+// crown from that. DECK_GRADE is the slope those ramps run at (the 1/12.5 the old rampLen implied).
+const DECK_GRADE = 1 / 12.5;
+
+/** does `r` end at (x, z)? (the 0.6 m node tolerance the rest of this file uses) */
+function endsAt(r             , x        , z        )          {
+  const a = r.pts[0], b = r.pts[r.pts.length - 1];
+  return Math.hypot(a[0] - x, a[1] - z) < 0.6 || Math.hypot(b[0] - x, b[1] - z) < 0.6;
+}
+
+/**
+ * The deck height every bridge meeting at this node has to share, so none of them steps. The lowest
+ * wins: the spans either side then climb to their own crown over a ramp, where a taller node height
+ * would have dumped the whole difference onto whichever span was shorter. Every deck at the node takes
+ * the min over the same set (itself included), so they all arrive at the same number whatever order the
+ * tiles are built in -- which matters, because neighbouring tiles profile the same segment separately.
+ */
+function nodeHeight(env         , x        , z        , self             )         {
+  let h = isGroundNode(env, x, z, self) ? 0 : deckHeightFor(self);
+  if (h <= 0) return 0; // a street lands here: the deck has to come down to it
+  for (const r of env.ctx.world.roadsNear(x, z, 3)) {
+    if (r === self || r.id === self.id || !r.bridge || r.tunnel || r.pts.length < 2 || r.cls === 'steps') continue;
+    if (!endsAt(r, x, z)) continue;
+    // a footway deck and a roadway deck sharing a node are joined like any other pair -- one of them has
+    // to move, and deckHeightFor giving footways their own heights is no reason to leave a step instead
+    h = Math.min(h, isGroundNode(env, x, z, r) ? 0 : deckHeightFor(r));
+    if (h <= 0) return 0;
+  }
+  return h;
+}
+
+/** subdivide a polyline so no piece is longer than maxLen; keeps arc-length s per point (from s0) */
+function densify(pts      , s0        , maxLen        )                             {
+  const out       = [pts[0]];
+  const s           = [s0];
+  let acc = s0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const n = Math.max(1, Math.ceil(l / maxLen));
+    for (let k = 1; k <= n; k++) {
+      const t = k / n;
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+      s.push(acc + l * t);
+    }
+    acc += l;
+  }
+  return { pts: out, s };
+}
+
+/** deck half-width, crown height and height-along-arc-length: the profile buildBridges gives this segment. */
+function deckProfile(env         , r             )                                                        {
+  return clearanceProfile(env, r, baseDeckProfile);
+}
+
+function baseDeckProfile(env         , r             )                                                        {
+  const foot = !VEHICULAR.has(r.cls);
+  if (!r.bridge) return { hw: Math.max(foot ? 1.2 : 3.2, r.width / 2), H: 0, hAt: () => 0 };
+  const L = polylineLength(r.pts);
+  const e = r.pts[r.pts.length - 1];
+  const h0 = nodeHeight(env, r.pts[0][0], r.pts[0][1], r);
+  const h1 = nodeHeight(env, e[0], e[1], r);
+  let H = deckHeightFor(r);
+  // A span that runs deck-to-deck cannot climb further than its own length allows, so a 17 m stub tagged
+  // one layer up stays with its neighbours instead of humping 6 m and back. A span ramping from the ground
+  // is exempt: it has to reach whatever it crosses, however short and steep the approach.
+  if (h0 > 0 && h1 > 0) {
+    const reach = DECK_GRADE * L * 0.5;
+    H = Math.min(Math.max(H, Math.min(h0, h1) - reach), Math.max(h0, h1) + reach);
+  }
+  // Each end gets the run DECK_GRADE asks for, and when together they want more than the span has they
+  // share it in proportion -- so an end already at the crown lends its half to the end that has to climb,
+  // instead of the old fixed half-and-half packing an 11 m drop into 6 m. Two ends the same distance from
+  // the crown (every span that ramps from the ground at both ends) split it evenly, exactly as before.
+  let ramp0 = Math.abs(H - h0) / DECK_GRADE, ramp1 = Math.abs(H - h1) / DECK_GRADE;
+  if (ramp0 + ramp1 > L) {
+    const k = L / (ramp0 + ramp1);
+    ramp0 *= k;
+    ramp1 *= k;
+  }
+  return {
+    hw: Math.max(foot ? 1.2 : 3.2, r.width / 2),
+    H,
+    // The ramps never overlap, so each end lands exactly on its node height and the crown holds through
+    // whatever is left in the middle. Reduces to the old H * smooth(s/ramp) * smooth((L-s)/ramp)
+    // whenever both ends sit on the ground.
+    hAt: (s) => {
+      const a = ramp0 > 0 ? smooth(s / ramp0) : 1;
+      const b = ramp1 > 0 ? smooth((L - s) / ramp1) : 1;
+      const h = H + (h0 - H) * (1 - a) + (h1 - H) * (1 - b);
+      return h > 0 ? h : 0;
+    },
+  };
+}
+
+// A ramp and the motorway it merges with, or the two carriageways of one viaduct, arrive as separate
+// RoadSegments whose decks all but touch. Built independently each grows its own parapet down the shared
+// side, so the pair reads as two walls with an unreachable slot between them -- and those walls run
+// straight through the node where the ramp is supposed to merge. These bound "the deck beside me is part
+// of the same structure": close the gap to it and drop the wall.
+const JOIN_GAP = 3.0; // widest edge-to-edge clearance still counted as one structure
+const JOIN_DH = 1.2; // ...provided the two decks are at the same level, not stacked
+const JOIN_PARALLEL = 0.5; // ...and running roughly along each other, not crossing
+// A ramp does not always meet its motorway edge-on: at a gore it comes in steeply enough to fail
+// JOIN_PARALLEL, and its deck edge ends up not beside the carriageway but out on it. The parapet that
+// edge carries is then a wall standing across the lanes. Two decks this deep into each other at the same
+// height are always one junction -- decks that truly cross are at different heights -- so past this depth
+// the parallel test is dropped and the wall goes, whatever the angle.
+const JOIN_OVER = 0.3; // how far inside the neighbour's half-width counts as "on it", not "beside it"
+
+
+
+
+
+
+
+
+
+/** every vehicular deck this tile can see, profiled once, with a padded bbox for cheap rejection */
+function deckNeighbours(env         )                  {
+  const { rect } = env;
+  const cx = (rect.minX + rect.maxX) / 2, cz = (rect.minZ + rect.maxZ) / 2;
+  const reach = Math.hypot(rect.maxX - cx, rect.maxZ - cz) + 48;
+  const out                  = [];
+  const seen = new Set        ();
+  for (const r of env.ctx.world.roadsNear(cx, cz, reach)) {
+    if (seen.has(r.id) || r.tunnel || r.pts.length < 2 || !VEHICULAR.has(r.cls)) continue;
     seen.add(r.id);
-    let foot=!dr.has(r.cls);
-    if(r.cls===`steps`)continue;
-    let L=ar(r.pts);
-    if(L<2)continue;
-    // H is the crown $deckProfile settled on, not Nr's raw layer height: the piers below follow it
-    let{hw,H,hAt}=$deckProfile(env,r);if(H<.05)continue;let slabT=foot?.4:r.cls===`motorway`||r.cls===`trunk`?1:1.4,
-        steel=!foot&&r.cls!==`motorway`&&r.cls!==`trunk`,
-        fascia=foot?Or:steel?r.layer<=1?Ar:jr:Or,
-        fasciaMat=foot?0:+!!steel,
-        jersey=!foot&&(r.cls===`motorway`||r.cls===`trunk`),
-        kind=foot?Q.plainConcrete:Cr(r.surface),
-        rand=Z(env.seed,r.id);
-    for(let piece of cr(r.pts,rect)){
-      let d=Ir(piece.pts,piece.s0,4),hs=d.s.map(hAt);
-      if(hs.every(h=>h<.05))continue;
-      let{left,right}=Er(gb,d.pts,hw,i=>Sr+hs[i],kind,foot?0:.9,rand);
-      // Where another deck of the same structure faces an edge, walk that edge out to meet it (the
-      // neighbour covers the other half of the gap) and remember not to wall the join off. Two decks
-      // running against each other still keep one parapet between them - the median barrier - so only
-      // the higher id gives up its own. Done before the collider copy below, which reads those back.
-      let joined=[[],[]],walled=[[],[]];
-      if(!foot)for(let i=0;i<d.pts.length;i++){
-        let a=d.pts[Math.max(0,i-1)],b=d.pts[Math.min(d.pts.length-1,i+1)],
-            tl=Math.hypot(b[0]-a[0],b[1]-a[1])||1,ux=(b[0]-a[0])/tl,uz=(b[1]-a[1])/tl;
-        for(let k=0;k<2;k++){
-          let vi=(k===0?left:right)[i],ex=gb.pos[vi*3],ez=gb.pos[vi*3+2],
-              f=$facingDeck(joins,r.id,ex,ez,hs[i],ux,uz);
-          if(!f)continue;
-          joined[k][i]=!0;
-          // the median between two opposed carriageways - but never across a carriageway
-          walled[k][i]=!f.over&&f.dot<0&&r.id<f.id;
-          if(f.gap>.05){
-            let ox=ex-d.pts[i][0],oz=ez-d.pts[i][1],ol=Math.hypot(ox,oz)||1,ext=f.gap*.5+.1;
-            gb.pos[vi*3]=ex+ox/ol*ext;
-            gb.pos[vi*3+2]=ez+oz/ol*ext;
+    const { hw, H, hAt } = deckProfile(env, r);
+    if (H < 0.05) continue;
+    const pad = hw + JOIN_GAP;
+    const bb       = { minX: Infinity, minZ: Infinity, maxX: -Infinity, maxZ: -Infinity };
+    const cum = [0];
+    for (let i = 0; i < r.pts.length; i++) {
+      const [x, z] = r.pts[i];
+      if (x - pad < bb.minX) bb.minX = x - pad;
+      if (x + pad > bb.maxX) bb.maxX = x + pad;
+      if (z - pad < bb.minZ) bb.minZ = z - pad;
+      if (z + pad > bb.maxZ) bb.maxZ = z + pad;
+      if (i > 0) cum.push(cum[i - 1] + Math.hypot(x - r.pts[i - 1][0], z - r.pts[i - 1][1]));
+    }
+    out.push({ seg: r, bb, cum, hw, hAt });
+  }
+  return out;
+}
+
+/** the deck (if any) whose own edge faces this deck edge closely enough to be the same structure */
+function facingDeck(list                 , skipId        , ex        , ez        , h        , ux        , uz        , barrier = false)                                                                 {
+  let best                                                                 = null;
+  for (const n of list) {
+    if (n.seg.id === skipId) continue;
+    const bb = n.bb;
+    if (ex < bb.minX || ex > bb.maxX || ez < bb.minZ || ez > bb.maxZ) continue;
+    const pts = n.seg.pts;
+    let bd2 = Infinity, bs = 0, bdx = 1, bdz = 0, beyondEnd = false;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const ax = pts[i][0], az = pts[i][1];
+      const vx = pts[i + 1][0] - ax, vz = pts[i + 1][1] - az;
+      const len2 = vx * vx + vz * vz;
+      if (len2 < 1e-6) continue;
+      let t = ((ex - ax) * vx + (ez - az) * vz) / len2;
+      const outside = t < 0 && i === 0 || t > 1 && i + 2 === pts.length;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const dx = ex - (ax + vx * t), dz = ez - (az + vz * t);
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bd2) {
+        bd2 = d2; beyondEnd = outside;
+        const len = Math.sqrt(len2);
+        bs = n.cum[i] + t * len;
+        bdx = vx / len; bdz = vz / len;
+      }
+    }
+    if (bd2 === Infinity || beyondEnd) continue;
+    const gap = Math.sqrt(bd2) - n.hw;
+    if (gap > JOIN_GAP || (best && gap >= best.gap)) continue;
+    if (Math.abs(n.hAt(bs) - h) > (barrier ? 0.25 : JOIN_DH)) continue; // stacked decks (upper/lower level) are not neighbours
+    const dot = ux * bdx + uz * bdz;
+    const over = gap < -JOIN_OVER; // this edge is out on the neighbour's carriageway, not alongside it
+    if (!over && Math.abs(dot) < JOIN_PARALLEL) continue; // a deck crossing at an angle still needs its wall
+    best = { gap, dot, id: n.seg.id, over };
+  }
+  return best;
+}
+
+function inRect(r      , x        , z        )          {
+  return x >= r.minX + 0.05 && x < r.maxX - 0.05 && z >= r.minZ + 0.05 && z < r.maxZ - 0.05;
+}
+
+function buildBridges(env         , gb               , sb               , out           )       {
+  const { tile, rect } = env;
+  const seen = new Set        ();
+  const low = env.ctx.quality.level === 'low';
+  const joins = deckNeighbours(env);
+  const planSupport = supportPlanner(env, deckProfile);
+  const pavement = roadFootprints([...tile.roads, ...env.ctx.world.roadsNear((rect.minX + rect.maxX) / 2, (rect.minZ + rect.maxZ) / 2, 280)], r => deckProfile(env, r));
+  for (const r of tile.roads) {
+    if (r.tunnel || seen.has(r.id) || r.pts.length < 2) continue;
+    seen.add(r.id);
+    const foot = !VEHICULAR.has(r.cls);
+    if (r.cls === 'steps') continue;
+    const L = polylineLength(r.pts);
+    if (L < 2) continue;
+    // H is the crown deckProfile settled on, not deckHeightFor's raw layer height: the piers below follow it
+    const { hw, H, hAt } = deckProfile(env, r);
+    if (H < 0.05) continue;
+    const slabT = foot ? 0.4 : r.cls === 'motorway' || r.cls === 'trunk' ? 1.0 : 1.4;
+    const steel = !foot && r.cls !== 'motorway' && r.cls !== 'trunk';
+    const fascia                           = foot ? CONCRETE : steel ? (r.layer <= 1 ? STEEL_GREEN : STEEL_GREY) : CONCRETE;
+    const fasciaMat = foot ? 0 : steel ? 1 : 0;
+    const jersey = !foot && (r.cls === 'motorway' || r.cls === 'trunk');
+    const kind = foot ? KIND.plainConcrete : kindForSurface(r.surface);
+    const rand = hash2(env.seed, r.id);
+    let edges                                          ;
+
+    for (const piece of clipPolylineToRect(r.pts, rect)) {
+      const d = densify(piece.pts, piece.s0, 4);
+      const hs = d.s.map(hAt);
+      // skip pieces that never leave the ground
+      if (hs.every((h) => h < 0.05)) continue;
+      // deck top (into the roadbed mesh so it shares the asphalt shader)
+      const { left, right } = ribbon(gb, d.pts, hw, (i) => ROAD_Y + hs[i], kind, foot ? 0 : 0.9, rand);
+      edges ??= deckEdges(r, tile.roads, hw, q => foot ? [0, 0] : [q.left, q.right].map(p => {
+        const join = facingDeck(joins.filter(n => !q.continuations.includes(n.seg.id)), r.id, p[0], p[1], hAt(q.s), q.dx, q.dz);
+        return join && join.gap > 0.05 ? join.gap * 0.5 + 0.1 : 0;
+      }));
+      for (let i = 0; i < d.s.length; i++) {
+        const pair = edges(d.s[i]);
+        for (let side = 0; side < 2; side++) {
+          const v = (side ? right : left)[i];
+          gb.pos[v * 3] = pair[side][0]; gb.pos[v * 3 + 2] = pair[side][1];
+        }
+      }
+      // Record shared edges after the whole-way taper. These flags hide buried
+      // slab faces; barriers check their own short intervals below.
+      const joined                         = [[], []];
+      const walled                         = [[], []];
+      if (!foot) {
+        for (let i = 0; i < d.pts.length; i++) {
+          const a = d.pts[Math.max(0, i - 1)], b = d.pts[Math.min(d.pts.length - 1, i + 1)];
+          const tl = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+          const ux = (b[0] - a[0]) / tl, uz = (b[1] - a[1]) / tl;
+          for (let k = 0; k < 2; k++) {
+            const vi = (k === 0 ? left : right)[i];
+            const ex = gb.pos[vi * 3], ez = gb.pos[vi * 3 + 2];
+            const f = facingDeck(joins, r.id, ex, ez, hs[i], ux, uz);
+            if (!f) continue;
+            joined[k][i] = true;
+            // the median between two opposed carriageways -- but never across a carriageway
+            walled[k][i] = !f.over && f.dot < 0 && r.id < f.id;
           }
         }
       }
-      const surface=left.flatMap((l,i)=>[l,right[i]].flatMap(v=>[gb.pos[v*3],gb.pos[v*3+1]-Sr,gb.pos[v*3+2]]));
-      out.decks.push({roadId:r.id,pts:d.pts.map((p,i)=>({x:p[0],z:p[1],h:hs[i]})),hw,surface});
-      let cb=out.cpos.length/3;
-      for(let i=0;i<left.length;i++){
-        out.cpos.push(gb.pos[left[i]*3],gb.pos[left[i]*3+1],gb.pos[left[i]*3+2]);
-        out.cpos.push(gb.pos[right[i]*3],gb.pos[right[i]*3+1],gb.pos[right[i]*3+2]);
+      const surface = left.flatMap((l, i) => [l, right[i]].flatMap(v => [gb.pos[v * 3], gb.pos[v * 3 + 1] - ROAD_Y, gb.pos[v * 3 + 2]]));
+      out.decks.push({ roadId: r.id, pts: d.pts.map((p, i) => ({ x: p[0], z: p[1], h: hs[i] })), hw, surface });
+      // collider: copy the deck top
+      const cb = out.cpos.length / 3;
+      for (let i = 0; i < left.length; i++) {
+        out.cpos.push(gb.pos[left[i] * 3], gb.pos[left[i] * 3 + 1], gb.pos[left[i] * 3 + 2]);
+        out.cpos.push(gb.pos[right[i] * 3], gb.pos[right[i] * 3 + 1], gb.pos[right[i] * 3 + 2]);
       }
-      for(let i=0;i+1<left.length;i++){
-        let l0=cb+i*2,r0=l0+1,l1=l0+2,r1=l0+3;
-        out.cidx.push(l0,r1,l1,l0,r0,r1);
+      for (let i = 0; i + 1 < left.length; i++) {
+        const l0 = cb + i * 2, r0 = l0 + 1, l1 = l0 + 2, r1 = l0 + 3;
+        out.cidx.push(l0, r1, l1, l0, r0, r1);
       }
-      let P=vi=>[gb.pos[vi*3],gb.pos[vi*3+1],gb.pos[vi*3+2]];
-      for(let i=0;i+1<left.length;i++){
-        if(hs[i]<.3&&hs[i+1]<.3)continue;
-        let Lt0=P(left[i]),Lt1=P(left[i+1]),Rt0=P(right[i]),Rt1=P(right[i+1]),
-            Lb0=[Lt0[0],Lt0[1]-slabT,Lt0[2]],Lb1=[Lt1[0],Lt1[1]-slabT,Lt1[2]],
-            Rb0=[Rt0[0],Rt0[1]-slabT,Rt0[2]],Rb1=[Rt1[0],Rt1[1]-slabT,Rt1[2]],
-            joinL=joined[0][i]&&joined[0][i+1],joinR=joined[1][i]&&joined[1][i+1];
+      // slab sides + underside + parapets
+      const P = (vi        ) => [gb.pos[vi * 3], gb.pos[vi * 3 + 1], gb.pos[vi * 3 + 2]];
+      for (let i = 0; i + 1 < left.length; i++) {
+        if (hs[i] < 0.3 && hs[i + 1] < 0.3) continue;
+        const Lt0 = P(left[i]), Lt1 = P(left[i + 1]), Rt0 = P(right[i]), Rt1 = P(right[i + 1]);
+        const Lb0 = [Lt0[0], Lt0[1] - slabT, Lt0[2]], Lb1 = [Lt1[0], Lt1[1] - slabT, Lt1[2]];
+        const Rb0 = [Rt0[0], Rt0[1] - slabT, Rt0[2]], Rb1 = [Rt1[0], Rt1[1] - slabT, Rt1[2]];
+        const joinL = joined[0][i] && joined[0][i + 1], joinR = joined[1][i] && joined[1][i + 1];
         // a fascia buried in the neighbouring slab is invisible and z-fights it
-        if(!joinL)sb.face([Lt0,Lt1,Lb1,Lb0],fascia,fasciaMat);
-        if(!joinR)sb.face([Rt1,Rt0,Rb0,Rb1],fascia,fasciaMat);
-        sb.face([Lb0,Lb1,Rb1,Rb0],kr,0);
-        let dx=Lt1[0]-Lt0[0],dz=Lt1[2]-Lt0[2],len=Math.hypot(dx,dz)||1,
-            ux=dx/len,uz=dz/len,rx=-uz,rz=ux;
-        for(let side of[-1,1]){
-          let k=side<0?0:1;
-          if((joined[k][i]||joined[k][i+1])&&!(walled[k][i]&&walled[k][i+1]))continue;
-          let T0=side<0?Lt0:Rt0,T1=side<0?Lt1:Rt1,inx=-side*rx,inz=-side*rz;
-          if(jersey){
-            let b0=[T0[0]+inx*.1,T0[1],T0[2]+inz*.1],b1=[T1[0]+inx*.1,T1[1],T1[2]+inz*.1],
-                b2=[T1[0]+inx*.65,T1[1],T1[2]+inz*.65],b3=[T0[0]+inx*.65,T0[1],T0[2]+inz*.65],
-                t0=[T0[0]+inx*.28,T0[1]+.81,T0[2]+inz*.28],t1=[T1[0]+inx*.28,T1[1]+.81,T1[2]+inz*.28],
-                t2=[T1[0]+inx*.48,T1[1]+.81,T1[2]+inz*.48],t3=[T0[0]+inx*.48,T0[1]+.81,T0[2]+inz*.48];
-            zr(sb,[b0,b1,b2,b3],[t0,t1,t2,t3],Or,0,out,!0);
-          }else{
-            let off=.12,railW=.06,
-                base0=[T0[0]+inx*off,T0[1],T0[2]+inz*off],base1=[T1[0]+inx*off,T1[1],T1[2]+inz*off],
-                railH=foot?1.1:1.05;
-            Br(sb,base0,base1,inx,inz,railW,railH-.06,railH,Mr,2,out);
-            Br(sb,base0,base1,inx,inz,railW,.1,.16,Mr,2,out);
-            if(!low){
-              let nb=Math.max(1,Math.round(len/.2));
-              for(let j=0;j<nb;j++){
-                let t=(j+.5)/nb;
-                Vr(sb,base0[0]+(base1[0]-base0[0])*t,base0[1]+(base1[1]-base0[1])*t,base0[2]+(base1[2]-base0[2])*t,ux,uz,.022,.16,railH-.06,Mr,2);
+        if (!joinL) sb.face([Lt0, Lt1, Lb1, Lb0], fascia, fasciaMat);
+        if (!joinR) sb.face([Rt1, Rt0, Rb0, Rb1], fascia, fasciaMat);
+        sb.face([Lb0, Lb1, Rb1, Rb0], CONCRETE_DARK, 0);
+        // parapet
+        const dx = Lt1[0] - Lt0[0], dz = Lt1[2] - Lt0[2];
+        const len = Math.hypot(dx, dz) || 1;
+        const ux = dx / len, uz = dz / len;
+        const rx = -uz, rz = ux; // right of travel (unit)
+        for (const side of [-1, 1]) {
+          const k = side < 0 ? 0 : 1;
+          if (!jersey && (joined[k][i] || joined[k][i + 1]) && !(walled[k][i] && walled[k][i + 1])) continue;
+          const T0 = side < 0 ? Lt0 : Rt0, T1 = side < 0 ? Lt1 : Rt1;
+          const inx = -side * rx, inz = -side * rz; // inward (toward the deck centre)
+          if (jersey) {
+            const runs = barrierRuns(T0, T1, mid => {
+              // Remove concrete that occupies another carriageway's driving
+              // clearance, including a sloping merge at a slightly different Y.
+              if (pavement.obstructs(mid[0] + inx * 0.38, mid[2] + inz * 0.38, 0,
+                (other, floor) => other.id !== r.id && VEHICULAR.has(other.cls)
+                  && mid[1] + 0.81 > floor + ROAD_Y + 0.05 && mid[1] < floor + ROAD_Y + 4.2)) return true;
+              const neighbour = facingDeck(joins, r.id, mid[0], mid[2], mid[1] - ROAD_Y, ux, uz, true);
+              return !!neighbour && !(!neighbour.over && neighbour.dot < 0 && r.id < neighbour.id);
+            });
+            for (const [A, B] of runs) {
+              const b0 = [A[0] + inx * 0.1, A[1], A[2] + inz * 0.1], b1 = [B[0] + inx * 0.1, B[1], B[2] + inz * 0.1];
+              const b2 = [B[0] + inx * 0.65, B[1], B[2] + inz * 0.65], b3 = [A[0] + inx * 0.65, A[1], A[2] + inz * 0.65];
+              const t0 = [A[0] + inx * 0.28, A[1] + 0.81, A[2] + inz * 0.28], t1 = [B[0] + inx * 0.28, B[1] + 0.81, B[2] + inz * 0.28];
+              const t2 = [B[0] + inx * 0.48, B[1] + 0.81, B[2] + inz * 0.48], t3 = [A[0] + inx * 0.48, A[1] + 0.81, A[2] + inz * 0.48];
+              solid(sb, [b0, b1, b2, b3], [t0, t1, t2, t3], CONCRETE, 0, out, true);
+            }
+          } else {
+            // iron railing: rails + posts + balusters
+            const off = 0.12;
+            const railW = 0.06;
+            const base0 = [T0[0] + inx * off, T0[1], T0[2] + inz * off], base1 = [T1[0] + inx * off, T1[1], T1[2] + inz * off];
+            const railH = foot ? 1.1 : 1.05;
+            bar(sb, base0, base1, inx, inz, railW, railH - 0.06, railH, IRON, 2, out);
+            bar(sb, base0, base1, inx, inz, railW, 0.1, 0.16, IRON, 2, out);
+            if (!low) {
+              const nb = Math.max(1, Math.round(len / 0.2));
+              for (let k = 0; k < nb; k++) {
+                const t = (k + 0.5) / nb;
+                const cx = base0[0] + (base1[0] - base0[0]) * t, cy = base0[1] + (base1[1] - base0[1]) * t, cz = base0[2] + (base1[2] - base0[2]) * t;
+                post(sb, cx, cy, cz, ux, uz, 0.022, 0.16, railH - 0.06, IRON, 2);
               }
             }
-            let np=Math.max(1,Math.round(len/2));
-            for(let j=0;j<=np;j++){
-              let t=j/np;
-              if(j===np&&i+2<left.length)continue;
-              Vr(sb,base0[0]+(base1[0]-base0[0])*t,base0[1]+(base1[1]-base0[1])*t,base0[2]+(base1[2]-base0[2])*t,ux,uz,.08,0,railH+.04,Mr,2);
+            const np = Math.max(1, Math.round(len / 2));
+            for (let k = 0; k <= np; k++) {
+              const t = k / np;
+              if (k === np && i + 2 < left.length) continue; // the next piece starts with this post
+              const cx = base0[0] + (base1[0] - base0[0]) * t, cy = base0[1] + (base1[1] - base0[1]) * t, cz = base0[2] + (base1[2] - base0[2]) * t;
+              post(sb, cx, cy, cz, ux, uz, 0.08, 0, railH + 0.04, IRON, 2);
             }
           }
         }
       }
     }
-    if(!foot||H>3)for(let s=12.5;s<L;s+=25){
-      let h=hAt(s);
-      if(h<2.5)continue;
-      let q=or(r.pts,s);
-      if(!Lr(rect,q.x,q.z))continue;
-      let rx=-q.dz,rz=q.dx,top=h+Sr-slabT,capH=foot?.5:1,cwid=foot?.35:.55;
-      const support=planSupport(r,q,hw,top,capH,cwid);
-      if(!support)continue;
-      let cw=support.halfWidth,cd=.5,
-          b=[[q.x-rx*cw-q.dx*cd,top-capH,q.z-rz*cw-q.dz*cd],
-             [q.x+rx*cw-q.dx*cd,top-capH,q.z+rz*cw-q.dz*cd],
-             [q.x+rx*cw+q.dx*cd,top-capH,q.z+rz*cw+q.dz*cd],
-             [q.x-rx*cw+q.dx*cd,top-capH,q.z-rz*cw+q.dz*cd]];
-      zr(sb,b,b.map(p=>[p[0],top,p[2]]),Or,0,out,!1);
-      let cols=support.offsets;
-      for(let off of cols){
-        let cx=q.x+rx*off,cz=q.z+rz*off,cwid=foot?.35:.55,
-            cbq=[[cx-rx*cwid-q.dx*cwid,0,cz-rz*cwid-q.dz*cwid],
-                 [cx+rx*cwid-q.dx*cwid,0,cz+rz*cwid-q.dz*cwid],
-                 [cx+rx*cwid+q.dx*cwid,0,cz+rz*cwid+q.dz*cwid],
-                 [cx-rx*cwid+q.dx*cwid,0,cz-rz*cwid+q.dz*cwid]];
-        zr(sb,cbq,cbq.map(p=>[p[0],top-capH+.01,p[2]]),Or,0,out,!0);
+    // piers every 25 m along the whole segment (only those inside this tile)
+    if (!foot || H > 3) {
+      for (let s = 12.5; s < L; s += 25) {
+        const h = hAt(s);
+        if (h < 2.5) continue;
+        const q = pointAlong(r.pts, s);
+        if (!inRect(rect, q.x, q.z)) continue;
+        const rx = -q.dz, rz = q.dx;
+        const top = h + ROAD_Y - slabT;
+        const capH = foot ? 0.5 : 1.0;
+        const cwid = foot ? 0.35 : 0.55;
+        const support = planSupport(r, q, hw, top, capH, cwid);
+        if (!support) continue;
+        // cap beam
+        const cw = support.halfWidth, cd = 0.5;
+        const b = [
+          [q.x - rx * cw - q.dx * cd, top - capH, q.z - rz * cw - q.dz * cd],
+          [q.x + rx * cw - q.dx * cd, top - capH, q.z + rz * cw - q.dz * cd],
+          [q.x + rx * cw + q.dx * cd, top - capH, q.z + rz * cw + q.dz * cd],
+          [q.x - rx * cw + q.dx * cd, top - capH, q.z - rz * cw + q.dz * cd],
+        ];
+        const t = b.map((p) => [p[0], top, p[2]]);
+        solid(sb, b, t, CONCRETE, 0, out, false);
+        const cols = support.offsets;
+        for (const off of cols) {
+          const cx = q.x + rx * off, cz = q.z + rz * off;
+          const cb = [
+            [cx - rx * cwid - q.dx * cwid, 0, cz - rz * cwid - q.dz * cwid],
+            [cx + rx * cwid - q.dx * cwid, 0, cz + rz * cwid - q.dz * cwid],
+            [cx + rx * cwid + q.dx * cwid, 0, cz + rz * cwid + q.dz * cwid],
+            [cx - rx * cwid + q.dx * cwid, 0, cz - rz * cwid + q.dz * cwid],
+          ];
+          const ct = cb.map((p) => [p[0], top - capH + 0.01, p[2]]);
+          solid(sb, cb, ct, CONCRETE, 0, out, true);
+        }
       }
     }
   }
 }
+
+/** a prism from a bottom quad and a top quad (any orientation); faces are oriented outward automatically */
+function solid(sb               , b            , t            , color                          , mat        , out                  , collide         )       {
+  const all = [...b, ...t];
+  const c = [0, 0, 0];
+  for (const p of all) { c[0] += p[0] / 8; c[1] += p[1] / 8; c[2] += p[2] / 8; }
+  const faces = [
+    [t[0], t[1], t[2], t[3]],
+    [b[0], b[1], b[2], b[3]],
+    [b[0], b[1], t[1], t[0]],
+    [b[1], b[2], t[2], t[1]],
+    [b[2], b[3], t[3], t[2]],
+    [b[3], b[0], t[0], t[3]],
+  ];
+  for (const f of faces) {
+    const ux = f[1][0] - f[0][0], uy = f[1][1] - f[0][1], uz = f[1][2] - f[0][2];
+    const vx = f[2][0] - f[0][0], vy = f[2][1] - f[0][1], vz = f[2][2] - f[0][2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const fc = [(f[0][0] + f[2][0]) / 2, (f[0][1] + f[2][1]) / 2, (f[0][2] + f[2][2]) / 2];
+    const dot = nx * (fc[0] - c[0]) + ny * (fc[1] - c[1]) + nz * (fc[2] - c[2]);
+    const ordered = dot >= 0 ? f : [f[0], f[3], f[2], f[1]];
+    sb.face(ordered, color, mat, false);
+    if (collide && out) {
+      const cb = out.cpos.length / 3;
+      for (const q of ordered) out.cpos.push(q[0], q[1], q[2]);
+      out.cidx.push(cb, cb + 1, cb + 2, cb, cb + 2, cb + 3);
+    }
+  }
+}
+
+/** horizontal bar along base0->base1 (deck-top coordinates), width w toward `in`, between heights y0..y1 above the deck */
+function bar(sb               , a          , b          , inx        , inz        , w        , y0        , y1        , color                          , mat        , out           )       {
+  const bot = [
+    [a[0], a[1] + y0, a[2]],
+    [b[0], b[1] + y0, b[2]],
+    [b[0] + inx * w, b[1] + y0, b[2] + inz * w],
+    [a[0] + inx * w, a[1] + y0, a[2] + inz * w],
+  ];
+  const top = bot.map((p, i) => [p[0], (i < 2 ? (i === 0 ? a[1] : b[1]) : i === 2 ? b[1] : a[1]) + y1, p[2]]);
+  solid(sb, bot, top, color, mat, out, y1 > 0.5);
+}
+
+function post(sb               , cx        , cy        , cz        , ux        , uz        , size        , y0        , y1        , color                          , mat        )       {
+  const rx = -uz, rz = ux;
+  const h = size / 2;
+  const bot = [
+    [cx - ux * h - rx * h, cy + y0, cz - uz * h - rz * h],
+    [cx + ux * h - rx * h, cy + y0, cz + uz * h - rz * h],
+    [cx + ux * h + rx * h, cy + y0, cz + uz * h + rz * h],
+    [cx - ux * h + rx * h, cy + y0, cz - uz * h + rz * h],
+  ];
+  const top = bot.map((p) => [p[0], cy + y1, p[2]]);
+  solid(sb, bot, top, color, mat, null, false);
+}
+
+/** Open tunnel interiors, including collidable floors and ceilings. */
+function buildPortals(env         , sb               , out           )       {
+  buildTunnels(env, sb, out);
+}
+
+/** height of the highest deck over a point (0 = ground). Uses the tile's deck samples. */
+function deckHeightIn(decks              , x        , z        , roadId         )         {
+  let best = 0;
+  for (const d of decks) {
+    if (roadId !== undefined && d.roadId !== roadId) continue;
+    const pts = d.pts;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const ex = b.x - a.x, ez = b.z - a.z;
+      const len2 = ex * ex + ez * ez;
+      if (len2 < 1e-6) continue;
+      let t = ((x - a.x) * ex + (z - a.z) * ez) / len2;
+      if (t < -0.02 || t > 1.02) continue;
+      t = Math.max(0, Math.min(1, t));
+      const px = a.x + ex * t, pz = a.z + ez * t;
+      if (Math.hypot(x - px, z - pz) > d.hw + 0.3) continue;
+      const h = a.h + (b.h - a.h) * t;
+      if (h > best) best = h;
+    }
+  }
+  return best;
+}
+
+return buildBridges;
+})();
+function Rr(...args){return $edgeBridgeBuilder(...args)}
 function zr(e,t,n,r,i,a,o){let s=[...t,...n],c=[0,0,0];for(let e of s)c[0]+=e[0]/8,c[1]+=e[1]/8,c[2]+=e[2]/8;let l=[[n[0],n[1],n[2],n[3]],[t[0],t[1],t[2],t[3]],[t[0],t[1],n[1],n[0]],[t[1],t[2],n[2],n[1]],[t[2],t[3],n[3],n[2]],[t[3],t[0],n[0],n[3]]];for(let t of l){let n=t[1][0]-t[0][0],s=t[1][1]-t[0][1],l=t[1][2]-t[0][2],u=t[2][0]-t[0][0],d=t[2][1]-t[0][1],f=t[2][2]-t[0][2],p=s*f-l*d,m=l*u-n*f,h=n*d-s*u,g=[(t[0][0]+t[2][0])/2,(t[0][1]+t[2][1])/2,(t[0][2]+t[2][2])/2],_=p*(g[0]-c[0])+m*(g[1]-c[1])+h*(g[2]-c[2])>=0?t:[t[0],t[3],t[2],t[1]];if(e.face(_,r,i,!1),o&&a){let e=a.cpos.length/3;for(let e of _)a.cpos.push(e[0],e[1],e[2]);a.cidx.push(e,e+1,e+2,e,e+2,e+3)}}}function Br(e,t,n,r,i,a,o,s,c,l,u){let d=[[t[0],t[1]+o,t[2]],[n[0],n[1]+o,n[2]],[n[0]+r*a,n[1]+o,n[2]+i*a],[t[0]+r*a,t[1]+o,t[2]+i*a]];zr(e,d,d.map((e,r)=>[e[0],(r<2?r===0?t[1]:n[1]:r===2?n[1]:t[1])+s,e[2]]),c,l,u,s>.5)}function Vr(e,t,n,r,i,a,o,s,c,l,u){let d=-a,f=i,p=o/2,m=[[t-i*p-d*p,n+s,r-a*p-f*p],[t+i*p-d*p,n+s,r+a*p-f*p],[t+i*p+d*p,n+s,r+a*p+f*p],[t-i*p+d*p,n+s,r-a*p+f*p]];zr(e,m,m.map(e=>[e[0],n+c,e[2]]),l,u,null,!1)}function Hr(e,t,n){$tunnelBuild(e,t,n)}function Ur(e,t,n,roadId){let r=0;for(let i of e){if(roadId!==undefined&&i.roadId!==roadId)continue;let e=i.pts;for(let a=0;a+1<e.length;a++){let o=e[a],s=e[a+1],c=s.x-o.x,l=s.z-o.z,u=c*c+l*l;if(u<1e-6)continue;let d=((t-o.x)*c+(n-o.z)*l)/u;if(d<-.02||d>1.02)continue;d=Math.max(0,Math.min(1,d));let f=o.x+c*d,p=o.z+l*d;if(Math.hypot(t-f,n-p)>i.hw+.3)continue;let m=o.h+(s.h-o.h)*d;m>r&&(r=m)}}return r}let Wr=.15,Gr=.12,Kr=.15,qr={},$=1.6,Jr=1.3,Yr=.6;function Xr(e,t){let n=e.pts[t],r=e.pts[(t+1)%e.pts.length],i=r[0]-n[0],a=r[1]-n[1],o=Math.hypot(i,a)||1;return[a/o*e.sign,-i/o*e.sign,o]}function Zr(e,t,n,r,i=!1,a){let o=[];for(let n=0;n<t.length;n++){let r=t[n];if(r.length<3){if(n===0)return null;continue}let a=Jn(r);if(Math.abs(a)<.05){if(n===0)return null;continue}let s=(n===0?1:-1)*(a>0?1:-1),c={pts:r.map(e=>[e[0],e[1]]),flags:[],sign:s},l=c.pts.length;for(let t=0;t<l;t++){let n=c.pts[t],r=c.pts[(t+1)%l],a=0;if(!ur(n,r,e.rect)){let[o,s,l]=Xr(c,t);if(l>.05){let t=(n[0]+r[0])/2+o*.45,c=(n[1]+r[1])/2+s*.45;if(er(t,c,e.roadbeds,.1))a=1;else if(i){let i=e.roadsS.nearest(t,c,30);i&&i.dist<i.seg.width/2&&Math.abs((r[0]-n[0])*i.dz-(r[1]-n[1])*i.dx)<l*.05&&(a=1)}else l>3&&er(n[0]*.75+r[0]*.25+o*.45,n[1]*.75+r[1]*.25+s*.45,e.roadbeds,.1)&&(a=1)}}c.flags.push(a)}o.push(c)}return o.length?{rings:o,kind:n,rand:r,under:a}:null}function Qr(e,t){let n=[],r=new Map;for(let n of e.tile.crossings){let[e,i]=gr(n.yaw);for(let a of[-1,1]){let o=n.x+e*a*(n.width/2),s=n.z+i*a*(n.width/2),c=null;for(let e of t)for(let t of e.rings){let e=t.pts.length;for(let n=0;n<e;n++){if(t.flags[n]!==1)continue;let r=t.pts[n],i=t.pts[(n+1)%e],a=i[0]-r[0],l=i[1]-r[1],u=a*a+l*l;if(u<3.2*3.2)continue;let d=Math.sqrt(u),f=((o-r[0])*a+(s-r[1])*l)/u;f=Math.max(1.4/d,Math.min(1-1.4/d,f));let p=r[0]+a*f,m=r[1]+l*f,h=Math.hypot(o-p,s-m);h<3.5&&(!c||h<c.d)&&(c={ring:t,edge:n,t:f*d,d:h})}}if(!c)continue;let l=r.get(c.ring);l||r.set(c.ring,l=[]),!l.some(e=>e.edge===c.edge&&Math.abs(e.t-c.t)<2.2)&&l.push({t:c.t,edge:c.edge})}}for(let[e,t]of r){t.sort((e,t)=>e.edge-t.edge||e.t-t.t);let r=[],i=[],a=e.pts.length,o=0;for(let s=0;s<a;s++){let c=e.pts[s],l=e.pts[(s+1)%a];r.push(c);let u=l[0]-c[0],d=l[1]-c[1],f=Math.hypot(u,d)||1,p=u/f,m=d/f,[h,g]=Xr(e,s),_=-h,v=-g,y=!1;for(;o<t.length&&t[o].edge===s;){let e=t[o].t;o++;let a=[c[0]+p*(e-$/2),c[1]+m*(e-$/2)],s=[a[0]+_*Jr,a[1]+v*Jr],l=[s[0]+p*$,s[1]+m*$],u=[c[0]+p*(e+$/2),c[1]+m*(e+$/2)];i.push(1),r.push(a),i.push(2),r.push(s),i.push(3),r.push(l),i.push(4),r.push(u),y=!0,n.push({x:c[0]+p*e,z:c[1]+m*e,tx:p,tz:m,nx:_,nz:v})}i.push(y?1:e.flags[s])}e.pts=r,e.flags=i}return n}function $r(e,t,n){let r=n.rings.map(e=>e.pts),i=ir(r);if(!i)return;let a=t.vertexCount,o=i.verts.length/2,s=Yn(r[0]),c=e.roadsS.nearest((s.minX+s.maxX)/2,(s.minZ+s.maxZ)/2,70),[l,u]=c?mr(c.dx,c.dz):mr(hr[0],hr[1]);for(let r=0;r<o;r++){let a=i.verts[r*2],o=i.verts[r*2+1],s=e.roadsV.nearest(a,o,45,qr);t.vertex(a,Wr,o,0,1,0,n.kind,s?s.side:0,s?s.seg.width/2:0,n.rand,l,u,0,1)}for(let e=0;e<i.tris.length;e+=3){let r=i.tris[e],o=i.tris[e+1],s=i.tris[e+2];n.under&&er((i.verts[r*2]+i.verts[o*2]+i.verts[s*2])/3,(i.verts[r*2+1]+i.verts[o*2+1]+i.verts[s*2+1])/3,n.under)||t.tri(a+r,a+o,a+s)}}function ei(e,t,n,r){for(let i of e.hydrants){let e=i.x-t,a=i.z-n;if(e*e+a*a<r*r)return!0}return!1}function ti(e,t,n,r){for(let i of n.rings){let a=i.pts.length,o=Z(n.rand,i.pts[0][0])*30;for(let s=0;s<a;s++){let c=i.pts[s],l=i.pts[(s+1)%a],[u,d,f]=Xr(i,s),p=i.flags[s];if(p===1){r.curbs.push({ax:c[0],az:c[1],bx:l[0],bz:l[1],nx:u,nz:d});let i=Math.max(1,Math.ceil(f/6));for(let r=0;r<i;r++){let a=r/i,s=(r+1)/i,p=c[0]+(l[0]-c[0])*a,m=c[1]+(l[1]-c[1])*a,h=c[0]+(l[0]-c[0])*s,g=c[1]+(l[1]-c[1])*s,_=+!!ei(e,(p+h)/2,(m+g)/2,4.5),v=o+f*a,y=o+f*s;t.wall(p,m,h,g,0,Gr,u,0,d,Q.curb,v,y,n.rand,_,0,u,d);let b=.7071;t.wall(p,m,h,g,Gr,Wr,u*b,b,d*b,Q.curb,v,y,n.rand,_,.03,u,d);let x=.154,S=-u,C=-d,w=t.vertex(p+S*.02,x,m+C*.02,0,1,0,Q.curb,.02,v,n.rand,u,d,_,0),T=t.vertex(h+S*.02,x,g+C*.02,0,1,0,Q.curb,.02,y,n.rand,u,d,_,0),E=t.vertex(h+S*Kr,x,g+C*Kr,0,1,0,Q.curb,Kr,y,n.rand,u,d,_,0),D=t.vertex(p+S*Kr,x,m+C*Kr,0,1,0,Q.curb,Kr,v,n.rand,u,d,_,0);(g-m)*S-(h-p)*C>0?t.quad(w,T,E,D):t.quad(w,D,E,T)}}else if(p===2||p===4){let e=p===2?c:l,r=p===2?l:c,i=n.rand,a=t.vertex(e[0],Wr,e[1],u,0,d,Q.plainConcrete,0,0,i,0,0,0,0),o=t.vertex(e[0],0,e[1],u,0,d,Q.plainConcrete,0,0,i,0,0,0,0),s=t.vertex(r[0],Wr,r[1],u,0,d,Q.plainConcrete,0,0,i,0,0,0,0),f=r[0]-e[0];-(r[1]-e[1])*u+f*d>0?t.tri(a,o,s):t.tri(a,s,o)}o+=f}}}function ni(e,t,n,r){let{tx:i,tz:a,nx:o,nz:s}=n,c=Wr/Jr,l=Math.hypot(c,1),u=-o*c/l,d=1/l,f=-s*c/l,[p,m]=mr(i,a),h=(e,l)=>{let h=c*e,g=n.x+o*e,_=n.z+s*e;return[t.vertex(g-$/2*i,h,_-$/2*a,u,d,f,l,0,e,r,p,m,0,0),t.vertex(g+$/2*i,h,_+$/2*a,u,d,f,l,$,e,r,p,m,0,0)]},g=h(0,Q.tactile),_=h(Yr,Q.tactile),v=h(Yr,Q.flags),y=h(Jr,Q.flags),b=(e,n)=>{let r=t.pos[e[0]*3],i=t.pos[e[0]*3+2],a=t.pos[e[1]*3],o=t.pos[e[1]*3+2],s=t.pos[n[1]*3],c=t.pos[n[1]*3+2];(o-i)*(s-r)-(a-r)*(c-i)>0?(t.tri(e[0],e[1],n[1]),t.tri(e[0],n[1],n[0])):(t.tri(e[0],n[1],e[1]),t.tri(e[0],n[0],n[1]))};b(g,_),b(v,y)}function ri(e){let t=[...e.tile.buildings.map(e=>e.footprint),...e.tile.water,...e.tile.parks,...e.tile.plazas,...e.tile.medians,...e.tile.parking,...e.tile.roadbeds];for(let{seg:n}of e.roadsS.segs)for(let e=1;e<n.pts.length;e++){let r=n.pts[e-1],i=n.pts[e],a=Math.hypot(i[0]-r[0],i[1]-r[1]);if(a<.01)continue;let o=-(i[1]-r[1])/a*n.width/2,s=(i[0]-r[0])/a*n.width/2;t.push([[[r[0]-o,r[1]-s],[i[0]-o,i[1]-s],[i[0]+o,i[1]+s],[r[0]+o,r[1]+s]]])}let n=t.flatMap(e=>{let t=ir(e);if(!t)return[];let n=[];for(let e=0;e<t.tris.length;e+=3)n.push(t.tris.slice(e,e+3).map(e=>[t.verts[e*2],t.verts[e*2+1]]));return[{bb:Yn(e[0]),triangles:n}]}),r=e.rect,i=[[r.minX,r.minZ],[r.maxX,r.minZ],[r.maxX,r.maxZ],[r.minX,r.maxZ]],a=[];for(let{seg:t}of e.roadsS.segs){if(!fr.has(t.cls)||t.cls===`motorway`||t.cls===`trunk`)continue;let o=t.cls===`residential`||t.cls===`tertiary`?3.8:4.6,s=t.width/2,c=s+o,l={minX:r.minX-c,minZ:r.minZ-c,maxX:r.maxX+c,maxZ:r.maxZ+c};for(let r of cr(t.pts,l)){let c=r.pts;for(let r of[-1,1]){let l=[],u=[];for(let e=0;e<c.length;e++){let[t,n]=c[e],i=c[Math.max(0,e-1)],a=c[Math.min(c.length-1,e+1)],d=Math.hypot(a[0]-i[0],a[1]-i[1])||1,f=-(a[1]-i[1])/d*r,p=(a[0]-i[0])/d*r;l.push([t+f*s,n+p*s]),u.push([t+f*(s+o),n+p*(s+o)])}let d=ir([[...l,...u.reverse()]]);if(d)for(let o=0;o<d.tris.length;o+=3){let s=nr(d.tris.slice(o,o+3).map(e=>[d.verts[e*2],d.verts[e*2+1]]),i);if(s.length<3)continue;let c=Yn(s),l=[s];for(let e of n)if(!(e.bb.maxX<=c.minX||e.bb.minX>=c.maxX||e.bb.maxZ<=c.minZ||e.bb.minZ>=c.maxZ)){for(let t of e.triangles)l=l.flatMap(e=>rr(e,t));if(!l.length)break}for(let i of l){let o=Zr(e,[i],Q.flags,Z(t.id,r),!0);if(!o)continue;a.push(o);let s=[];for(let e=1;e+1<i.length;e++)s.push([i[0],i[e],i[e+1]]);n.push({bb:Yn(i),triangles:s})}}}}}return a}function*ii(e,t,n){let{tile:r}=e,i=[],a=0;((t,n)=>{for(let r of t){let t=Zr(e,r,n,Z(e.seed+7,a++));t&&i.push(t)}})(r.sidewalks,Q.flags),i.length||i.push(...ri(e));let o=$n(r.sidewalks),s=(t,n)=>{for(let r of t){let t=Zr(e,r,n,Z(e.seed+7,a++),!1,o.length?o:void 0);t&&i.push(t)}};if(s(r.medians,Q.flags),s(r.plazas,Q.pavers),!i.length)return;yield;let c=Qr(e,i);n.ramps.push(...c),yield;let l=0;for(let r of i)$r(e,t,r),ti(e,t,r,n),l+=r.rings.reduce((e,t)=>e+t.pts.length,0),l>120&&(l=0,yield);for(let n of c)ni(e,t,n,Z(n.x,n.z))}function ai(env         , marks             , grid             , walks                , paintHeightAt                                   = () => 0)       {
   const TILE_SIZE=256, RoadIndex=sr, clipPolylineToRect=cr, hash2=Z, pointAlong=or, polylineLength=ar, ROAD_Y=Sr, WALK_Y=Wr, ATLAS=X;
   const yawToDir=yaw=>[-Math.sin(yaw),-Math.cos(yaw)];

@@ -1,3 +1,4 @@
+import { streetLampPlacement } from '../streets/fixtures.js';
 /** iOS: only the nearest 200 authored source props, no catalogue worker, atlases,
  * per-tile placement expansion, lights, steam, colliders or far instance buffers. */
 import * as THREE from 'three';
@@ -50,12 +51,15 @@ export function createProps(ctx: GameContext): GameModule & {
   function refresh(): void {
     const p = ctx.camera.position;
     const nearest = nearestProps(ctx.world.tiles.values(), p.x, p.z);
+    const roadsChanged = dirty;
     lastX = p.x; lastZ = p.z; dirty = false;
-    if (nearest.length === selection.length && nearest.every((prop, i) => prop === selection[i])) return;
+    if (!roadsChanged && nearest.length === selection.length && nearest.every((prop, i) => prop === selection[i])) return;
     selection = nearest;
     network.resetPoles();
     const kinds = new Map<PropKind, Prop[]>();
-    for (const prop of selection) {
+    for (const source of selection) {
+      const prop = streetLampPlacement(ctx.world, undefined, source);
+      if (!prop) continue;
       let list = kinds.get(prop.kind); if (!list) kinds.set(prop.kind, list = []); list.push(prop);
       if (prop.kind === 'traffic_signal') network.addPole(prop.x, prop.z, prop.yaw, tileKey(tileIndex(prop.x), tileIndex(prop.z)));
     }

@@ -1,3 +1,5 @@
+import { roadFootprints } from './fixtures.js';
+import { deckEdges, barrierRuns } from './edges.js';
 import { buildTunnels } from './tunnels.js';
 import { supportPlanner } from './supports.js';
 import { clearanceProfile } from './ramps.js';
@@ -216,34 +218,35 @@ function deckNeighbours(env: TileEnv): DeckNeighbour[] {
 }
 
 /** the deck (if any) whose own edge faces this deck edge closely enough to be the same structure */
-function facingDeck(list: DeckNeighbour[], skipId: number, ex: number, ez: number, h: number, ux: number, uz: number): { gap: number; dot: number; id: number; over: boolean } | null {
+function facingDeck(list: DeckNeighbour[], skipId: number, ex: number, ez: number, h: number, ux: number, uz: number, barrier = false): { gap: number; dot: number; id: number; over: boolean } | null {
   let best: { gap: number; dot: number; id: number; over: boolean } | null = null;
   for (const n of list) {
     if (n.seg.id === skipId) continue;
     const bb = n.bb;
     if (ex < bb.minX || ex > bb.maxX || ez < bb.minZ || ez > bb.maxZ) continue;
     const pts = n.seg.pts;
-    let bd2 = Infinity, bs = 0, bdx = 1, bdz = 0;
+    let bd2 = Infinity, bs = 0, bdx = 1, bdz = 0, beyondEnd = false;
     for (let i = 0; i + 1 < pts.length; i++) {
       const ax = pts[i][0], az = pts[i][1];
       const vx = pts[i + 1][0] - ax, vz = pts[i + 1][1] - az;
       const len2 = vx * vx + vz * vz;
       if (len2 < 1e-6) continue;
       let t = ((ex - ax) * vx + (ez - az) * vz) / len2;
+      const outside = t < 0 && i === 0 || t > 1 && i + 2 === pts.length;
       t = t < 0 ? 0 : t > 1 ? 1 : t;
       const dx = ex - (ax + vx * t), dz = ez - (az + vz * t);
       const d2 = dx * dx + dz * dz;
       if (d2 < bd2) {
-        bd2 = d2;
+        bd2 = d2; beyondEnd = outside;
         const len = Math.sqrt(len2);
         bs = n.cum[i] + t * len;
         bdx = vx / len; bdz = vz / len;
       }
     }
-    if (bd2 === Infinity) continue;
+    if (bd2 === Infinity || beyondEnd) continue;
     const gap = Math.sqrt(bd2) - n.hw;
     if (gap > JOIN_GAP || (best && gap >= best.gap)) continue;
-    if (Math.abs(n.hAt(bs) - h) > JOIN_DH) continue; // stacked decks (upper/lower level) are not neighbours
+    if (Math.abs(n.hAt(bs) - h) > (barrier ? 0.25 : JOIN_DH)) continue; // stacked decks (upper/lower level) are not neighbours
     const dot = ux * bdx + uz * bdz;
     const over = gap < -JOIN_OVER; // this edge is out on the neighbour's carriageway, not alongside it
     if (!over && Math.abs(dot) < JOIN_PARALLEL) continue; // a deck crossing at an angle still needs its wall
@@ -262,6 +265,7 @@ export function buildBridges(env: TileEnv, gb: GroundBuilder, sb: StructBuilder,
   const low = env.ctx.quality.level === 'low';
   const joins = deckNeighbours(env);
   const planSupport = supportPlanner(env, deckProfile);
+  const pavement = roadFootprints([...tile.roads, ...env.ctx.world.roadsNear((rect.minX + rect.maxX) / 2, (rect.minZ + rect.maxZ) / 2, 280)], r => deckProfile(env, r));
   for (const r of tile.roads) {
     if (r.tunnel || seen.has(r.id) || r.pts.length < 2) continue;
     seen.add(r.id);
@@ -279,6 +283,7 @@ export function buildBridges(env: TileEnv, gb: GroundBuilder, sb: StructBuilder,
     const jersey = !foot && (r.cls === 'motorway' || r.cls === 'trunk');
     const kind = foot ? KIND.plainConcrete : kindForSurface(r.surface);
     const rand = hash2(env.seed, r.id);
+    let edges: ReturnType<typeof deckEdges> | undefined;
 
     for (const piece of clipPolylineToRect(r.pts, rect)) {
       const d = densify(piece.pts, piece.s0, 4);
@@ -287,10 +292,19 @@ export function buildBridges(env: TileEnv, gb: GroundBuilder, sb: StructBuilder,
       if (hs.every((h) => h < 0.05)) continue;
       // deck top (into the roadbed mesh so it shares the asphalt shader)
       const { left, right } = ribbon(gb, d.pts, hw, (i) => ROAD_Y + hs[i], kind, foot ? 0 : 0.9, rand);
-      // Where another deck of the same structure faces an edge, walk that edge out to meet it (the
-      // neighbour covers the other half of the gap) and remember not to wall the join off. Two decks
-      // running against each other still keep one parapet between them -- the median barrier -- so only
-      // the higher id gives up its own. Done before the collider copy below, which reads those vertices back.
+      edges ??= deckEdges(r, tile.roads, hw, q => foot ? [0, 0] : [q.left, q.right].map(p => {
+        const join = facingDeck(joins.filter(n => !q.continuations.includes(n.seg.id)), r.id, p[0], p[1], hAt(q.s), q.dx, q.dz);
+        return join && join.gap > 0.05 ? join.gap * 0.5 + 0.1 : 0;
+      }));
+      for (let i = 0; i < d.s.length; i++) {
+        const pair = edges(d.s[i]);
+        for (let side = 0; side < 2; side++) {
+          const v = (side ? right : left)[i];
+          gb.pos[v * 3] = pair[side][0]; gb.pos[v * 3 + 2] = pair[side][1];
+        }
+      }
+      // Record shared edges after the whole-way taper. These flags hide buried
+      // slab faces; barriers check their own short intervals below.
       const joined: [boolean[], boolean[]] = [[], []];
       const walled: [boolean[], boolean[]] = [[], []];
       if (!foot) {
@@ -306,13 +320,6 @@ export function buildBridges(env: TileEnv, gb: GroundBuilder, sb: StructBuilder,
             joined[k][i] = true;
             // the median between two opposed carriageways -- but never across a carriageway
             walled[k][i] = !f.over && f.dot < 0 && r.id < f.id;
-            if (f.gap > 0.05) {
-              const ox = ex - d.pts[i][0], oz = ez - d.pts[i][1];
-              const ol = Math.hypot(ox, oz) || 1;
-              const ext = f.gap * 0.5 + 0.1; // meet in the middle, with a little overlap to hide seams
-              gb.pos[vi * 3] = ex + (ox / ol) * ext;
-              gb.pos[vi * 3 + 2] = ez + (oz / ol) * ext;
-            }
           }
         }
       }
@@ -347,15 +354,26 @@ export function buildBridges(env: TileEnv, gb: GroundBuilder, sb: StructBuilder,
         const rx = -uz, rz = ux; // right of travel (unit)
         for (const side of [-1, 1]) {
           const k = side < 0 ? 0 : 1;
-          if ((joined[k][i] || joined[k][i + 1]) && !(walled[k][i] && walled[k][i + 1])) continue;
+          if (!jersey && (joined[k][i] || joined[k][i + 1]) && !(walled[k][i] && walled[k][i + 1])) continue;
           const T0 = side < 0 ? Lt0 : Rt0, T1 = side < 0 ? Lt1 : Rt1;
           const inx = -side * rx, inz = -side * rz; // inward (toward the deck centre)
           if (jersey) {
-            const b0 = [T0[0] + inx * 0.1, T0[1], T0[2] + inz * 0.1], b1 = [T1[0] + inx * 0.1, T1[1], T1[2] + inz * 0.1];
-            const b2 = [T1[0] + inx * 0.65, T1[1], T1[2] + inz * 0.65], b3 = [T0[0] + inx * 0.65, T0[1], T0[2] + inz * 0.65];
-            const t0 = [T0[0] + inx * 0.28, T0[1] + 0.81, T0[2] + inz * 0.28], t1 = [T1[0] + inx * 0.28, T1[1] + 0.81, T1[2] + inz * 0.28];
-            const t2 = [T1[0] + inx * 0.48, T1[1] + 0.81, T1[2] + inz * 0.48], t3 = [T0[0] + inx * 0.48, T0[1] + 0.81, T0[2] + inz * 0.48];
-            solid(sb, [b0, b1, b2, b3], [t0, t1, t2, t3], CONCRETE, 0, out, true);
+            const runs = barrierRuns(T0, T1, mid => {
+              // Remove concrete that occupies another carriageway's driving
+              // clearance, including a sloping merge at a slightly different Y.
+              if (pavement.obstructs(mid[0] + inx * 0.38, mid[2] + inz * 0.38, 0,
+                (other, floor) => other.id !== r.id && VEHICULAR.has(other.cls)
+                  && mid[1] + 0.81 > floor + ROAD_Y + 0.05 && mid[1] < floor + ROAD_Y + 4.2)) return true;
+              const neighbour = facingDeck(joins, r.id, mid[0], mid[2], mid[1] - ROAD_Y, ux, uz, true);
+              return !!neighbour && !(!neighbour.over && neighbour.dot < 0 && r.id < neighbour.id);
+            });
+            for (const [A, B] of runs) {
+              const b0 = [A[0] + inx * 0.1, A[1], A[2] + inz * 0.1], b1 = [B[0] + inx * 0.1, B[1], B[2] + inz * 0.1];
+              const b2 = [B[0] + inx * 0.65, B[1], B[2] + inz * 0.65], b3 = [A[0] + inx * 0.65, A[1], A[2] + inz * 0.65];
+              const t0 = [A[0] + inx * 0.28, A[1] + 0.81, A[2] + inz * 0.28], t1 = [B[0] + inx * 0.28, B[1] + 0.81, B[2] + inz * 0.28];
+              const t2 = [B[0] + inx * 0.48, B[1] + 0.81, B[2] + inz * 0.48], t3 = [A[0] + inx * 0.48, A[1] + 0.81, A[2] + inz * 0.48];
+              solid(sb, [b0, b1, b2, b3], [t0, t1, t2, t3], CONCRETE, 0, out, true);
+            }
           } else {
             // iron railing: rails + posts + balusters
             const off = 0.12;
