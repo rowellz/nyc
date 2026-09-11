@@ -446,6 +446,32 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
     served worker. Run `npm --prefix web run test:roads` for stacked-road,
     support-collider, and actual Highbridge tile regressions.
 
+  - `tools/patch-lane-continuity.mjs` publishes `streets/lane-layout.js`, the
+    one lane plan that asphalt, paint and traffic share on one-way motorways,
+    trunks and primary bridges. Where OSM splits a carriageway into ways, the
+    lane lines of consecutive ways meet, dash phase carries across, a lane
+    that opens or closes tapers the wider deck instead of stepping it, and at a
+    merge or split each branch's lanes are assigned to the trunk's lane slots.
+    Two branches leaving (or joining) a trunk used to be built to their own
+    tagged widths from the shared node outward — the Trans-Manhattan levels are
+    each tagged 14.7 m wide for two lanes — so the decks lay across each other
+    for a hundred metres and each painted its edge line through the other's
+    lanes. Sibling branches now partition the roadway: from the node until
+    their lane envelopes have parted, each deck stops at the gore, halfway
+    between its outer lane line and its sibling's, and the shared boundary is
+    painted once. A lane both branches keep (a trunk with fewer lanes than its
+    branches) stays on the trunk's slot at the node and is split down its
+    middle until it has widened into two. Where the ways' centrelines are
+    closer than their lanes are wide, the lanes move aside by half the
+    overlap so traffic on the two ways never shares a surface. The bridge
+    builder's neighbour test (`bridges.ts` `facingDeck`, kept in step by hand
+    in the served worker) measures the gap to the edge a neighbour is actually
+    built to rather than its nominal half-width, so fascias and jersey
+    barriers follow the same edges. `npm --prefix web run test:roads` checks
+    synthetic fans, an option lane, a lane addition, every seam and fan in
+    the Highbridge tiles, and that the two Trans-Manhattan approaches keep
+    their inner traffic lanes a lane apart.
+
 ## Developing on the client
 
 ```bash

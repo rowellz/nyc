@@ -294,15 +294,25 @@ const barrierAt = (x, z, tile = fixtureTile) => {
   }
   return false;
 };
-let fixturesChecked = 0;
+// The opposing deck is measured where it is actually built: covered barrier
+// lines go, and the median returns exactly where the two are merely alongside.
+const opposedEdges = deckEdges(fixtureNarrow, [fixtureMain, fixtureNarrow, fixtureWide], 3.2);
+let covered = 0, alongside = 0;
+for (let i = 0; i < mainDeck.surface.length; i += 6) {
+  const x = mainDeck.surface[i], line = mainDeck.surface[i + 2] + 0.38;
+  if (x < 100 || x >= 128) continue;
+  const reach = opposedEdges(128 - x)[0][1] - line;
+  if (Math.abs(reach) < 0.05) continue;
+  if (reach > 0) { assert(!barrierAt(x + 0.1, line), `remove median concrete inside the widened opposing pavement at x=${x}`); covered++; }
+  else { assert(barrierAt(x + 0.1, line), `keep the median where the opposed decks are only alongside at x=${x}`); alongside++; }
+  assert(barrierAt(x + 0.1, mainDeck.surface[i + 5] - 0.38), 'retain the exposed outer motorway barrier');
+}
+assert(covered >= 2 && alongside >= 2, `${covered} covered, ${alongside} alongside`);
 for (let i = 0; i < mainDeck.surface.length; i += 6) {
   const x = mainDeck.surface[i];
-  if (x < 110 || x > 124) continue;
-  assert(!barrierAt(x + 0.1, mainDeck.surface[i + 2] + 0.38), 'remove median concrete inside the widened opposing pavement');
-  assert(barrierAt(x + 0.1, mainDeck.surface[i + 5] - 0.38), 'retain the exposed outer motorway barrier');
-  fixturesChecked++;
+  if (x < 132 || x > 160) continue;
+  assert(!barrierAt(x + 0.1, mainDeck.surface[i + 2] + 0.38), `remove median concrete inside the widened opposing pavement at x=${x}`);
 }
-assert(fixturesChecked >= 3);
 console.log('PASS widened merges clear interior barrier colliders and retain exposed outer barriers');
 
 const baselineSandbox = { ...sandbox, $roadFootprints: () => ({ obstructs: () => false }), self: { postMessage: r => { result = r; } } };
@@ -312,4 +322,9 @@ const fixtureRoads = [fixtureMain, fixtureNarrow, fixtureWide];
 await baselineSandbox.self.onmessage({ data: { id: 1, input: { tile: makeTile(fixtureRoads), roads: fixtureRoads, quality: { level: 'mobile', shadows: false } } } });
 assert(!result.error, result.error);
 const withoutFootprints = result.built;
-assert(barrierAt(118.25, 118.88, withoutFootprints), 'regression reproduces the old barrier across the widened lane');
+// The neighbour test now measures the opposing deck where it is built, so it
+// clears the covered barrier by itself; the footprint rule remains for pavement
+// that is not a neighbouring deck at all.
+assert(!barrierAt(126.13, 120.38, withoutFootprints), 'the built-edge neighbour test alone clears the covered barrier');
+assert(barrierAt(114.31, 120.38, withoutFootprints), 'and keeps the median where the decks are only alongside');
+console.log('PASS the opposing deck is measured where it is built, with or without the pavement index');

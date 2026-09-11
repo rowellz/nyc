@@ -33,6 +33,31 @@ for (let x = 15; x <= 21; x++) for (let z = -42; z <= -39; z++) {
 }
 const allRoads = [...roads.values()];
 const env = {tile: {roads: allRoads}, ctx: {world: {roadsNear: () => allRoads}}};
+// Actual GWB tunnel mouths: paint continuity previously raised a connecting
+// approach by 8.5 m. Check both planned profiles and the worker's traffic surface.
+const portals = tunnels.tunnelNetwork(allRoads);
+let portalChecks = 0;
+const portalRoads = new Set();
+for (const r of allRoads) {
+ if (r.tunnel || !r.name?.startsWith('Trans-Manhattan')) continue;
+ const length = r.pts.slice(1).reduce((s,p,i)=>s+Math.hypot(p[0]-r.pts[i][0],p[1]-r.pts[i][1]),0);
+ for (const [p,s] of [[r.pts[0],0],[r.pts.at(-1),length]]) {
+  for (const tunnel of portals.values()) for (const [q,t] of [[tunnel.road.pts[0],0],[tunnel.road.pts.at(-1),tunnel.length]]) {
+   if (Math.hypot(p[0]-q[0],p[1]-q[1])>.01) continue;
+   const floor = tunnels.tunnelHeight(tunnel,t);
+   assert(Math.abs(clearanceProfile(env,r,sandbox.nativeProfile).hAt(s)-floor)<1e-6,`road ${r.id} floats above its tunnel mouth`);
+   portalRoads.add(r.id);
+   const tile = tiles.find(tile=>tile.tx===Math.floor(p[0]/256)&&tile.tz===Math.floor(p[1]/256));
+   assert(tile);
+   await sandbox.self.onmessage({data:{id:20,input:{tile,roads:allRoads,pedestrianTiles:tiles,quality:{level:'mobile',shadows:false}}}});
+   assert(!result.error,result.error);
+   assert(Math.abs(roadDeckHeight(result.built.decks,r.id,...p)-floor)<.01,`worker road ${r.id} misses its portal`);
+   portalChecks++;
+  }
+ }
+}
+assert(portalChecks>=20 && portalRoads.has(49036429000),'exercise both levels and the reported floating approach');
+console.log(`PASS ${portalChecks} actual Trans-Manhattan tunnel connections align in profiles and served geometry`);
 let before = 0, after = 0, maxHeight = 0, checked = 0;
 
 for (const road of allRoads) {

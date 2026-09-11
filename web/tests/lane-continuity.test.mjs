@@ -62,6 +62,77 @@ const drop=road(1004,[[245,128],[380,128]],{lanes:3,width:11});
 const dropping=[joined,drop];
 for(const p of endpoints(joined,dropping,true))assert(endpoints(drop,dropping,false).some(q=>Math.hypot(p[0]-q[0],p[1]-q[1])<1e-6),'a dropped lane merges into a surviving lane');
 console.log('PASS lane drops join surviving lanes without endpoint jumps');
+
+// Two wide branches leaving a split, as the Trans-Manhattan levels do: their
+// decks partition the roadway along the gore and never lie over each other.
+const wideTrunk=road(1101,[[0,60],[120,60]],{lanes:5,width:14.5});
+const wideLeft=road(1102,[[120,60],[200,57],[280,51],[360,42]],{lanes:2,width:14.7});
+const wideRight=road(1103,[[120,60],[200,63],[280,69],[360,78]],{lanes:2,width:14.7});
+const wide=[wideTrunk,wideLeft,wideRight];
+const wideMesh=await build(wide);
+const inDeck=(mesh,id,x,z)=>roadDeckTriangles(mesh.decks,id).some(t=>triangleHeight(t,x,z)?.inside);
+for(const r of [wideLeft,wideRight]){
+ const layout=highwayLayout(r,wide),edges=deckEdges(r,wide,r.width/2),other=r===wideLeft?wideRight:wideLeft;
+ for(let s=1;s<layout.length;s+=2)for(let i=0;i<r.lanes;i++){
+  const [x,z]=edges.line(s,(i+.5-r.lanes/2)*layout.width);
+  if(x>250)break; // the fixture tile ends at 256
+  assert(inDeck(wideMesh,r.id,x,z),`lane ${i} of ${r.id} rides its own deck at ${s}`);
+  assert(!inDeck(wideMesh,other.id,x,z),`lane ${i} of ${r.id} is never under the sibling deck at ${s}`);
+ }
+}
+// The gore between the two envelopes is paved by one of them until they part.
+const leftLayout=highwayLayout(wideLeft,wide),leftEdges=deckEdges(wideLeft,wide,wideLeft.width/2);
+let flush=0;
+for(let s=1;s<leftLayout.length;s+=2){
+ const g=leftLayout.gap(s,1);if(!(g<2*(wideLeft.width/2-wideLeft.lanes*leftLayout.width/2)))break;
+ const [x,z]=leftEdges.line(s,wideLeft.lanes*leftLayout.width/2+Math.max(0,g)/2);
+ if(x>250)break;
+ const inside=[[0,0],[.15,0],[-.15,0],[0,.15],[0,-.15]].some(([dx,dz])=>inDeck(wideMesh,wideLeft.id,x+dx,z+dz)||inDeck(wideMesh,wideRight.id,x+dx,z+dz));
+ assert(inside,`gore is paved at ${s} (gap ${g.toFixed(2)})`);flush++;
+}
+assert(flush>20);
+// The painted boundary sits on the deck that paints it, and only the left deck paints it while shared.
+for(let s=1;s<leftLayout.length;s+=2){
+ const rl=highwayLayout(wideRight,wide);
+ if(leftLayout.gap(s,1)<.6)assert(rl.open(s,0)&&!leftLayout.open(s,1),`one line on a shared boundary at ${s}`);
+ if(!leftLayout.open(s,1)){const [x,z]=leftEdges.line(s,wideLeft.lanes*leftLayout.width/2);if(x>250)break;assert(inDeck(wideMesh,wideLeft.id,x,z),`edge line on its own deck at ${s}`);}
+}
+console.log(`PASS wide fan siblings partition the roadway: ${flush} flush gore stations, no deck under another's lanes`);
+
+// A trunk with fewer lanes than its branches share one: the option lane keeps
+// the trunk's slot at the node, then widens as the branches part.
+const optTrunk=road(1111,[[0,200],[120,200]],{lanes:4,width:14});
+const optLeft=road(1112,[[120,200],[220,196],[320,188],[420,176]],{lanes:3,width:10});
+const optRight=road(1113,[[120,200],[220,204],[320,212],[420,224]],{lanes:2,width:7});
+const opt=[optTrunk,optLeft,optRight];
+const leftLines=Array.from({length:4},(_,q)=>deckEdges(optLeft,opt,5).line(0,(q-1.5)*highwayLayout(optLeft,opt).width)[1]);
+const rightLines=Array.from({length:3},(_,q)=>deckEdges(optRight,opt,3.5).line(0,(q-1)*highwayLayout(optRight,opt).width)[1]);
+const trunkW=highwayLayout(optTrunk,opt).width;
+for(const [lines,first] of [[leftLines,0],[rightLines,2]])lines.forEach((z,q)=>assert(Math.abs(z-(200+(first+q-2)*trunkW))<1e-6,'branch lines sit on the trunk slot boundaries at the node'));
+assert(Math.abs(leftLines[3]-rightLines[1])<1e-6&&Math.abs(leftLines[2]-rightLines[0])<1e-6,'the shared lane is bounded by both branches');
+const ol=highwayLayout(optLeft,opt),or=highwayLayout(optRight,opt);
+assert(ol.open(0,1)&&or.open(0,0),'no edge line inside the shared lane at the node');
+assert(Math.abs(ol.edge(0,1)-(ol.offset(0,3)-trunkW/2))<.35&&Math.abs(or.edge(0,0)-(or.offset(0,0)+trunkW/2))<.35,'decks meet through the middle of the shared lane');
+const optMesh=await build(opt);
+let opened=false;
+for(let s=1;s<ol.length;s+=2){
+ const [x,z]=deckEdges(optLeft,opt,5).line(s,(2.5-1.5)*ol.width);
+ if(x<250)assert(!inDeck(optMesh,optRight.id,x,z),`option lane copies part without one deck covering the other at ${s}`);
+ if(!ol.open(s,1)&&!or.open(s,0))opened=true;
+}
+assert(opened,'both edge lines appear once the option lane has widened into two');
+console.log('PASS an option lane shared by both branches stays on its trunk slot and splits cleanly');
+
+// A lane opening on a single carriageway widens the deck; it does not step out.
+const oneLane=road(1121,[[0,240],[100,240]],{lanes:1,width:7.5});
+const twoLanes=road(1122,[[100,240],[300,240]],{lanes:2,width:8.6});
+const opening=[oneLane,twoLanes];
+const [oneL,oneR]=deckEdges(oneLane,opening,3.75)(100),[twoL,twoR]=deckEdges(twoLanes,opening,4.3)(0);
+assert(Math.hypot(oneL[0]-twoL[0],oneL[1]-twoL[1])<1e-6&&Math.hypot(oneR[0]-twoR[0],oneR[1]-twoR[1])<1e-6,'deck edges meet where a lane opens');
+let widest=0;
+for(let s=0;s<200;s+=4){const [l,r]=deckEdges(twoLanes,opening,4.3)(s);const w=r[1]-l[1];assert(w>=widest-1e-6,'the opened deck only widens');widest=w;}
+assert(Math.abs(widest-8.6)<1e-6);
+console.log('PASS lane additions taper the wider deck instead of stepping');
 const cityRoads=new Map(),cityTiles=[];
 for(let x=15;x<=20;x++)for(let z=-42;z<=-39;z++){
  try{const t=JSON.parse(gunzipSync(readFileSync(new URL(`../../public/world/world/tiles/${x}_${z}.json.gz`,import.meta.url))));cityTiles.push(t);for(const r of t.roads)cityRoads.set(r.id,r);}catch(e){if(e.code!=='ENOENT')throw e;}
@@ -75,28 +146,69 @@ for(const [incoming,outgoing] of [[[42435675000,1504770029000],[49036327000]],[[
  for(const p of b)assert(a.some(q=>Math.hypot(p[0]-q[0],p[1]-q[1])<1e-6),'real Trans-Manhattan outgoing lane must connect');
 }
 console.log('PASS actual Trans-Manhattan upper/lower carriageway merge and split have connected lanes');
-// Check the visible top of the connected carriageways, not just each road in isolation.
-let hidden=0,checked=0;
-const group=[42435675000,1504770029000,49036327000].map(id=>cityRoads.get(id));
-const tile=cityTiles.find(t=>t.key==='17_-40');assert(tile);
-await sandbox.self.onmessage({data:{id:9,input:{tile,roads:real,pedestrianTiles:cityTiles,quality:{level:'mobile',shadows:false}}}});
-assert(!result.error,result.error);
-const realBuilt=result.built;
-for(const r of group){
- const layout=highwayLayout(r,real),edges=deckEdges(r,real,r.width/2);
- const own=roadDeckTriangles(realBuilt.decks,r.id);
- for(let s=.4;s<layout.length;s+=1)for(let q=.5;q<r.lanes;q++){
-  const [x,z]=edges.line(s,(q-r.lanes/2)*layout.width);
-  const y=own.map(t=>triangleHeight(t,x,z)).filter(t=>t?.inside).map(t=>t.height);
-  if(!y.length)continue;checked++;
-  for(const other of group)if(other!==r){
-   const above=roadDeckTriangles(realBuilt.decks,other.id).map(t=>triangleHeight(t,x,z)).filter(t=>t?.inside).map(t=>t.height);
-   if(above.some(h=>h>Math.max(...y)+.012))hidden++;
+// Marking layout must not flatten overlapping approaches to make paint visible.
+// A merge can contain distinct sloping surfaces before its shared endpoint.
+const unmarked = real.map(r => ({...r, oneway: false}));
+const profileEnv = roads => ({tile:{roads},ctx:{world:{roadsNear:()=>roads}}});
+const paintedEnv = profileEnv(real), unmarkedEnv = profileEnv(unmarked);
+for (const r of real) {
+ if (r.tunnel || !['motorway','trunk'].includes(r.cls)) continue;
+ const plain = unmarked.find(q => q.id === r.id);
+ const a = clearanceProfile(paintedEnv,r,sandbox.nativeProfile);
+ const b = clearanceProfile(unmarkedEnv,plain,sandbox.nativeProfile);
+ const length = r.pts.slice(1).reduce((s,p,i)=>s+Math.hypot(p[0]-r.pts[i][0],p[1]-r.pts[i][1]),0);
+ for(let s=0;s<=length;s+=4)assert.equal(a.hAt(s),b.hAt(s),`marking eligibility changed road ${r.id}'s elevation`);
+}
+console.log('PASS motorway marking layout cannot change approach elevations');
+
+// Every real junction in the loaded tiles: continuous edges through 1:1 seams,
+// fan branches spanning exactly the trunk, and no sibling deck under another's lanes.
+{
+ const nodeKey=p=>`${Math.round(p[0]*2)},${Math.round(p[1]*2)}`,byNode=new Map();
+ const length=r=>r.pts.slice(1).reduce((s,p,i)=>s+Math.hypot(p[0]-r.pts[i][0],p[1]-r.pts[i][1]),0);
+ for(const r of real){if(!isHighway(r)||r.pts.length<2)continue;for(const end of [0,1]){const k=nodeKey(end?r.pts.at(-1):r.pts[0]);byNode.set(k,[...(byNode.get(k)??[]),{r,end}]);}}
+ let seams=0,fans=0;
+ for(const members of byNode.values()){
+  const ins=members.filter(m=>m.end),outs=members.filter(m=>!m.end);
+  if(!ins.length||!outs.length||ins.length>1&&outs.length>1)continue;
+  const dir=m=>{const p=m.end?m.r.pts.at(-1):m.r.pts[0],q=m.end?m.r.pts.at(-2):m.r.pts[1],d=Math.hypot(q[0]-p[0],q[1]-p[1]);return [(q[0]-p[0])/d*(m.end?-1:1),(q[1]-p[1])/d*(m.end?-1:1)];};
+  const trunk=outs.length===1?outs[0]:ins[0],branches=outs.length===1?ins:outs,t=dir(trunk);
+  if(branches.some(b=>{const d=dir(b);return d[0]*t[0]+d[1]*t[1]<.5;}))continue; // a hairpin is no continuation
+  const ends=m=>deckEdges(m.r,real,Math.max(3.2,m.r.width/2))(m.end?length(m.r):0);
+  const T=ends(trunk),B=branches.map(ends),d=(p,q)=>Math.hypot(p[0]-q[0],p[1]-q[1]);
+  assert(B.some(e=>d(e[0],T[0])<.05)&&B.some(e=>d(e[1],T[1])<.05),`branch decks span the trunk at ${trunk.r.id}`);
+  if(branches.length===1){seams++;continue;}
+  fans++;
+  for(const a of branches)for(const b of branches){
+   if(a===b)continue;
+   const la=highwayLayout(a.r,real),ea=deckEdges(a.r,real,Math.max(3.2,a.r.width/2)),eb=deckEdges(b.r,real,Math.max(3.2,b.r.width/2)),lb=highwayLayout(b.r,real);
+   for(let s=2;s<la.length;s+=4)for(let q=.5;q<la.count;q++){
+    if(Math.min(la.gap(s,0),la.gap(s,1))<-.01)continue; // a lane both branches keep is split down its middle
+    const p=ea.line(s,(q-la.count/2)*la.width);
+    // the lane centre must not fall inside the sibling's deck polygon
+    for(let sb=0;sb<lb.length;sb+=4){const [l,r]=eb(sb),[l2,r2]=eb(Math.min(lb.length,sb+4));
+     const ring=[l,l2,r2,r];let inside=false;
+     for(let i=0,j=3;i<4;j=i++){const A=ring[i],Bp=ring[j];if((A[1]>p[1])!==(Bp[1]>p[1])&&p[0]<(Bp[0]-A[0])*(p[1]-A[1])/(Bp[1]-A[1])+A[0])inside=!inside;}
+     assert(!inside,`lane ${q-.5} of ${a.r.id} at ${s} lies under sibling ${b.r.id}`);
+    }
+   }
   }
  }
+ assert(seams>=30&&fans>=8,`${seams} seams, ${fans} fans`);
+ console.log(`PASS ${seams} real seams and ${fans} real fans keep continuous edges with no deck under a sibling's lanes`);
 }
-assert(checked>500);assert.equal(hidden,0,'connected asphalt must not bury a neighbouring lane');
-console.log(`PASS ${checked} real merge lane samples stay on the visible surface`);
+// Traffic lanes of the two Trans-Manhattan approaches stay a lane apart all the way to the merge.
+{
+ const a=cityRoads.get(42435675000),b=cityRoads.get(1504770029000);
+ const la=highwayLayout(a,real),lb=highwayLayout(b,real);
+ const pathA=[],pathB=[];
+ for(let seg=0;seg<a.pts.length-1;seg++)pathA.push(...highwayLanePath(a,real,seg,(a.lanes-.5-a.lanes/2)*la.width).path);
+ for(let seg=0;seg<b.pts.length-1;seg++)pathB.push(...highwayLanePath(b,real,seg,(.5-b.lanes/2)*lb.width).path);
+ let nearest=Infinity;
+ for(const p of pathA)for(const q of pathB)nearest=Math.min(nearest,Math.hypot(p.x-q.x,p.z-q.z));
+ assert(nearest>2.9,`adjacent lanes of the two levels come within ${nearest.toFixed(2)} m`);
+ console.log(`PASS the Trans-Manhattan upper and lower approaches keep their inner lanes ${nearest.toFixed(2)} m apart`);
+}
 
 function sourceModule(relative, injected, exports) {
   let source = readFileSync(new URL('../../src/client/src/' + relative, import.meta.url), 'utf8');

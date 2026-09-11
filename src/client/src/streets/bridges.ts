@@ -187,6 +187,9 @@ interface DeckNeighbour {
   cum: number[];
   hw: number;
   hAt: (s: number) => number;
+  /** the tapered edges the deck is actually built to, on first use */
+  edges: ReturnType<typeof deckEdges> | null;
+  roads: RoadSegment[];
 }
 
 /** every vehicular deck this tile can see, profiled once, with a padded bbox for cheap rejection */
@@ -212,7 +215,7 @@ function deckNeighbours(env: TileEnv): DeckNeighbour[] {
       if (z + pad > bb.maxZ) bb.maxZ = z + pad;
       if (i > 0) cum.push(cum[i - 1] + Math.hypot(x - r.pts[i - 1][0], z - r.pts[i - 1][1]));
     }
-    out.push({ seg: r, bb, cum, hw, hAt });
+    out.push({ seg: r, bb, cum, hw, hAt, edges: null, roads: env.tile.roads });
   }
   return out;
 }
@@ -225,7 +228,7 @@ function facingDeck(list: DeckNeighbour[], skipId: number, ex: number, ez: numbe
     const bb = n.bb;
     if (ex < bb.minX || ex > bb.maxX || ez < bb.minZ || ez > bb.maxZ) continue;
     const pts = n.seg.pts;
-    let bd2 = Infinity, bs = 0, bdx = 1, bdz = 0, beyondEnd = false;
+    let bd2 = Infinity, bs = 0, bdx = 1, bdz = 0, bcx = 0, bcz = 0, beyondEnd = false;
     for (let i = 0; i + 1 < pts.length; i++) {
       const ax = pts[i][0], az = pts[i][1];
       const vx = pts[i + 1][0] - ax, vz = pts[i + 1][1] - az;
@@ -240,11 +243,16 @@ function facingDeck(list: DeckNeighbour[], skipId: number, ex: number, ez: numbe
         bd2 = d2; beyondEnd = outside;
         const len = Math.sqrt(len2);
         bs = n.cum[i] + t * len;
-        bdx = vx / len; bdz = vz / len;
+        bdx = vx / len; bdz = vz / len; bcx = ax + vx * t; bcz = az + vz * t;
       }
     }
     if (bd2 === Infinity || beyondEnd) continue;
-    const gap = Math.sqrt(bd2) - n.hw;
+    // Measure to the edge the neighbour is actually built to, not its nominal
+    // half-width: beside a fan sibling a deck stops at the gore, well inside it.
+    n.edges ??= deckEdges(n.seg, n.roads, n.hw);
+    const lateral = (ex - bcx) * -bdz + (ez - bcz) * bdx;
+    const edge = n.edges(bs)[lateral < 0 ? 0 : 1];
+    const gap = Math.abs(lateral) - Math.abs((edge[0] - bcx) * -bdz + (edge[1] - bcz) * bdx);
     if (gap > JOIN_GAP || (best && gap >= best.gap)) continue;
     if (Math.abs(n.hAt(bs) - h) > (barrier ? 0.25 : JOIN_DH)) continue; // stacked decks (upper/lower level) are not neighbours
     const dot = ux * bdx + uz * bdz;

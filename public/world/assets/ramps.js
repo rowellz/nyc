@@ -1,6 +1,5 @@
 /** Clearance planning across bridge tags and their connected approach roads. */
 import { PEDESTRIAN_HEADROOM, PEDESTRIAN_FLOOR } from './pedestrian-clearance.js';
-import { highwayLayout } from './lane-layout.js';
 const cache = new WeakMap();
 const VEHICLES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service']);
 const pointKey = p => `${Math.round(p[0] * 2)},${Math.round(p[1] * 2)}`;
@@ -57,39 +56,6 @@ function plan(env, baseProfile) {
     }
     return { road: r, base, points, length: along, hw: base.hw };
   });
-  // Roads meeting in a fan share one level wherever their footprints overlap.
-  // Independent slopes otherwise hide one road's paint beneath the neighbouring
-  // deck. Zero-distance links make the overlap a common junction surface while
-  // the grade solver extends the approaches on either side as needed.
-  const byRoad = new Map(entries.map(e => [e.road.id,e])), joined = new Set();
-  for (const entry of entries) {
-    const layout = highwayLayout(entry.road, roads);
-    for (const end of layout?.ends ?? []) {
-      if (!end?.members) continue;
-      const key = end.members.map(m=>m.id).sort((a,b)=>a-b).join(':');
-      if (joined.has(key)) continue; joined.add(key);
-      for (const member of end.members) {
-        const own = byRoad.get(member.id); if (!own) continue;
-        const points = member.end ? [...own.points].reverse() : own.points;
-        const anchor = points[0].id;
-        for (const p of points) {
-          const overlaps = end.members.some(other => {
-            if (other.id === member.id) return false;
-            const next = byRoad.get(other.id); if (!next) return false;
-            for (let i=1;i<next.road.pts.length;i++) {
-              const a=next.road.pts[i-1],b=next.road.pts[i],dx=b[0]-a[0],dz=b[1]-a[1],d=dx*dx+dz*dz;
-              if(d<1e-8)continue;
-              const t=Math.max(0,Math.min(1,((p.x-a[0])*dx+(p.z-a[1])*dz)/d));
-              if(Math.hypot(p.x-a[0]-dx*t,p.z-a[1]-dz*t)<=own.hw+next.hw+STEP)return true;
-            }
-            return false;
-          });
-          if(p.id!==anchor){nodes[anchor].links.push([p.id,0]);nodes[p.id].links.push([anchor,0]);}
-          if(!overlaps)break;
-        }
-      }
-    }
-  }
   // Hold the whole ramp segment above a walking corridor. These are fixed ground
   // constraints, not graph connections that could pull pedestrians up with the road.
   if (env.pedestrians) for (const entry of entries) {
