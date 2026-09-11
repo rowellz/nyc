@@ -1,3 +1,4 @@
+import { lanePoint } from '../streets/lane-paths.js';
 import { trafficHeight, tunnelConnections } from '../streets/tunnels.js';
 import type { GameContext } from '@/core/context';
 import { hash01, KINDS, pickKind } from './kinds';
@@ -38,7 +39,11 @@ export class Traffic {
   constructor(private ctx: GameContext, private roads: Roads) {}
 
   private choose(car: TrafficCar): Lane | null {
-    const choices = tunnelConnections(this.roads, car.lane).filter(l => l.dx * car.lane.dx + l.dz * car.lane.dz > -0.8);
+    let choices = tunnelConnections(this.roads, car.lane).filter(l => l.dx * car.lane.dx + l.dz * car.lane.dz > -0.8);
+    if (car.lane.path) {
+      const connected = choices.filter(l => Math.hypot(l.ax-car.lane.bx,l.az-car.lane.bz)<.1);
+      if (connected.length) choices = connected;
+    }
     let best: Lane | null = null, score = -Infinity;
     for (let i = 0; i < choices.length; i++) {
       const l = choices[i], dot = l.dx * car.lane.dx + l.dz * car.lane.dz;
@@ -130,7 +135,7 @@ export class Traffic {
         // otherwise removes every bus from a dense all-car local reservation.
         if (transitFeed || isAvenue(lane.road) && buses < Math.floor(ctx.quality.maxTraffic / 25)) kind = 'bus';
         const along = range[0] + hash01(id, 19) * (range[1] - range[0]);
-        const x = lane.ax + lane.dx * along, z = lane.az + lane.dz * along;
+        const spawn = lanePoint(lane, along), x = spawn.x, z = spawn.z;
         const y = trafficHeight(ctx.world, lane.road, x, z, ground(ctx, x, z, lane.road)), spec = KINDS[kind];
         // A radial exclusion around curbside cars sealed off every nearby through lane.
         // Project the other footprint into this lane: queue clearance is longitudinal,
@@ -144,7 +149,7 @@ export class Traffic {
             && Math.abs(dx * lane.dz - dz * lane.dx) < spec.width / 2 + cross * os.length / 2 + dot * os.width / 2 + 0.3;
         };
         if (this.cars.some(blocked) || obstacles.some(blocked)) continue;
-        const c: TrafficCar = { ...makeCar(`traffic:${id}`, kind, x, y, z, Math.atan2(-lane.dx, -lane.dz), id),
+        const c: TrafficCar = { ...makeCar(`traffic:${id}`, kind, x, y, z, Math.atan2(-spawn.dx, -spawn.dz), id),
           lane, along, next: null, wait: 0, turn: 0, age: id * 0.1 };
         c.speed = lane.speed * 0.4;
         this.cars.push(c);
@@ -170,26 +175,27 @@ export class Traffic {
     const signals = ctx.modules.get('props') as Signals | undefined;
     for (const c of this.cars) {
       const lane = c.lane, spec = KINDS[c.kind];
+      const heading = lanePoint(lane, c.along);
       c.age += dt;
       const remain = lane.length - c.along;
       if (remain < 30 && (!c.next || !this.roads.lanes.has(c.next.key))) c.next = this.choose(c);
-      c.turn = c.next ? lane.dx * c.next.dz - lane.dz * c.next.dx : 0;
+      c.turn = c.next ? heading.dx * c.next.dz - heading.dz * c.next.dx : 0;
       let desired = lane.speed * (Math.abs(c.turn) > 0.3 && remain < 16 ? 0.45 : 1);
       let gap = Infinity;
-      const signal = lane.road.tunnel || lane.road.bridge || c.y > 0.3 ? null : signals?.signalFor?.(c.x, c.z, lane.dx, lane.dz);
+      const signal = lane.road.tunnel || lane.road.bridge || c.y > 0.3 ? null : signals?.signalFor?.(c.x, c.z, heading.dx, heading.dz);
       if (signal && signal.state !== 'green' && (signal.state === 'red' || signal.dist > c.speed * 0.8 + spec.front)) {
-        const ahead = (signal.stopX - c.x) * lane.dx + (signal.stopZ - c.z) * lane.dz;
+        const ahead = (signal.stopX - c.x) * heading.dx + (signal.stopZ - c.z) * heading.dz;
         if (ahead > 0) gap = Math.max(0, ahead - spec.front - 1);
       }
       // Queue across lane boundaries as well as within a lane; no passing through stopped cars.
       const avoid = (other: Car) => {
         if (other === c || Math.abs(other.y - c.y) > 3) return;
         const dx = other.x - c.x, dz = other.z - c.z;
-        const ahead = dx * lane.dx + dz * lane.dz;
-        if (ahead <= 0 || ahead > 60 || Math.abs(dx * lane.dz - dz * lane.dx) > (spec.width + KINDS[other.kind].width) / 2 + 0.3) return;
+        const ahead = dx * heading.dx + dz * heading.dz;
+        if (ahead <= 0 || ahead > 60 || Math.abs(dx * heading.dz - dz * heading.dx) > (spec.width + KINDS[other.kind].width) / 2 + 0.3) return;
         gap = Math.min(gap, Math.max(0, ahead - spec.front - KINDS[other.kind].rear - 2.5));
       };
-      const endX = c.x + lane.dx * 60, endZ = c.z + lane.dz * 60;
+      const endX = c.x + heading.dx * 60, endZ = c.z + heading.dz * 60;
       const x0 = Math.floor((Math.min(c.x, endX) - 4) / 20), x1 = Math.floor((Math.max(c.x, endX) + 4) / 20);
       const z0 = Math.floor((Math.min(c.z, endZ) - 4) / 20), z1 = Math.floor((Math.max(c.z, endZ) + 4) / 20);
       for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
@@ -198,11 +204,21 @@ export class Traffic {
       }
       // At unsignaled junctions, stop briefly, then yield to vehicles already in the junction.
       // Parallel continuations of the same avenue aren't intersections.
-      const junction = this.roads.outgoing.get(lane.end)?.some(l => l.dx * lane.dx + l.dz * lane.dz < 0.8) ?? false;
+      const junction = this.roads.outgoing.get(lane.end)?.some(l => l.dx * heading.dx + l.dz * heading.dz < 0.8) ?? false;
       if (!signal && junction && remain < spec.front + 7) {
         c.wait += dt;
         const occupied = this.cars.some(o => o !== c && Math.abs(o.y - c.y) < 3 && o.lane !== lane && Math.hypot(o.x - lane.bx, o.z - lane.bz) < 5 && o.speed > 0.5);
         if (c.wait < 0.65 || occupied) gap = Math.min(gap, Math.max(0, remain - spec.front - 2));
+      }
+      // Lane drops need an ordered yield before the guides converge. Two cars
+      // abreast have no longitudinal "ahead" gap until their bodies overlap.
+      if (lane.path && c.next && remain < 30) {
+        const yieldTo = this.cars.some(other => other !== c && Math.abs(other.y-c.y)<3 && (
+          other.lane === c.next && other.along < spec.length + 4 ||
+          other.next === c.next && other.lane !== lane && (
+            other.lane.length-other.along < remain-.5 ||
+            Math.abs(other.lane.length-other.along-remain)<=.5 && other.key<c.key)));
+        if (yieldTo) gap=Math.min(gap,Math.max(0,remain-25));
       }
       if (!c.next && remain < 12) desired = Math.min(desired, Math.max(0, remain - 1));
       desired = Math.min(desired, Math.sqrt(2 * 3.5 * gap));
@@ -211,17 +227,18 @@ export class Traffic {
       c.speed = Math.max(0, c.speed);
       c.brake = old > c.speed + 0.01 || c.speed < 0.2 ? 1 : 0;
       c.along += Math.min(c.speed * dt, gap);
-      if (c.along >= lane.length - 0.8) {
+      if (c.along >= lane.length) {
         if (c.next && this.roads.lanes.has(c.next.key)) { c.along = Math.max(0, c.along - lane.length); c.lane = c.next; c.next = null; c.wait = 0; }
         else { c.age += 1; if (c.speed < 0.5) { removeBody(ctx, c); c.along = -1000; } }
       }
-      const targetYaw = Math.atan2(-c.lane.dx, -c.lane.dz);
+      const target = lanePoint(c.lane, c.along);
+      const targetYaw = Math.atan2(-target.dx, -target.dz);
       const delta = Math.atan2(Math.sin(targetYaw - c.yaw), Math.cos(targetYaw - c.yaw));
       c.yaw += delta * Math.min(1, dt * 7);
       c.steer = Math.max(-0.5, Math.min(0.5, delta));
       const follow = Math.min(1, dt * 15);
-      c.x += (c.lane.ax + c.lane.dx * c.along - c.x) * follow;
-      c.z += (c.lane.az + c.lane.dz * c.along - c.z) * follow;
+      c.x += (target.x - c.x) * follow;
+      c.z += (target.z - c.z) * follow;
       c.y = trafficHeight(ctx.world, c.lane.road, c.x, c.z, ground(ctx, c.x, c.z, c.lane.road));
       c.spin -= c.speed * dt / spec.wheelRadius;
       c.siren = c.kind === 'nypd' && Math.sin(t * 0.035 + c.age * 0.01) > 0.985;

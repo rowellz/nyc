@@ -1,3 +1,7 @@
+import { pedestrianClearance as $pedestrianClearance } from './pedestrian-clearance.js';
+import { resolveRoadOverlaps as $resolveRoadOverlaps } from './road-overlap.js';
+import { pathPieceClear as $pathPieceClear } from './carriageway.js';
+import { carriagewayIndex as $carriagewayIndex, pathHalfWidth as $pathHalfWidth } from './carriageway.js';
 import { roadFootprints as $roadFootprints } from './fixtures.js';
 // NYC functional tunnels v1
 import { deckEdges as $deckEdges, barrierRuns as $barrierRuns } from './edges.js';
@@ -692,8 +696,561 @@ function deckHeightIn(decks              , x        , z        , roadId         
 return buildBridges;
 })();
 function Rr(...args){return $edgeBridgeBuilder(...args)}
-function zr(e,t,n,r,i,a,o){let s=[...t,...n],c=[0,0,0];for(let e of s)c[0]+=e[0]/8,c[1]+=e[1]/8,c[2]+=e[2]/8;let l=[[n[0],n[1],n[2],n[3]],[t[0],t[1],t[2],t[3]],[t[0],t[1],n[1],n[0]],[t[1],t[2],n[2],n[1]],[t[2],t[3],n[3],n[2]],[t[3],t[0],n[0],n[3]]];for(let t of l){let n=t[1][0]-t[0][0],s=t[1][1]-t[0][1],l=t[1][2]-t[0][2],u=t[2][0]-t[0][0],d=t[2][1]-t[0][1],f=t[2][2]-t[0][2],p=s*f-l*d,m=l*u-n*f,h=n*d-s*u,g=[(t[0][0]+t[2][0])/2,(t[0][1]+t[2][1])/2,(t[0][2]+t[2][2])/2],_=p*(g[0]-c[0])+m*(g[1]-c[1])+h*(g[2]-c[2])>=0?t:[t[0],t[3],t[2],t[1]];if(e.face(_,r,i,!1),o&&a){let e=a.cpos.length/3;for(let e of _)a.cpos.push(e[0],e[1],e[2]);a.cidx.push(e,e+1,e+2,e,e+2,e+3)}}}function Br(e,t,n,r,i,a,o,s,c,l,u){let d=[[t[0],t[1]+o,t[2]],[n[0],n[1]+o,n[2]],[n[0]+r*a,n[1]+o,n[2]+i*a],[t[0]+r*a,t[1]+o,t[2]+i*a]];zr(e,d,d.map((e,r)=>[e[0],(r<2?r===0?t[1]:n[1]:r===2?n[1]:t[1])+s,e[2]]),c,l,u,s>.5)}function Vr(e,t,n,r,i,a,o,s,c,l,u){let d=-a,f=i,p=o/2,m=[[t-i*p-d*p,n+s,r-a*p-f*p],[t+i*p-d*p,n+s,r+a*p-f*p],[t+i*p+d*p,n+s,r+a*p+f*p],[t-i*p+d*p,n+s,r-a*p+f*p]];zr(e,m,m.map(e=>[e[0],n+c,e[2]]),l,u,null,!1)}function Hr(e,t,n){$tunnelBuild(e,t,n)}function Ur(e,t,n,roadId){let r=0;for(let i of e){if(roadId!==undefined&&i.roadId!==roadId)continue;let e=i.pts;for(let a=0;a+1<e.length;a++){let o=e[a],s=e[a+1],c=s.x-o.x,l=s.z-o.z,u=c*c+l*l;if(u<1e-6)continue;let d=((t-o.x)*c+(n-o.z)*l)/u;if(d<-.02||d>1.02)continue;d=Math.max(0,Math.min(1,d));let f=o.x+c*d,p=o.z+l*d;if(Math.hypot(t-f,n-p)>i.hw+.3)continue;let m=o.h+(s.h-o.h)*d;m>r&&(r=m)}}return r}let Wr=.15,Gr=.12,Kr=.15,qr={},$=1.6,Jr=1.3,Yr=.6;function Xr(e,t){let n=e.pts[t],r=e.pts[(t+1)%e.pts.length],i=r[0]-n[0],a=r[1]-n[1],o=Math.hypot(i,a)||1;return[a/o*e.sign,-i/o*e.sign,o]}function Zr(e,t,n,r,i=!1,a){let o=[];for(let n=0;n<t.length;n++){let r=t[n];if(r.length<3){if(n===0)return null;continue}let a=Jn(r);if(Math.abs(a)<.05){if(n===0)return null;continue}let s=(n===0?1:-1)*(a>0?1:-1),c={pts:r.map(e=>[e[0],e[1]]),flags:[],sign:s},l=c.pts.length;for(let t=0;t<l;t++){let n=c.pts[t],r=c.pts[(t+1)%l],a=0;if(!ur(n,r,e.rect)){let[o,s,l]=Xr(c,t);if(l>.05){let t=(n[0]+r[0])/2+o*.45,c=(n[1]+r[1])/2+s*.45;if(er(t,c,e.roadbeds,.1))a=1;else if(i){let i=e.roadsS.nearest(t,c,30);i&&i.dist<i.seg.width/2&&Math.abs((r[0]-n[0])*i.dz-(r[1]-n[1])*i.dx)<l*.05&&(a=1)}else l>3&&er(n[0]*.75+r[0]*.25+o*.45,n[1]*.75+r[1]*.25+s*.45,e.roadbeds,.1)&&(a=1)}}c.flags.push(a)}o.push(c)}return o.length?{rings:o,kind:n,rand:r,under:a}:null}function Qr(e,t){let n=[],r=new Map;for(let n of e.tile.crossings){let[e,i]=gr(n.yaw);for(let a of[-1,1]){let o=n.x+e*a*(n.width/2),s=n.z+i*a*(n.width/2),c=null;for(let e of t)for(let t of e.rings){let e=t.pts.length;for(let n=0;n<e;n++){if(t.flags[n]!==1)continue;let r=t.pts[n],i=t.pts[(n+1)%e],a=i[0]-r[0],l=i[1]-r[1],u=a*a+l*l;if(u<3.2*3.2)continue;let d=Math.sqrt(u),f=((o-r[0])*a+(s-r[1])*l)/u;f=Math.max(1.4/d,Math.min(1-1.4/d,f));let p=r[0]+a*f,m=r[1]+l*f,h=Math.hypot(o-p,s-m);h<3.5&&(!c||h<c.d)&&(c={ring:t,edge:n,t:f*d,d:h})}}if(!c)continue;let l=r.get(c.ring);l||r.set(c.ring,l=[]),!l.some(e=>e.edge===c.edge&&Math.abs(e.t-c.t)<2.2)&&l.push({t:c.t,edge:c.edge})}}for(let[e,t]of r){t.sort((e,t)=>e.edge-t.edge||e.t-t.t);let r=[],i=[],a=e.pts.length,o=0;for(let s=0;s<a;s++){let c=e.pts[s],l=e.pts[(s+1)%a];r.push(c);let u=l[0]-c[0],d=l[1]-c[1],f=Math.hypot(u,d)||1,p=u/f,m=d/f,[h,g]=Xr(e,s),_=-h,v=-g,y=!1;for(;o<t.length&&t[o].edge===s;){let e=t[o].t;o++;let a=[c[0]+p*(e-$/2),c[1]+m*(e-$/2)],s=[a[0]+_*Jr,a[1]+v*Jr],l=[s[0]+p*$,s[1]+m*$],u=[c[0]+p*(e+$/2),c[1]+m*(e+$/2)];i.push(1),r.push(a),i.push(2),r.push(s),i.push(3),r.push(l),i.push(4),r.push(u),y=!0,n.push({x:c[0]+p*e,z:c[1]+m*e,tx:p,tz:m,nx:_,nz:v})}i.push(y?1:e.flags[s])}e.pts=r,e.flags=i}return n}function $r(e,t,n){let r=n.rings.map(e=>e.pts),i=ir(r);if(!i)return;let a=t.vertexCount,o=i.verts.length/2,s=Yn(r[0]),c=e.roadsS.nearest((s.minX+s.maxX)/2,(s.minZ+s.maxZ)/2,70),[l,u]=c?mr(c.dx,c.dz):mr(hr[0],hr[1]);for(let r=0;r<o;r++){let a=i.verts[r*2],o=i.verts[r*2+1],s=e.roadsV.nearest(a,o,45,qr);t.vertex(a,Wr,o,0,1,0,n.kind,s?s.side:0,s?s.seg.width/2:0,n.rand,l,u,0,1)}for(let e=0;e<i.tris.length;e+=3){let r=i.tris[e],o=i.tris[e+1],s=i.tris[e+2];n.under&&er((i.verts[r*2]+i.verts[o*2]+i.verts[s*2])/3,(i.verts[r*2+1]+i.verts[o*2+1]+i.verts[s*2+1])/3,n.under)||t.tri(a+r,a+o,a+s)}}function ei(e,t,n,r){for(let i of e.hydrants){let e=i.x-t,a=i.z-n;if(e*e+a*a<r*r)return!0}return!1}function ti(e,t,n,r){for(let i of n.rings){let a=i.pts.length,o=Z(n.rand,i.pts[0][0])*30;for(let s=0;s<a;s++){let c=i.pts[s],l=i.pts[(s+1)%a],[u,d,f]=Xr(i,s),p=i.flags[s];if(p===1){r.curbs.push({ax:c[0],az:c[1],bx:l[0],bz:l[1],nx:u,nz:d});let i=Math.max(1,Math.ceil(f/6));for(let r=0;r<i;r++){let a=r/i,s=(r+1)/i,p=c[0]+(l[0]-c[0])*a,m=c[1]+(l[1]-c[1])*a,h=c[0]+(l[0]-c[0])*s,g=c[1]+(l[1]-c[1])*s,_=+!!ei(e,(p+h)/2,(m+g)/2,4.5),v=o+f*a,y=o+f*s;t.wall(p,m,h,g,0,Gr,u,0,d,Q.curb,v,y,n.rand,_,0,u,d);let b=.7071;t.wall(p,m,h,g,Gr,Wr,u*b,b,d*b,Q.curb,v,y,n.rand,_,.03,u,d);let x=.154,S=-u,C=-d,w=t.vertex(p+S*.02,x,m+C*.02,0,1,0,Q.curb,.02,v,n.rand,u,d,_,0),T=t.vertex(h+S*.02,x,g+C*.02,0,1,0,Q.curb,.02,y,n.rand,u,d,_,0),E=t.vertex(h+S*Kr,x,g+C*Kr,0,1,0,Q.curb,Kr,y,n.rand,u,d,_,0),D=t.vertex(p+S*Kr,x,m+C*Kr,0,1,0,Q.curb,Kr,v,n.rand,u,d,_,0);(g-m)*S-(h-p)*C>0?t.quad(w,T,E,D):t.quad(w,D,E,T)}}else if(p===2||p===4){let e=p===2?c:l,r=p===2?l:c,i=n.rand,a=t.vertex(e[0],Wr,e[1],u,0,d,Q.plainConcrete,0,0,i,0,0,0,0),o=t.vertex(e[0],0,e[1],u,0,d,Q.plainConcrete,0,0,i,0,0,0,0),s=t.vertex(r[0],Wr,r[1],u,0,d,Q.plainConcrete,0,0,i,0,0,0,0),f=r[0]-e[0];-(r[1]-e[1])*u+f*d>0?t.tri(a,o,s):t.tri(a,s,o)}o+=f}}}function ni(e,t,n,r){let{tx:i,tz:a,nx:o,nz:s}=n,c=Wr/Jr,l=Math.hypot(c,1),u=-o*c/l,d=1/l,f=-s*c/l,[p,m]=mr(i,a),h=(e,l)=>{let h=c*e,g=n.x+o*e,_=n.z+s*e;return[t.vertex(g-$/2*i,h,_-$/2*a,u,d,f,l,0,e,r,p,m,0,0),t.vertex(g+$/2*i,h,_+$/2*a,u,d,f,l,$,e,r,p,m,0,0)]},g=h(0,Q.tactile),_=h(Yr,Q.tactile),v=h(Yr,Q.flags),y=h(Jr,Q.flags),b=(e,n)=>{let r=t.pos[e[0]*3],i=t.pos[e[0]*3+2],a=t.pos[e[1]*3],o=t.pos[e[1]*3+2],s=t.pos[n[1]*3],c=t.pos[n[1]*3+2];(o-i)*(s-r)-(a-r)*(c-i)>0?(t.tri(e[0],e[1],n[1]),t.tri(e[0],n[1],n[0])):(t.tri(e[0],n[1],e[1]),t.tri(e[0],n[0],n[1]))};b(g,_),b(v,y)}function ri(e){let t=[...e.tile.buildings.map(e=>e.footprint),...e.tile.water,...e.tile.parks,...e.tile.plazas,...e.tile.medians,...e.tile.parking,...e.tile.roadbeds];for(let{seg:n}of e.roadsS.segs)for(let e=1;e<n.pts.length;e++){let r=n.pts[e-1],i=n.pts[e],a=Math.hypot(i[0]-r[0],i[1]-r[1]);if(a<.01)continue;let o=-(i[1]-r[1])/a*n.width/2,s=(i[0]-r[0])/a*n.width/2;t.push([[[r[0]-o,r[1]-s],[i[0]-o,i[1]-s],[i[0]+o,i[1]+s],[r[0]+o,r[1]+s]]])}let n=t.flatMap(e=>{let t=ir(e);if(!t)return[];let n=[];for(let e=0;e<t.tris.length;e+=3)n.push(t.tris.slice(e,e+3).map(e=>[t.verts[e*2],t.verts[e*2+1]]));return[{bb:Yn(e[0]),triangles:n}]}),r=e.rect,i=[[r.minX,r.minZ],[r.maxX,r.minZ],[r.maxX,r.maxZ],[r.minX,r.maxZ]],a=[];for(let{seg:t}of e.roadsS.segs){if(!fr.has(t.cls)||t.cls===`motorway`||t.cls===`trunk`)continue;let o=t.cls===`residential`||t.cls===`tertiary`?3.8:4.6,s=t.width/2,c=s+o,l={minX:r.minX-c,minZ:r.minZ-c,maxX:r.maxX+c,maxZ:r.maxZ+c};for(let r of cr(t.pts,l)){let c=r.pts;for(let r of[-1,1]){let l=[],u=[];for(let e=0;e<c.length;e++){let[t,n]=c[e],i=c[Math.max(0,e-1)],a=c[Math.min(c.length-1,e+1)],d=Math.hypot(a[0]-i[0],a[1]-i[1])||1,f=-(a[1]-i[1])/d*r,p=(a[0]-i[0])/d*r;l.push([t+f*s,n+p*s]),u.push([t+f*(s+o),n+p*(s+o)])}let d=ir([[...l,...u.reverse()]]);if(d)for(let o=0;o<d.tris.length;o+=3){let s=nr(d.tris.slice(o,o+3).map(e=>[d.verts[e*2],d.verts[e*2+1]]),i);if(s.length<3)continue;let c=Yn(s),l=[s];for(let e of n)if(!(e.bb.maxX<=c.minX||e.bb.minX>=c.maxX||e.bb.maxZ<=c.minZ||e.bb.minZ>=c.maxZ)){for(let t of e.triangles)l=l.flatMap(e=>rr(e,t));if(!l.length)break}for(let i of l){let o=Zr(e,[i],Q.flags,Z(t.id,r),!0);if(!o)continue;a.push(o);let s=[];for(let e=1;e+1<i.length;e++)s.push([i[0],i[e],i[e+1]]);n.push({bb:Yn(i),triangles:s})}}}}}return a}function*ii(e,t,n){let{tile:r}=e,i=[],a=0;((t,n)=>{for(let r of t){let t=Zr(e,r,n,Z(e.seed+7,a++));t&&i.push(t)}})(r.sidewalks,Q.flags),i.length||i.push(...ri(e));let o=$n(r.sidewalks),s=(t,n)=>{for(let r of t){let t=Zr(e,r,n,Z(e.seed+7,a++),!1,o.length?o:void 0);t&&i.push(t)}};if(s(r.medians,Q.flags),s(r.plazas,Q.pavers),!i.length)return;yield;let c=Qr(e,i);n.ramps.push(...c),yield;let l=0;for(let r of i)$r(e,t,r),ti(e,t,r,n),l+=r.rings.reduce((e,t)=>e+t.pts.length,0),l>120&&(l=0,yield);for(let n of c)ni(e,t,n,Z(n.x,n.z))}function ai(env         , marks             , grid             , walks                , paintHeightAt                                   = () => 0)       {
-  const TILE_SIZE=256, RoadIndex=sr, clipPolylineToRect=cr, hash2=Z, pointAlong=or, polylineLength=ar, ROAD_Y=Sr, WALK_Y=Wr, ATLAS=X;
+function zr(e,t,n,r,i,a,o){let s=[...t,...n],c=[0,0,0];for(let e of s)c[0]+=e[0]/8,c[1]+=e[1]/8,c[2]+=e[2]/8;let l=[[n[0],n[1],n[2],n[3]],[t[0],t[1],t[2],t[3]],[t[0],t[1],n[1],n[0]],[t[1],t[2],n[2],n[1]],[t[2],t[3],n[3],n[2]],[t[3],t[0],n[0],n[3]]];for(let t of l){let n=t[1][0]-t[0][0],s=t[1][1]-t[0][1],l=t[1][2]-t[0][2],u=t[2][0]-t[0][0],d=t[2][1]-t[0][1],f=t[2][2]-t[0][2],p=s*f-l*d,m=l*u-n*f,h=n*d-s*u,g=[(t[0][0]+t[2][0])/2,(t[0][1]+t[2][1])/2,(t[0][2]+t[2][2])/2],_=p*(g[0]-c[0])+m*(g[1]-c[1])+h*(g[2]-c[2])>=0?t:[t[0],t[3],t[2],t[1]];if(e.face(_,r,i,!1),o&&a){let e=a.cpos.length/3;for(let e of _)a.cpos.push(e[0],e[1],e[2]);a.cidx.push(e,e+1,e+2,e,e+2,e+3)}}}function Br(e,t,n,r,i,a,o,s,c,l,u){let d=[[t[0],t[1]+o,t[2]],[n[0],n[1]+o,n[2]],[n[0]+r*a,n[1]+o,n[2]+i*a],[t[0]+r*a,t[1]+o,t[2]+i*a]];zr(e,d,d.map((e,r)=>[e[0],(r<2?r===0?t[1]:n[1]:r===2?n[1]:t[1])+s,e[2]]),c,l,u,s>.5)}function Vr(e,t,n,r,i,a,o,s,c,l,u){let d=-a,f=i,p=o/2,m=[[t-i*p-d*p,n+s,r-a*p-f*p],[t+i*p-d*p,n+s,r+a*p-f*p],[t+i*p+d*p,n+s,r+a*p+f*p],[t-i*p+d*p,n+s,r-a*p+f*p]];zr(e,m,m.map(e=>[e[0],n+c,e[2]]),l,u,null,!1)}function Hr(e,t,n){$tunnelBuild(e,t,n)}function Ur(e,t,n,roadId){let r=0;for(let i of e){if(roadId!==undefined&&i.roadId!==roadId)continue;let e=i.pts;for(let a=0;a+1<e.length;a++){let o=e[a],s=e[a+1],c=s.x-o.x,l=s.z-o.z,u=c*c+l*l;if(u<1e-6)continue;let d=((t-o.x)*c+(n-o.z)*l)/u;if(d<-.02||d>1.02)continue;d=Math.max(0,Math.min(1,d));let f=o.x+c*d,p=o.z+l*d;if(Math.hypot(t-f,n-p)>i.hw+.3)continue;let m=o.h+(s.h-o.h)*d;m>r&&(r=m)}}return r}// NYC sidewalk carriageway trim v1
+const $sidewalkModule=(()=>{
+const carriagewayIndex=$carriagewayIndex,GroundBuilder=vr,GRID_DIR=hr,STREET=fr,clipConvex=nr,clipPolylineToRect=cr,dir4=mr,edgeOnRect=ur,hash2=Z,indexPolygons=$n,pointInAny=er,ringBBox=Yn,signedArea=Jn,subtractConvex=rr,triangulate=ir,yawToDir=gr,KIND=Q;
+/**
+ * Sidewalks, medians and plazas at y = 0.15 with granite curbs (0.12 m face + 3 cm bevel) on every edge that
+ * borders a roadbed, pedestrian ramps (curb cuts with tactile pads) at crosswalk ends, yellow curb paint near
+ * hydrants. Fallback ribbons when a tile has no planimetric sidewalks.
+ *
+ * All paving is trimmed to the carriageway (carriageway.js) and curbed where it was trimmed:
+ * planimetric sidewalk polygons overhang the curb, and a slab laid over the lanes buries the paint under it.
+ */
+
+const WALK_Y = 0.15;
+const CURB_TOP = 0.12;
+/** visible granite width on top of the curb stone */
+const CURB_W = 0.15;
+const tmpNear = {}                 ;
+const RAMP_W = 1.6;
+const RAMP_D = 1.3;
+const PAD_D = 0.6;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                   // 0 none, 1 curb, 2 ramp return (a on the curb line), 3 ramp inner edge, 4 ramp return (b on the curb line)
+
+
+
+
+
+
+
+/** the motor-traffic surface index from carriageway.js */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function outward(r           , i        )                           {
+  const a = r.pts[i], b = r.pts[(i + 1) % r.pts.length];
+  const dx = b[0] - a[0], dz = b[1] - a[1];
+  const len = Math.hypot(dx, dz) || 1;
+  return [(dz / len) * r.sign, (-dx / len) * r.sign, len];
+}
+
+function prepare(env         , poly        , kind        , rand        , fallback = false, under                   , road              )                   {
+  const rings              = [];
+  for (let ri = 0; ri < poly.length; ri++) {
+    const ring = poly[ri];
+    if (ring.length < 3) {
+      if (ri === 0) return null;
+      continue;
+    }
+    const area = signedArea(ring);
+    if (Math.abs(area) < 0.05) {
+      if (ri === 0) return null;
+      continue;
+    }
+    const sign = (ri === 0 ? 1 : -1) * (area > 0 ? 1 : -1);
+    const st            = { pts: ring.map((p) => [p[0], p[1]]      ), flags: [], sign };
+    const n = st.pts.length;
+    for (let i = 0; i < n; i++) {
+      const a = st.pts[i], b = st.pts[(i + 1) % n];
+      let flag           = 0;
+      if (!edgeOnRect(a, b, env.rect)) {
+        const [ox, oz, len] = outward(st, i);
+        if (len > 0.05) {
+          const cx = (a[0] + b[0]) / 2, cz = (a[1] + b[1]) / 2;
+          const mx = cx + ox * 0.45, mz = cz + oz * 0.45;
+          // An edge with roadway on BOTH sides is the data overhanging the curb, not a curb: no stone and
+          // no pedestrian ramp there. What survives the trim is curbed on the trimmed edge instead.
+          if (road && road.covers(cx - ox * 0.3, cz - oz * 0.3)) flag = 0;
+          else if (pointInAny(mx, mz, env.roadbeds, 0.1)) flag = 1;
+          else if (fallback) {
+            const near = env.roadsS.nearest(mx, mz, 30);
+            if (near && near.dist < near.seg.width / 2 && Math.abs((b[0] - a[0]) * near.dz - (b[1] - a[1]) * near.dx) < len * 0.05) flag = 1;
+          }
+          else if (len > 3) {
+            // long edges: test the quarter points too (curb may border the road only partly; good enough)
+            const qx = a[0] * 0.75 + b[0] * 0.25 + ox * 0.45, qz = a[1] * 0.75 + b[1] * 0.25 + oz * 0.45;
+            if (pointInAny(qx, qz, env.roadbeds, 0.1)) flag = 1;
+          }
+        }
+      }
+      st.flags.push(flag);
+    }
+    rings.push(st);
+  }
+  return rings.length ? { rings, kind, rand, under, road } : null;
+}
+
+/** insert pedestrian ramps (notches) at crosswalk ends: returns the ramps created */
+function insertRamps(env         , polys             )         {
+  const ramps         = [];
+  const requests = new Map                                          ();
+  for (const c of env.tile.crossings) {
+    const [ax, az] = yawToDir(c.yaw);
+    for (const s of [-1, 1]) {
+      const ex = c.x + ax * s * (c.width / 2), ez = c.z + az * s * (c.width / 2);
+      // nearest curb edge within 3.5 m
+      let best                                                                 = null;
+      for (const p of polys) {
+        for (const r of p.rings) {
+          const n = r.pts.length;
+          for (let i = 0; i < n; i++) {
+            if (r.flags[i] !== 1) continue;
+            const a = r.pts[i], b = r.pts[(i + 1) % n];
+            const dx = b[0] - a[0], dz = b[1] - a[1];
+            const len2 = dx * dx + dz * dz;
+            if (len2 < (RAMP_W + 1.6) * (RAMP_W + 1.6)) continue;
+            const len = Math.sqrt(len2);
+            let t = ((ex - a[0]) * dx + (ez - a[1]) * dz) / len2;
+            t = Math.max((RAMP_W / 2 + 0.6) / len, Math.min(1 - (RAMP_W / 2 + 0.6) / len, t));
+            const px = a[0] + dx * t, pz = a[1] + dz * t;
+            const d = Math.hypot(ex - px, ez - pz);
+            if (d < 3.5 && (!best || d < best.d)) best = { ring: r, edge: i, t: t * len, d };
+          }
+        }
+      }
+      if (!best) continue;
+      let list = requests.get(best.ring);
+      if (!list) requests.set(best.ring, (list = []));
+      // keep ramps at least 2.2 m apart on the same edge
+      if (list.some((q) => q.edge === best .edge && Math.abs(q.t - best .t) < RAMP_W + 0.6)) continue;
+      list.push({ t: best.t, edge: best.edge });
+    }
+  }
+  for (const [ring, list] of requests) {
+    list.sort((a, b) => a.edge - b.edge || a.t - b.t);
+    const pts       = [];
+    const flags             = [];
+    const n = ring.pts.length;
+    let li = 0;
+    for (let i = 0; i < n; i++) {
+      const a = ring.pts[i], b = ring.pts[(i + 1) % n];
+      pts.push(a);
+      const dx = b[0] - a[0], dz = b[1] - a[1];
+      const len = Math.hypot(dx, dz) || 1;
+      const tx = dx / len, tz = dz / len;
+      const [ox, oz] = outward(ring, i);
+      const nx = -ox, nz = -oz; // inward
+      let last     = a;
+      let any = false;
+      while (li < list.length && list[li].edge === i) {
+        const s = list[li].t;
+        li++;
+        const p1     = [a[0] + tx * (s - RAMP_W / 2), a[1] + tz * (s - RAMP_W / 2)];
+        const p2     = [p1[0] + nx * RAMP_D, p1[1] + nz * RAMP_D];
+        const p3     = [p2[0] + tx * RAMP_W, p2[1] + tz * RAMP_W];
+        const p4     = [a[0] + tx * (s + RAMP_W / 2), a[1] + tz * (s + RAMP_W / 2)];
+        // edge last->p1 curb, p1->p2 return, p2->p3 inner, p3->p4 return, p4->(next) curb
+        flags.push(1);
+        pts.push(p1);
+        flags.push(2);
+        pts.push(p2);
+        flags.push(3);
+        pts.push(p3);
+        flags.push(4);
+        pts.push(p4);
+        last = p4;
+        any = true;
+        ramps.push({ x: a[0] + tx * s, z: a[1] + tz * s, tx, tz, nx, nz });
+      }
+      flags.push(any ? 1 : ring.flags[i]);
+      void last;
+    }
+    ring.pts = pts;
+    ring.flags = flags;
+  }
+  return ramps;
+}
+
+/** does this trimmed edge run along an edge of the source polygon, which carries its own curb? */
+function onSourceEdge(p           , ax        , az        , bx        , bz        )          {
+  const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 1;
+  const ux = dx / len, uz = dz / len;
+  const cx = (ax + bx) / 2, cz = (az + bz) / 2;
+  for (const r of p.rings) {
+    const n = r.pts.length;
+    for (let i = 0; i < n; i++) {
+      const s = r.pts[i], e = r.pts[(i + 1) % n];
+      const ex = e[0] - s[0], ez = e[1] - s[1], el = Math.hypot(ex, ez);
+      if (el < 1e-6) continue;
+      if (Math.abs((ex / el) * uz - (ez / el) * ux) > 0.02) continue; // not parallel
+      const t = ((cx - s[0]) * ex + (cz - s[1]) * ez) / (el * el);
+      if (t < -0.02 || t > 1.02) continue;
+      if (Math.hypot(cx - s[0] - ex * t, cz - s[1] - ez * t) < 0.05) return true;
+    }
+  }
+  return false;
+}
+
+/** Curb the trimmed edge: the roadway is outside it and paving inside, and the source polygon has no edge there. */
+function cutCurbs(p           , part      )       {
+  const road = p.road ;
+  const sign = signedArea(part) > 0 ? 1 : -1;
+  for (let i = 0; i < part.length; i++) {
+    const a = part[i], b = part[(i + 1) % part.length];
+    const dx = b[0] - a[0], dz = b[1] - a[1], len = Math.hypot(dx, dz);
+    if (len < 0.3) continue;
+    const nx = (dz / len) * sign, nz = (-dx / len) * sign;
+    const cx = (a[0] + b[0]) / 2, cz = (a[1] + b[1]) / 2;
+    if (!road.covers(cx + nx * 0.35, cz + nz * 0.35)) continue;
+    if (road.covers(cx - nx * 0.25, cz - nz * 0.25)) continue;
+    if (onSourceEdge(p, a[0], a[1], b[0], b[1])) continue;
+    (p.cuts ??= []).push({ ax: a[0], az: a[1], bx: b[0], bz: b[1], nx, nz });
+  }
+}
+
+function emitTop(env         , gb               , p           )       {
+  const poly = p.rings.map((r) => r.pts);
+  const tri = triangulate(poly);
+  if (!tri) return;
+  // A varying angle inside rot2(worldPosition, angle) stretches the grid:
+  // small angle changes are amplified by distance from the world origin.
+  // Keep one normalized, street-aligned frame over the whole polygon.
+  const bb = ringBBox(poly[0]);
+  const near = env.roadsS.nearest((bb.minX + bb.maxX) / 2, (bb.minZ + bb.maxZ) / 2, 70);
+  const [c4, s4] = near ? dir4(near.dx, near.dz) : dir4(GRID_DIR[0], GRID_DIR[1]);
+  // aA.y = signed offset from the nearest vehicular centreline, aA.z = its half-width, aB.w = 1 (a sidewalk top):
+  // the shader derives the distance to the curb for the grime band along the gutter side.
+  // Every attribute here is a function of the position and the polygon, so trimmed pieces share their
+  // corners with the triangles they were cut from instead of duplicating the whole boundary.
+  const shared = new Map                ();
+  const vertex = (x        , z        )         => {
+    const key = `${Math.fround(x)},${Math.fround(z)}`;
+    let v = shared.get(key);
+    if (v === undefined) {
+      const nv = env.roadsV.nearest(x, z, 45, tmpNear);
+      shared.set(key, (v = gb.vertex(x, WALK_Y, z, 0, 1, 0, p.kind, nv ? nv.side : 0, nv ? nv.seg.width / 2 : 0, p.rand, c4, s4, 0, 1)));
+    }
+    return v;
+  };
+  const corner = (i        )         => vertex(tri.verts[i * 2], tri.verts[i * 2 + 1]);
+  for (let i = 0; i < tri.tris.length; i += 3) {
+    const a = tri.tris[i], b = tri.tris[i + 1], c = tri.tris[i + 2];
+    if (p.under) {
+      const cx = (tri.verts[a * 2] + tri.verts[b * 2] + tri.verts[c * 2]) / 3;
+      const cz = (tri.verts[a * 2 + 1] + tri.verts[b * 2 + 1] + tri.verts[c * 2 + 1]) / 3;
+      if (pointInAny(cx, cz, p.under)) continue;
+    }
+    const parts = p.road ? p.road.clip([a, b, c].map((v) => [tri.verts[v * 2], tri.verts[v * 2 + 1]]      )) : null;
+    if (!parts) {
+      gb.tri(corner(a), corner(b), corner(c));
+      continue;
+    }
+    // Subtraction keeps the winding, so each piece still fans +y.
+    for (const part of parts) {
+      if (part.length < 3 || Math.abs(signedArea(part)) < 1e-4) continue;
+      const vs = part.map(([x, z]) => vertex(x, z));
+      for (let k = 1; k + 1 < vs.length; k++) {
+        // A trimmed corner can leave three collinear points: no triangle, and nothing to shade.
+        const o = part[0], u = part[k], w = part[k + 1];
+        if (Math.abs((u[0] - o[0]) * (w[1] - o[1]) - (w[0] - o[0]) * (u[1] - o[1])) < 1e-7) continue;
+        gb.tri(vs[0], vs[k], vs[k + 1]);
+      }
+      cutCurbs(p, part);
+    }
+  }
+}
+
+function nearHydrant(env         , x        , z        , r        )          {
+  for (const h of env.hydrants) {
+    const dx = h.x - x, dz = h.z - z;
+    if (dx * dx + dz * dz < r * r) return true;
+  }
+  return false;
+}
+
+/**
+ * One curb run: granite face, bevel and top band, split every ~6 m so hydrant paint can vary along it.
+ * Pieces whose paving side is roadway are dropped — an edge can cross the curb line partway along.
+ */
+function curbEdge(env         , gb               , p           , out                ,
+  ax        , az        , bx        , bz        , ox        , oz        , along        )       {
+  const len = Math.hypot(bx - ax, bz - az);
+  const pieces = Math.max(1, Math.ceil(len / 6));
+  const kept            = [];
+  for (let k = 0; k < pieces; k++) {
+    const t = (k + 0.5) / pieces;
+    const mx = ax + (bx - ax) * t, mz = az + (bz - az) * t;
+    kept[k] = !p.road || !p.road.covers(mx - ox * 0.3, mz - oz * 0.3);
+  }
+  // Collide against the runs that survive, not the edge the data drew: a dropped piece is open roadway.
+  for (let k = 0; k < pieces;) {
+    if (!kept[k]) { k++; continue; }
+    let j = k;
+    while (j < pieces && kept[j]) j++;
+    const t0 = k / pieces, t1 = j / pieces;
+    out.curbs.push({ ax: ax + (bx - ax) * t0, az: az + (bz - az) * t0, bx: ax + (bx - ax) * t1, bz: az + (bz - az) * t1, nx: ox, nz: oz });
+    k = j;
+  }
+  for (let k = 0; k < pieces; k++) {
+    if (!kept[k]) continue;
+    const t0 = k / pieces, t1 = (k + 1) / pieces;
+    const px = ax + (bx - ax) * t0, pz = az + (bz - az) * t0;
+    const qx = ax + (bx - ax) * t1, qz = az + (bz - az) * t1;
+    const paint = nearHydrant(env, (px + qx) / 2, (pz + qz) / 2, 4.5) ? 1 : 0;
+    const a0 = along + len * t0, a1 = along + len * t1;
+    gb.wall(px, pz, qx, qz, 0, CURB_TOP, ox, 0, oz, KIND.curb, a0, a1, p.rand, paint, 0, ox, oz);
+    // bevel: from the face top inward 3 cm up to the sidewalk level
+    const bn = 0.7071;
+    gb.wall(px, pz, qx, qz, CURB_TOP, WALK_Y, ox * bn, bn, oz * bn, KIND.curb, a0, a1, p.rand, paint, 0.03, ox, oz);
+    // granite top: the curb stone shows ~15 cm of its top beside the flags (a lighter band with the stone joints)
+    // aA.y on the top band = inset from the curb line, so the shader can put the mortar line
+    // exactly where the stone butts the flags instead of guessing at it from world position.
+    const ty = WALK_Y + 0.004, ix = -ox, iz = -oz;
+    const v0 = gb.vertex(px + ix * 0.02, ty, pz + iz * 0.02, 0, 1, 0, KIND.curb, 0.02, a0, p.rand, ox, oz, paint, 0);
+    const v1 = gb.vertex(qx + ix * 0.02, ty, qz + iz * 0.02, 0, 1, 0, KIND.curb, 0.02, a1, p.rand, ox, oz, paint, 0);
+    const v2 = gb.vertex(qx + ix * CURB_W, ty, qz + iz * CURB_W, 0, 1, 0, KIND.curb, CURB_W, a1, p.rand, ox, oz, paint, 0);
+    const v3 = gb.vertex(px + ix * CURB_W, ty, pz + iz * CURB_W, 0, 1, 0, KIND.curb, CURB_W, a0, p.rand, ox, oz, paint, 0);
+    // +y winding: (v1 - v0) x (v3 - v0) in xz must point up
+    const ny = (qz - pz) * ix - (qx - px) * iz;
+    if (ny > 0) gb.quad(v0, v1, v2, v3);
+    else gb.quad(v0, v3, v2, v1);
+  }
+}
+
+function emitCurbs(env         , gb               , p           , out                )       {
+  for (const r of p.rings) {
+    const n = r.pts.length;
+    let along = hash2(p.rand, r.pts[0][0]) * 30; // random phase so stones don't align across polygons
+    for (let i = 0; i < n; i++) {
+      const a = r.pts[i], b = r.pts[(i + 1) % n];
+      const [ox, oz, len] = outward(r, i);
+      const f = r.flags[i];
+      if (f === 1) {
+        curbEdge(env, gb, p, out, a[0], a[1], b[0], b[1], ox, oz, along);
+      } else if (f === 2 || f === 4) {
+        // ramp return: a wedge from sidewalk level down to the ramp surface (the ramp rises inward).
+        // The notch (ramp) lies on the outward side of this boundary edge, so the wall faces `outward`.
+        const outer = f === 2 ? a : b;
+        const inner = f === 2 ? b : a;
+        const rand = p.rand;
+        const v0 = gb.vertex(outer[0], WALK_Y, outer[1], ox, 0, oz, KIND.plainConcrete, 0, 0, rand, 0, 0, 0, 0);
+        const v1 = gb.vertex(outer[0], 0, outer[1], ox, 0, oz, KIND.plainConcrete, 0, 0, rand, 0, 0, 0, 0);
+        const v2 = gb.vertex(inner[0], WALK_Y, inner[1], ox, 0, oz, KIND.plainConcrete, 0, 0, rand, 0, 0, 0, 0);
+        // pick the winding whose normal matches (ox, oz)
+        const ex = inner[0] - outer[0], ez = inner[1] - outer[1];
+        // (v1 - v0) = (0, -h, 0); (v2 - v0) = (ex, 0, ez): cross = (-h*ez, 0, h*ex) -> direction (-ez, 0, ex)
+        if (-ez * ox + ex * oz > 0) gb.tri(v0, v1, v2);
+        else gb.tri(v0, v2, v1);
+      }
+      along += len;
+    }
+  }
+  // The trimmed edge of a slab that overhung the curb: a curb of its own, where the roadway actually starts.
+  for (const c of p.cuts ?? []) {
+    curbEdge(env, gb, p, out, c.ax, c.az, c.bx, c.bz, c.nx, c.nz, hash2(p.rand, c.ax) * 30);
+  }
+}
+
+function emitRamp(env         , gb               , rp      , rand        )       {
+  const { tx, tz, nx, nz } = rp;
+  // Meet the physical road at zero; the asphalt's 2 cm render offset is not a step.
+  const slope = WALK_Y / RAMP_D;
+  const nl = Math.hypot(slope, 1);
+  const snx = (-nx * slope) / nl, sny = 1 / nl, snz = (-nz * slope) / nl;
+  const [c4, s4] = dir4(tx, tz);
+  const row = (d        , kind        ) => {
+    const y = slope * d;
+    const cx = rp.x + nx * d, cz = rp.z + nz * d;
+    const l = gb.vertex(cx - tx * (RAMP_W / 2), y, cz - tz * (RAMP_W / 2), snx, sny, snz, kind, 0, d, rand, c4, s4, 0, 0);
+    const r = gb.vertex(cx + tx * (RAMP_W / 2), y, cz + tz * (RAMP_W / 2), snx, sny, snz, kind, RAMP_W, d, rand, c4, s4, 0, 0);
+    return [l, r];
+  };
+  const r0 = row(0, KIND.tactile);
+  const r1 = row(PAD_D, KIND.tactile);
+  const r1b = row(PAD_D, KIND.flags);
+  const r2 = row(RAMP_D, KIND.flags);
+  const quad = (a          , b          ) => {
+    // rows a (outer) and b (inner); +y winding: (aL, bR, bL) (aL, aR, bR) with "right" = +t and inward = +n
+    // check orientation: t x n should be consistent; we compute the y-normal sign explicitly
+    const ax = gb.pos[a[0] * 3], az = gb.pos[a[0] * 3 + 2];
+    const bx = gb.pos[a[1] * 3], bz = gb.pos[a[1] * 3 + 2];
+    const cx = gb.pos[b[1] * 3], cz = gb.pos[b[1] * 3 + 2];
+    const ny = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
+    if (ny > 0) {
+      gb.tri(a[0], a[1], b[1]);
+      gb.tri(a[0], b[1], b[0]);
+    } else {
+      gb.tri(a[0], b[1], a[1]);
+      gb.tri(a[0], b[0], b[1]);
+    }
+  };
+  quad(r0, r1);
+  quad(r1b, r2);
+  void env;
+}
+
+/** Derive sidewalks without paving over buildings, intersections, parks or plazas. */
+function fallbackRibbons(env         , road              )              {
+  const obstacles = [...env.tile.buildings.map(b => b.footprint), ...env.tile.water,
+    ...env.tile.parks, ...env.tile.plazas, ...env.tile.medians, ...env.tile.parking, ...env.tile.roadbeds];
+  // Road envelopes are needed even when planimetric roadbeds are absent.
+  for (const { seg: r } of env.roadsS.segs) {
+    for (let i = 1; i < r.pts.length; i++) {
+      const a = r.pts[i - 1], b = r.pts[i], len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len < 0.01) continue;
+      const rx = -(b[1] - a[1]) / len * r.width / 2, rz = (b[0] - a[0]) / len * r.width / 2;
+      obstacles.push([[[a[0] - rx, a[1] - rz], [b[0] - rx, b[1] - rz], [b[0] + rx, b[1] + rz], [a[0] + rx, a[1] + rz]]]);
+    }
+  }
+  const cuts = obstacles.flatMap(poly => {
+    const tri = triangulate(poly);
+    if (!tri) return [];
+    const triangles         = [];
+    for (let i = 0; i < tri.tris.length; i += 3) triangles.push(tri.tris.slice(i, i + 3).map(v => [tri.verts[v * 2], tri.verts[v * 2 + 1]]));
+    return [{ bb: ringBBox(poly[0]), triangles }];
+  });
+  const rect = env.rect;
+  const clip       = [[rect.minX, rect.minZ], [rect.maxX, rect.minZ], [rect.maxX, rect.maxZ], [rect.minX, rect.maxZ]];
+  const result              = [];
+  for (const { seg: r } of env.roadsS.segs) {
+    // Sidewalks belong to surface streets, not limited-access highways.
+    if (!STREET.has(r.cls) || r.cls === 'motorway' || r.cls === 'trunk') continue;
+    const sw = r.cls === 'residential' || r.cls === 'tertiary' ? 3.8 : 4.6;
+    const hw = r.width / 2, margin = hw + sw;
+    const expanded = { minX: rect.minX - margin, minZ: rect.minZ - margin, maxX: rect.maxX + margin, maxZ: rect.maxZ + margin };
+    for (const piece of clipPolylineToRect(r.pts, expanded)) {
+      const pts = piece.pts;
+      for (const side of [-1, 1]) {
+        const inner       = [], outer       = [];
+        for (let i = 0; i < pts.length; i++) {
+          const [x, z] = pts[i];
+          const prev = pts[Math.max(0, i - 1)], next = pts[Math.min(pts.length - 1, i + 1)];
+          const len = Math.hypot(next[0] - prev[0], next[1] - prev[1]) || 1;
+          const rx = -(next[1] - prev[1]) / len * side, rz = (next[0] - prev[0]) / len * side;
+          inner.push([x + rx * hw, z + rz * hw]);
+          outer.push([x + rx * (hw + sw), z + rz * (hw + sw)]);
+        }
+        const tri = triangulate([[...inner, ...outer.reverse()]]);
+        if (!tri) continue;
+        for (let i = 0; i < tri.tris.length; i += 3) {
+          const subject       = tri.tris.slice(i, i + 3).map(v => [tri.verts[v * 2], tri.verts[v * 2 + 1]]);
+          const clipped = clipConvex(subject, clip);
+          if (clipped.length < 3) continue;
+          const bb = ringBBox(clipped);
+          let parts = [clipped];
+          for (const cut of cuts) {
+            if (cut.bb.maxX <= bb.minX || cut.bb.minX >= bb.maxX || cut.bb.maxZ <= bb.minZ || cut.bb.minZ >= bb.maxZ) continue;
+            for (const triangle of cut.triangles) parts = parts.flatMap(part => subtractConvex(part, triangle));
+            if (!parts.length) break;
+          }
+          for (const part of parts) {
+            const poly = prepare(env, [part], KIND.flags, hash2(r.id, side), true, undefined, road);
+            if (!poly) continue;
+            result.push(poly);
+            // Two street envelopes share sidewalk corners. Own each patch once
+            // instead of emitting coplanar overlapping tops at the junction.
+            const triangles         = [];
+            for (let j = 1; j + 1 < part.length; j++) triangles.push([part[0], part[j], part[j + 1]]);
+            cuts.push({ bb: ringBBox(part), triangles });
+          }
+        }
+      }
+    }
+  }
+  return result;
+}
+
+/** generator: yields between polygons so the tile job can spread work over frames */
+function* buildSidewalks(env         , gb               , out                )                        {
+  const { tile } = env;
+  const polys              = [];
+  let k = 0;
+  // Median data can also cross live lanes. Real traffic islands remain in roadbed holes.
+  const index = carriagewayIndex(tile, tile.roads, triangulate)               ;
+  const road = index.empty ? undefined : index;
+  out.carriageway = road;
+  const add = (list          , kind        ) => {
+    for (const poly of list) {
+      const st = prepare(env, poly, kind, hash2(env.seed + 7, k++), false, undefined, road);
+      if (st) polys.push(st);
+    }
+  };
+  add(tile.sidewalks, KIND.flags);
+  // A median/plaza is not evidence that the tile has sidewalk coverage.
+  if (!polys.length) polys.push(...fallbackRibbons(env, road));
+  // Planimetric plazas and medians routinely lie inside the block's sidewalk polygon: the NYPL frontage
+  // at 5th and 42nd is paved twice over, flags and pavers coplanar at WALK_Y, and the pair fights for
+  // every fragment, which is what turns the 1.52 m flag grid into a patchwork of half-joints. The
+  // sidewalk layer is what the frontage photographs as (refs/_sheets/fifth-42nd 3, 4), so it owns the
+  // overlap and the plaza keeps only the ground no sidewalk already claims.
+  const paved = indexPolygons(tile.sidewalks);
+  const addOver = (list          , kind        , trim              ) => {
+    for (const poly of list) {
+      const st = prepare(env, poly, kind, hash2(env.seed + 7, k++), false, paved.length ? paved : undefined, trim);
+      if (st) polys.push(st);
+    }
+  };
+  addOver(tile.medians, KIND.flags, road);
+  addOver(tile.plazas, KIND.pavers, road);
+  if (!polys.length) return;
+  yield;
+  const ramps = insertRamps(env, polys);
+  out.ramps.push(...ramps);
+  yield;
+  let budget = 0;
+  for (const p of polys) {
+    emitTop(env, gb, p);
+    emitCurbs(env, gb, p, out);
+    budget += p.rings.reduce((a, r) => a + r.pts.length, 0);
+    if (budget > 120) {
+      budget = 0;
+      yield;
+    }
+  }
+  for (const rp of ramps) emitRamp(env, gb, rp, hash2(rp.x, rp.z));
+}
+
+return{WALK_Y,buildSidewalks};
+})();
+const Wr=$sidewalkModule.WALK_Y;
+function ii(...args){return $sidewalkModule.buildSidewalks(...args)}
+function ai(env         , marks             , grid             , walks                , paintHeightAt                                   = () => 0)       {
+  const deckEdges=$deckEdges, TILE_SIZE=256, RoadIndex=sr, clipPolylineToRect=cr, hash2=Z, pointAlong=or, polylineLength=ar, ROAD_Y=Sr, WALK_Y=Wr, ATLAS=X;
   const yawToDir=yaw=>[-Math.sin(yaw),-Math.cos(yaw)];
 
   const owned = (x        , z        ) => x >= grid.ox && x < grid.ox + TILE_SIZE && z >= grid.oz && z < grid.oz + TILE_SIZE;
@@ -734,28 +1291,44 @@ function zr(e,t,n,r,i,a,o){let s=[...t,...n],c=[0,0,0];for(let e of s)c[0]+=e[0]
     const total = polylineLength(r.pts);
     // Highway way boundaries are often just layer/tag changes, not junctions.
     const endGap = r.bridge || env.roadTriangles(r).length || r.cls === 'motorway' || r.cls === 'trunk' ? 0 : 7;
+    const hw = Math.max(3.2, r.width / 2);
+    const edges = deckEdges(r, env.tile.roads, hw);
+    const stations = [0];
+    for (let i = 1; i < r.pts.length; i++) {
+      const start = stations[stations.length - 1];
+      const length = Math.hypot(r.pts[i][0] - r.pts[i - 1][0], r.pts[i][1] - r.pts[i - 1][1]);
+      const count = Math.max(1, Math.ceil(length / 4));
+      for (let j = 1; j <= count; j++) stations.push(start + length * j / count);
+    }
     const line = (offset        , dashed         , region                   ) => {
-      let along = 0;
-      for (let i = 1; i < r.pts.length; i++) {
-        const a = r.pts[i - 1], b = r.pts[i];
+      // Use the deck's shared miter and continuation direction. Offsetting each
+      // source segment independently leaves holes at bends and bridge joins.
+      const path       = stations.map(s => edges.line(s, offset)      );
+      const lineTotal = total;
+      const layout = edges.layout, q = offset / laneW + lanes / 2;
+      for (let i = 1; i < path.length; i++) {
+        const a = path[i - 1], b = path[i];
         const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
         if (len < 0.01) continue;
+        const along = stations[i-1], scale = len / (stations[i] - along || 1);
+        const station = (along + stations[i]) / 2;
+        if (layout && (q === 0 || q === lanes) && layout.open(station, q === 0 ? 0 : 1)) { continue; }
+        if (layout && q > 0 && q < lanes && layout.offset(station,q+.5)-layout.offset(station,q-.5)<.9) { continue; }
         const dx = (b[0] - a[0]) / len, dz = (b[1] - a[1]) / len;
-        const pts       = [[a[0] - dz * offset, a[1] + dx * offset], [b[0] - dz * offset, b[1] + dx * offset]];
+        const pts       = [a, b];
         for (const piece of clipPolylineToRect(pts, env.rect)) {
-          const start = Math.max(along + piece.s0, endGap);
-          const end = Math.min(along + piece.s0 + polylineLength(piece.pts), total - endGap);
+          const start = Math.max(along + piece.s0 / scale, endGap);
+          const end = Math.min(along + (piece.s0 + polylineLength(piece.pts)) / scale, lineTotal - endGap);
           // Dash phase comes from the uncut source road, including across tile boundaries.
-          for (let s = dashed ? Math.floor(start / 12) * 12 : start; s < end; s += dashed ? 12 : 3) {
+          for (let s = dashed ? Math.floor((start + (layout?.phase ?? 0)) / 12) * 12 - (layout?.phase ?? 0) : start; s < end; s += dashed ? 12 : 3) {
             const lo = Math.max(start, s), hi = Math.min(end, s + 3);
             if (hi <= lo) continue;
-            const d = (lo + hi) / 2 - along;
+            const d = ((lo + hi) / 2 - along) * scale;
             const x = pts[0][0] + dx * d, z = pts[0][1] + dz * d;
             if (!r.bridge && deckAt(x, z) < 0.3 && env.tile.crossings.some(c => Math.hypot(c.x - x, c.z - z) < 4)) continue;
-            paint(x, z, dx, dz, hi - lo, 0.12, region);
+            paint(x, z, dx, dz, (hi - lo) * scale, 0.12, region);
           }
         }
-        along += len;
       }
     };
     for (let lane = 1; lane < lanes; lane++) {
@@ -770,7 +1343,9 @@ function zr(e,t,n,r,i,a,o){let s=[...t,...n],c=[0,0,0];for(let e of s)c[0]+=e[0]
       line(-lanes * laneW / 2, false, ATLAS.white);
       line(lanes * laneW / 2, false, ATLAS.white);
     }
-    if (r.oneway && lanes > 1 && total > 32 && env.ctx.quality.level !== 'low') {
+    // Generic left/right arrows at every motorway tag boundary contradict the
+    // actual merge assignments. Street-junction arrows retain their existing placement.
+    if (!edges.layout && r.oneway && lanes > 1 && total > 32 && env.ctx.quality.level !== 'low') {
       const q = pointAlong(r.pts, total - 20);
       for (let lane = 0; lane < lanes; lane++) {
         const offset = (lane + 0.5 - lanes / 2) * laneW;
@@ -849,5 +1424,5 @@ function zr(e,t,n,r,i,a,o){let s=[...t,...n],c=[0,0,0];for(let e of s)c[0]+=e[0]
   }
 }
 
-let oi={none:0,asphalt:1,concrete:2,cobble:3},si=[null,`asphalt`,`concrete`,`cobblestone`];function ci(e){switch(Math.round(e)){case Q.asphalt:return oi.asphalt;case Q.concreteRoad:return oi.concrete;case Q.cobble:return oi.cobble;default:return oi.concrete}}var li=class e{ox;oz;static N=256;data=new Uint8Array(e.N*e.N);paint=[];metal=[];constructor(e,t){this.ox=e,this.oz=t}rasterize(t,n,r,i=1){let a=e.N;for(let e=0;e<n.length;e+=3){let o=n[e],s=n[e+1],c=n[e+2],l=t[o*3]-this.ox,u=t[o*3+2]-this.oz,d=t[s*3]-this.ox,f=t[s*3+2]-this.oz,p=t[c*3]-this.ox,m=t[c*3+2]-this.oz;if(t[o*3+1]>i||t[s*3+1]>i||t[c*3+1]>i)continue;let h=(d-l)*(m-u)-(p-l)*(f-u);if(Math.abs(h)<1e-6)continue;let g=ci(r[o*4]),_=Math.max(0,Math.floor(Math.min(l,d,p))),v=Math.min(a-1,Math.ceil(Math.max(l,d,p))),y=Math.max(0,Math.floor(Math.min(u,f,m))),b=Math.min(a-1,Math.ceil(Math.max(u,f,m))),x=1/h;for(let e=y;e<=b;e++){let t=e+.5;for(let n=_;n<=v;n++){let r=n+.5,i=((d-r)*(m-t)-(p-r)*(f-t))*x,o=((p-r)*(u-t)-(l-r)*(m-t))*x,s=1-i-o;i>=-.02&&o>=-.02&&s>=-.02&&(this.data[e*a+n]=g)}}}}query(t,n){let r=e.N,i=Math.floor(t-this.ox),a=Math.floor(n-this.oz);if(i<0||a<0||i>=r||a>=r)return null;for(let e of this.metal)if(ui(e,t,n))return`metal`;let o=si[this.data[a*r+i]];if(o){for(let e of this.paint)if(ui(e,t,n))return`paint`}return o}};function ui(e,t,n){let r=t-e.cx,i=n-e.cz,a=r*e.dx+i*e.dz,o=r*-e.dz+i*e.dx;return Math.abs(a)<=e.hl&&Math.abs(o)<=e.hw}function di(e,t,n,r){let i=[],a=[],o=new Map,s=(e,t,n)=>{e=Math.fround(e),t=Math.fround(t),n=Math.fround(n);let r=`${e},${t},${n}`,a=o.get(r);return a===void 0&&(a=i.length/3,o.set(r,a),i.push(e,t,n)),a};for(let t=0;t<e.idx.length;t+=3)if(e.aA[e.idx[t]*4]!==Q.curb)for(let n=0;n<3;n++){let r=e.idx[t+n]*3;a.push(s(e.pos[r],e.pos[r+1],e.pos[r+2]))}for(let e of t){let t=s(e.ax,0,e.az),n=s(e.bx,0,e.bz),r=s(e.ax,Wr,e.az),i=s(e.bx,Wr,e.bz);-(e.bz-e.az)*e.nx+(e.bx-e.ax)*e.nz>0?a.push(t,n,i,t,i,r):a.push(t,i,n,t,r,i)}let c=Array.from({length:1024},()=>[]);for(let e=0;e<a.length;e+=3){let t=a[e]*3,o=a[e+1]*3,s=a[e+2]*3,l=(i[o]-i[t])*(i[s+2]-i[t+2])-(i[s]-i[t])*(i[o+2]-i[t+2]);if(Math.abs(l)<1e-8)continue;let u=Math.max(0,Math.floor((Math.min(i[t],i[o],i[s])-n)/8)),d=Math.min(31,Math.floor((Math.max(i[t],i[o],i[s])-n)/8)),f=Math.max(0,Math.floor((Math.min(i[t+2],i[o+2],i[s+2])-r)/8)),p=Math.min(31,Math.floor((Math.max(i[t+2],i[o+2],i[s+2])-r)/8));for(let t=f;t<=p;t++)for(let n=u;n<=d;n++)c[t*32+n].push(e)}let l=new Uint32Array(c.length+1);for(let e=0;e<c.length;e++)l[e+1]=l[e]+c[e].length;return{position:new Float32Array(i),index:new Uint32Array(a),offsets:l,triangles:new Uint32Array(c.flat())}}function fi(e,t,n,r,i){let a=Math.floor((t-r)/8),o=Math.floor((n-i)/8);if(a<0||o<0||a>=32||o>=32)return 0;let s=o*32+a,c=e.position,l=e.index,u=0;for(let r=e.offsets[s];r<e.offsets[s+1];r++){let i=e.triangles[r],a=l[i]*3,o=l[i+1]*3,s=l[i+2]*3,d=c[a]-t,f=c[a+2]-n,p=c[o]-t,m=c[o+2]-n,h=c[s]-t,g=c[s+2]-n,_=1/((p-d)*(g-f)-(h-d)*(m-f)),v=(p*g-h*m)*_,y=(h*f-d*g)*_,b=1-v-y;v>=-1e-7&&y>=-1e-7&&b>=-1e-7&&(u=Math.max(u,v*c[a+1]+y*c[o+1]+b*c[s+1]))}return u}function pi(e){if(!e)return null;let t={};for(let[n,r]of Object.entries(e.attributes))t[n]={data:r.array,size:r.itemSize};let n=e.boundingSphere;return{attributes:t,index:e.index.array,bounds:[n.center.x,n.center.y,n.center.z,n.radius]}}function mi(e){let t=performance.now(),{tile:n,roads:r,quality:i}=e,a=n.tx*256,o=n.tz*256,s={decks:[],cpos:[],cidx:[]},c=new vr,l=new vr,u=new br,d=new xr,f=new li(a,o),p={ctx:{quality:i,world:{roadsNear:()=>r}},tile:{...n,roads:r},rect:{minX:a-.05,minZ:o-.05,maxX:a+256+.05,maxZ:o+256+.05},roadsV:new sr(r,e=>dr.has(e.cls)&&!e.tunnel),roadsS:new sr(r,e=>fr.has(e.cls)&&!e.tunnel&&!e.bridge),roadbeds:$n([...n.roadbeds,...n.parking]),hydrants:n.props.filter(e=>e.kind===`hydrant`),deckAt:(e,t)=>Ur(s.decks,e,t),roadAt:(r,x,z)=>$roadDeckHeight(s.decks,r.id,x,z),roadTriangles:r=>$roadDeckTriangles(s.decks,r.id),seed:Z(n.tx,n.tz)*1e4};Dr({...p,roadsV:new sr(r,e=>dr.has(e.cls)&&!e.tunnel&&!e.bridge)},c);let m={ramps:[],curbs:[]};for(let e of ii(p,l,m));let h=$n([...n.sidewalks,...n.plazas,...n.roadbeds]),g=new Set;for(let e of r)if(!(g.has(e.id)||e.bridge||e.tunnel||e.cls!==`footway`&&e.cls!==`pedestrian`)){g.add(e.id);for(let t of cr(e.pts,p.rect))for(let n=1;n<t.pts.length;n++){let r=t.pts[n-1],i=t.pts[n],a=Math.max(1,Math.ceil(Math.hypot(i[0]-r[0],i[1]-r[1])/3));for(let t=0;t<a;t++){let n=(t+.5)/a;if(er(r[0]+(i[0]-r[0])*n,r[1]+(i[1]-r[1])*n,h))continue;let o=[t/a,(t+1)/a].map(e=>[r[0]+(i[0]-r[0])*e,r[1]+(i[1]-r[1])*e]),s=e.surface===`asphalt`||e.surface===`cobblestone`,u=e.surface===`cobblestone`?Q.cobble:e.surface===`asphalt`?Q.asphalt:e.surface===`paving_stones`?Q.pavers:Q.plainConcrete;Er(s?c:l,o,Math.max(.6,e.width/2),()=>s?Sr:Wr,u,0,Z(e.id,0))}}}const $profiles=$tunnelNetwork(r);$tunnelCut(c,$profiles);$tunnelCut(l,$profiles);f.rasterize(c.pos,c.idx,c.aA),f.rasterize(l.pos,l.idx,l.aA);let _=c.idx.length;Rr(p,c,d,s),Hr(p,d,s),f.rasterize(c.pos,c.idx.slice(_),c.aA,1/0);let v=di(l,m.curbs,a,o);return ai(p,u,f,m,(e,t)=>Math.max(0,fi(v,Math.max(a,Math.min(a+256-1e-4,e)),Math.max(o,Math.min(o+256-1e-4,t)),a,o)-Sr)),{meshes:[pi(c.build()),pi(l.build()),pi(u.build()),pi(d.build())],surface:f.data,paint:f.paint,metal:f.metal,decks:s.decks,colliders:Pn(new Float32Array(s.cpos),new Uint32Array(s.cidx)),walkCollision:v,colliderPos:new Float32Array(s.cpos),colliderIdx:new Uint32Array(s.cidx),ms:performance.now()-t}}self.onmessage=async e=>{if(`type`in e.data){try{let t=await Gn(),n;try{n=qn(e.data.aniso,e.data.quality,e.data.skip,t)}finally{t.manhole?.close()}let r={...n};for(let e of[`asphalt`,`concrete`,`granite`,`cobble`]){let t=n[e];r[e]={scale:t.scale,albedo:await Mn(t.albedo),normal:await Mn(t.normal),rough:t.rough?await Mn(t.rough):null}}for(let e of[`asphalt2`,`noise`,`atlas`])r[e]=await Mn(n[e]);self.postMessage({type:`textures`,textures:r},{transfer:Nn(r)})}catch(e){self.postMessage({type:`textures`,error:String(e)})}return}let{id:t,input:n}=e.data;try{let e=mi(n);self.postMessage({id:t,built:e},{transfer:Nn(e)})}catch(e){self.postMessage({id:t,error:String(e)})}}})();
+let oi={none:0,asphalt:1,concrete:2,cobble:3},si=[null,`asphalt`,`concrete`,`cobblestone`];function ci(e){switch(Math.round(e)){case Q.asphalt:return oi.asphalt;case Q.concreteRoad:return oi.concrete;case Q.cobble:return oi.cobble;default:return oi.concrete}}var li=class e{ox;oz;static N=256;data=new Uint8Array(e.N*e.N);paint=[];metal=[];constructor(e,t){this.ox=e,this.oz=t}rasterize(t,n,r,i=1){let a=e.N;for(let e=0;e<n.length;e+=3){let o=n[e],s=n[e+1],c=n[e+2],l=t[o*3]-this.ox,u=t[o*3+2]-this.oz,d=t[s*3]-this.ox,f=t[s*3+2]-this.oz,p=t[c*3]-this.ox,m=t[c*3+2]-this.oz;if(t[o*3+1]>i||t[s*3+1]>i||t[c*3+1]>i)continue;let h=(d-l)*(m-u)-(p-l)*(f-u);if(Math.abs(h)<1e-6)continue;let g=ci(r[o*4]),_=Math.max(0,Math.floor(Math.min(l,d,p))),v=Math.min(a-1,Math.ceil(Math.max(l,d,p))),y=Math.max(0,Math.floor(Math.min(u,f,m))),b=Math.min(a-1,Math.ceil(Math.max(u,f,m))),x=1/h;for(let e=y;e<=b;e++){let t=e+.5;for(let n=_;n<=v;n++){let r=n+.5,i=((d-r)*(m-t)-(p-r)*(f-t))*x,o=((p-r)*(u-t)-(l-r)*(m-t))*x,s=1-i-o;i>=-.02&&o>=-.02&&s>=-.02&&(this.data[e*a+n]=g)}}}}query(t,n){let r=e.N,i=Math.floor(t-this.ox),a=Math.floor(n-this.oz);if(i<0||a<0||i>=r||a>=r)return null;for(let e of this.metal)if(ui(e,t,n))return`metal`;let o=si[this.data[a*r+i]];if(o){for(let e of this.paint)if(ui(e,t,n))return`paint`}return o}};function ui(e,t,n){let r=t-e.cx,i=n-e.cz,a=r*e.dx+i*e.dz,o=r*-e.dz+i*e.dx;return Math.abs(a)<=e.hl&&Math.abs(o)<=e.hw}function di(e,t,n,r){let i=[],a=[],o=new Map,s=(e,t,n)=>{e=Math.fround(e),t=Math.fround(t),n=Math.fround(n);let r=`${e},${t},${n}`,a=o.get(r);return a===void 0&&(a=i.length/3,o.set(r,a),i.push(e,t,n)),a};for(let t=0;t<e.idx.length;t+=3)if(e.aA[e.idx[t]*4]!==Q.curb)for(let n=0;n<3;n++){let r=e.idx[t+n]*3;a.push(s(e.pos[r],e.pos[r+1],e.pos[r+2]))}for(let e of t){let t=s(e.ax,0,e.az),n=s(e.bx,0,e.bz),r=s(e.ax,Wr,e.az),i=s(e.bx,Wr,e.bz);-(e.bz-e.az)*e.nx+(e.bx-e.ax)*e.nz>0?a.push(t,n,i,t,i,r):a.push(t,i,n,t,r,i)}let c=Array.from({length:1024},()=>[]);for(let e=0;e<a.length;e+=3){let t=a[e]*3,o=a[e+1]*3,s=a[e+2]*3,l=(i[o]-i[t])*(i[s+2]-i[t+2])-(i[s]-i[t])*(i[o+2]-i[t+2]);if(Math.abs(l)<1e-8)continue;let u=Math.max(0,Math.floor((Math.min(i[t],i[o],i[s])-n)/8)),d=Math.min(31,Math.floor((Math.max(i[t],i[o],i[s])-n)/8)),f=Math.max(0,Math.floor((Math.min(i[t+2],i[o+2],i[s+2])-r)/8)),p=Math.min(31,Math.floor((Math.max(i[t+2],i[o+2],i[s+2])-r)/8));for(let t=f;t<=p;t++)for(let n=u;n<=d;n++)c[t*32+n].push(e)}let l=new Uint32Array(c.length+1);for(let e=0;e<c.length;e++)l[e+1]=l[e]+c[e].length;return{position:new Float32Array(i),index:new Uint32Array(a),offsets:l,triangles:new Uint32Array(c.flat())}}function fi(e,t,n,r,i){let a=Math.floor((t-r)/8),o=Math.floor((n-i)/8);if(a<0||o<0||a>=32||o>=32)return 0;let s=o*32+a,c=e.position,l=e.index,u=0;for(let r=e.offsets[s];r<e.offsets[s+1];r++){let i=e.triangles[r],a=l[i]*3,o=l[i+1]*3,s=l[i+2]*3,d=c[a]-t,f=c[a+2]-n,p=c[o]-t,m=c[o+2]-n,h=c[s]-t,g=c[s+2]-n,_=1/((p-d)*(g-f)-(h-d)*(m-f)),v=(p*g-h*m)*_,y=(h*f-d*g)*_,b=1-v-y;v>=-1e-7&&y>=-1e-7&&b>=-1e-7&&(u=Math.max(u,v*c[a+1]+y*c[o+1]+b*c[s+1]))}return u}function pi(e){if(!e)return null;let t={};for(let[n,r]of Object.entries(e.attributes))t[n]={data:r.array,size:r.itemSize};let n=e.boundingSphere;return{attributes:t,index:e.index.array,bounds:[n.center.x,n.center.y,n.center.z,n.radius]}}function mi(e){let t=performance.now(),{tile:n,roads:r,quality:i}=e,a=n.tx*256,o=n.tz*256,s={decks:[],cpos:[],cidx:[]},c=new vr,l=new vr,u=new br,d=new xr,f=new li(a,o),p={ctx:{quality:i,world:{roadsNear:()=>r}},tile:{...n,roads:r},rect:{minX:a-.05,minZ:o-.05,maxX:a+256+.05,maxZ:o+256+.05},roadsV:new sr(r,e=>dr.has(e.cls)&&!e.tunnel),roadsS:new sr(r,e=>fr.has(e.cls)&&!e.tunnel&&!e.bridge),roadbeds:$n([...n.roadbeds,...n.parking]),hydrants:n.props.filter(e=>e.kind===`hydrant`),deckAt:(e,t)=>Ur(s.decks,e,t),roadAt:(r,x,z)=>$roadDeckHeight(s.decks,r.id,x,z),roadTriangles:r=>$roadDeckTriangles(s.decks,r.id),pedestrians:$pedestrianClearance(e.pedestrianTiles??[n],r,ir),seed:Z(n.tx,n.tz)*1e4};Dr({...p,roadsV:new sr(r,e=>dr.has(e.cls)&&!e.tunnel&&!e.bridge)},c);let m={ramps:[],curbs:[]};for(let e of ii(p,l,m));let h=$n([...n.sidewalks,...n.plazas,...n.roadbeds]),g=new Set;const $pathSupport=new vr;for(let e of r)if(!(g.has(e.id)||e.bridge||e.tunnel||e.cls!==`footway`&&e.cls!==`pedestrian`)){g.add(e.id);for(let t of cr(e.pts,p.rect))for(let n=1;n<t.pts.length;n++){let r=t.pts[n-1],i=t.pts[n],a=Math.max(1,Math.ceil(Math.hypot(i[0]-r[0],i[1]-r[1])/3));for(let t=0;t<a;t++){let n=(t+.5)/a;const $px=r[0]+(i[0]-r[0])*n,$pz=r[1]+(i[1]-r[1])*n;if(er($px,$pz,h)||m.carriageway?.covers($px,$pz))continue;let o=[t/a,(t+1)/a].map(e=>[r[0]+(i[0]-r[0])*e,r[1]+(i[1]-r[1])*e]),s=e.surface===`asphalt`||e.surface===`cobblestone`,u=e.surface===`cobblestone`?Q.cobble:e.surface===`asphalt`?Q.asphalt:e.surface===`paving_stones`?Q.pavers:Q.plainConcrete;const $hw=$pathHalfWidth(m.carriageway,Math.max(.6,e.width/2),$px,$pz,i[0]-r[0],i[1]-r[1]);if(!$pathPieceClear(m.carriageway,o,$hw))continue;Er(s?c:l,o,$hw,()=>s?Sr:Wr,u,0,Z(e.id,0));if(s)Er($pathSupport,o,$hw,()=>Sr,u,0,Z(e.id,0))}}}const $profiles=$tunnelNetwork(r);$tunnelCut(c,$profiles);$tunnelCut(l,$profiles);$tunnelCut($pathSupport,$profiles);f.rasterize(c.pos,c.idx,c.aA),f.rasterize(l.pos,l.idx,l.aA);let _=c.idx.length;Rr(p,c,d,s),Hr(p,d,s),f.rasterize(c.pos,c.idx.slice(_),c.aA,1/0);$resolveRoadOverlaps(c,a,o);let v=di({pos:[...l.pos,...$pathSupport.pos],aA:[...l.aA,...$pathSupport.aA],idx:[...l.idx,...$pathSupport.idx.map(i=>i+l.vertexCount)]},m.curbs,a,o);return ai(p,u,f,m,(e,t)=>Math.max(0,fi(v,Math.max(a,Math.min(a+256-1e-4,e)),Math.max(o,Math.min(o+256-1e-4,t)),a,o)-Sr)),{meshes:[pi(c.build()),pi(l.build()),pi(u.build()),pi(d.build())],surface:f.data,paint:f.paint,metal:f.metal,decks:s.decks,colliders:Pn(new Float32Array(s.cpos),new Uint32Array(s.cidx)),walkCollision:v,colliderPos:new Float32Array(s.cpos),colliderIdx:new Uint32Array(s.cidx),ms:performance.now()-t}}self.onmessage=async e=>{if(`type`in e.data){try{let t=await Gn(),n;try{n=qn(e.data.aniso,e.data.quality,e.data.skip,t)}finally{t.manhole?.close()}let r={...n};for(let e of[`asphalt`,`concrete`,`granite`,`cobble`]){let t=n[e];r[e]={scale:t.scale,albedo:await Mn(t.albedo),normal:await Mn(t.normal),rough:t.rough?await Mn(t.rough):null}}for(let e of[`asphalt2`,`noise`,`atlas`])r[e]=await Mn(n[e]);self.postMessage({type:`textures`,textures:r},{transfer:Nn(r)})}catch(e){self.postMessage({type:`textures`,error:String(e)})}return}let{id:t,input:n}=e.data;try{let e=mi(n);self.postMessage({id:t,built:e},{transfer:Nn(e)})}catch(e){self.postMessage({id:t,error:String(e)})}}})();
 //# sourceMappingURL=tile.worker-Ai2ZdmRL.js.map

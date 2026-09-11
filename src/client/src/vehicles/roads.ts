@@ -1,4 +1,6 @@
 /** Shared road records are reference-counted: OSM polylines occur in multiple tiles. */
+import { highwayLanePath } from '../streets/lane-paths.js';
+import { isHighway, laneCount, laneWidth } from '../streets/lane-layout.js';
 import { isIOS } from '@/core/quality';
 import type { GameContext } from '@/core/context';
 import type { RoadSegment, Tile } from '@shared/world';
@@ -13,6 +15,8 @@ export interface Lane {
   dx: number; dz: number; length: number;
   start: string; end: string;
   speed: number;
+  segment?: number; offset?: number;
+  path?: { x: number; z: number; s: number }[];
 }
 
 const node = (x: number, z: number, layer: number) => `${Math.round(x * 2)},${Math.round(z * 2)},${layer}`;
@@ -26,6 +30,7 @@ const PARKED_HALF_WIDTH = Math.max(...Object.values(KINDS).filter(s => s.parkedW
 
 /** Reserve parking before dividing a one-way carriageway, including odd lane counts. */
 export function laneOffsets(r: RoadSegment): number[] {
+  if (isHighway(r)) return Array.from({ length: laneCount(r) }, (_, i) => (i + .5 - laneCount(r) / 2) * laneWidth(r));
   if (r.tunnel && r.oneway) {
     const count = Math.max(1, r.lanes), width = Math.min(3.3, (r.width - 1) / count);
     return Array.from({ length: count }, (_, i) => (i - (count - 1) / 2) * width);
@@ -69,7 +74,7 @@ export class Roads {
             const dx = (q[0] - p[0]) / length, dz = (q[1] - p[1]) / length;
             const offsets = laneOffsets(r);
             for (const offset of offsets) {
-              const lane: Lane = { key: `${key}:${i}:${sign}:${offset}`, road: r, ax: p[0] - dz * offset, az: p[1] + dx * offset,
+              const lane: Lane = { segment: i, offset, key: `${key}:${i}:${sign}:${offset}`, road: r, ax: p[0] - dz * offset, az: p[1] + dx * offset,
                 bx: q[0] - dz * offset, bz: q[1] + dx * offset, dx, dz, length,
                 start: node(p[0], p[1], r.layer), end: node(q[0], q[1], r.layer),
                 speed: Math.min(r.maxspeed ?? (r.cls === 'primary' ? 30 : 25), 35) * 0.44704 };
@@ -135,6 +140,15 @@ export class Roads {
         }
       }
     }
+    this.refreshHighways();
+  }
+
+  private refreshHighways(): void {
+    const roads = [...this.refs.values()].map(ref => ref.lanes[0]?.road).filter(Boolean) as RoadSegment[];
+    for (const lane of this.lanes.values()) {
+      const path = highwayLanePath(lane.road, roads, lane.segment ?? 0, lane.offset ?? 0);
+      if (path) Object.assign(lane, path);
+    }
   }
 
   unload(key: string): void {
@@ -153,6 +167,7 @@ export class Roads {
       this.refs.delete(key);
     }
     this.tiles.delete(key);
+    this.refreshHighways();
   }
 
   dispose(): void { for (const key of this.tiles.keys()) this.unload(key); }

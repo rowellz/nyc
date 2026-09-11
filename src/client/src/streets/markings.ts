@@ -4,6 +4,7 @@ import { TILE_SIZE } from '@shared/geo';
 import { MarkBuilder, type TileEnv } from './builders';
 import { RoadIndex, clipPolylineToRect, hash2, pointAlong, polylineLength, yawToDir } from './geom2d';
 import { ROAD_Y } from './roadbed';
+import { deckEdges } from './edges.js';
 import { WALK_Y, type SidewalkResult } from './sidewalk';
 import type { SurfaceGrid } from './surface';
 import { ATLAS } from './textures';
@@ -59,28 +60,44 @@ export function buildMarkings(env: TileEnv, marks: MarkBuilder, grid: SurfaceGri
     const total = polylineLength(r.pts);
     // Highway way boundaries are often just layer/tag changes, not junctions.
     const endGap = r.bridge || env.roadTriangles(r).length || r.cls === 'motorway' || r.cls === 'trunk' ? 0 : 7;
+    const hw = Math.max(3.2, r.width / 2);
+    const edges = deckEdges(r, env.tile.roads, hw);
+    const stations = [0];
+    for (let i = 1; i < r.pts.length; i++) {
+      const start = stations[stations.length - 1];
+      const length = Math.hypot(r.pts[i][0] - r.pts[i - 1][0], r.pts[i][1] - r.pts[i - 1][1]);
+      const count = Math.max(1, Math.ceil(length / 4));
+      for (let j = 1; j <= count; j++) stations.push(start + length * j / count);
+    }
     const line = (offset: number, dashed: boolean, region: readonly number[]) => {
-      let along = 0;
-      for (let i = 1; i < r.pts.length; i++) {
-        const a = r.pts[i - 1], b = r.pts[i];
+      // Use the deck's shared miter and continuation direction. Offsetting each
+      // source segment independently leaves holes at bends and bridge joins.
+      const path: Pt[] = stations.map(s => edges.line(s, offset) as Pt);
+      const lineTotal = total;
+      const layout = edges.layout, q = offset / laneW + lanes / 2;
+      for (let i = 1; i < path.length; i++) {
+        const a = path[i - 1], b = path[i];
         const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
         if (len < 0.01) continue;
+        const along = stations[i-1], scale = len / (stations[i] - along || 1);
+        const station = (along + stations[i]) / 2;
+        if (layout && (q === 0 || q === lanes) && layout.open(station, q === 0 ? 0 : 1)) { continue; }
+        if (layout && q > 0 && q < lanes && layout.offset(station,q+.5)-layout.offset(station,q-.5)<.9) { continue; }
         const dx = (b[0] - a[0]) / len, dz = (b[1] - a[1]) / len;
-        const pts: Pt[] = [[a[0] - dz * offset, a[1] + dx * offset], [b[0] - dz * offset, b[1] + dx * offset]];
+        const pts: Pt[] = [a, b];
         for (const piece of clipPolylineToRect(pts, env.rect)) {
-          const start = Math.max(along + piece.s0, endGap);
-          const end = Math.min(along + piece.s0 + polylineLength(piece.pts), total - endGap);
+          const start = Math.max(along + piece.s0 / scale, endGap);
+          const end = Math.min(along + (piece.s0 + polylineLength(piece.pts)) / scale, lineTotal - endGap);
           // Dash phase comes from the uncut source road, including across tile boundaries.
-          for (let s = dashed ? Math.floor(start / 12) * 12 : start; s < end; s += dashed ? 12 : 3) {
+          for (let s = dashed ? Math.floor((start + (layout?.phase ?? 0)) / 12) * 12 - (layout?.phase ?? 0) : start; s < end; s += dashed ? 12 : 3) {
             const lo = Math.max(start, s), hi = Math.min(end, s + 3);
             if (hi <= lo) continue;
-            const d = (lo + hi) / 2 - along;
+            const d = ((lo + hi) / 2 - along) * scale;
             const x = pts[0][0] + dx * d, z = pts[0][1] + dz * d;
             if (!r.bridge && deckAt(x, z) < 0.3 && env.tile.crossings.some(c => Math.hypot(c.x - x, c.z - z) < 4)) continue;
-            paint(x, z, dx, dz, hi - lo, 0.12, region);
+            paint(x, z, dx, dz, (hi - lo) * scale, 0.12, region);
           }
         }
-        along += len;
       }
     };
     for (let lane = 1; lane < lanes; lane++) {
@@ -95,7 +112,9 @@ export function buildMarkings(env: TileEnv, marks: MarkBuilder, grid: SurfaceGri
       line(-lanes * laneW / 2, false, ATLAS.white);
       line(lanes * laneW / 2, false, ATLAS.white);
     }
-    if (r.oneway && lanes > 1 && total > 32 && env.ctx.quality.level !== 'low') {
+    // Generic left/right arrows at every motorway tag boundary contradict the
+    // actual merge assignments. Street-junction arrows retain their existing placement.
+    if (!edges.layout && r.oneway && lanes > 1 && total > 32 && env.ctx.quality.level !== 'low') {
       const q = pointAlong(r.pts, total - 20);
       for (let lane = 0; lane < lanes; lane++) {
         const offset = (lane + 0.5 - lanes / 2) * laneW;

@@ -8,7 +8,10 @@ import { TILE_SIZE } from '@shared/geo';
 import type { RoadSegment, Tile } from '@shared/world';
 import { buildBridges, buildPortals, deckHeightIn, type BridgeOut } from './bridges';
 import { GroundBuilder, MarkBuilder, StructBuilder, type TileEnv } from './builders';
-import { RoadIndex, STREET, VEHICULAR, clipPolylineToRect, hash2, indexPolygons, pointInAny } from './geom2d';
+import { pathHalfWidth, pathPieceClear } from './carriageway.js';
+import { resolveRoadOverlaps } from './road-overlap.js';
+import { pedestrianClearance } from './pedestrian-clearance.js';
+import { RoadIndex, STREET, VEHICULAR, clipPolylineToRect, hash2, indexPolygons, pointInAny, triangulate } from './geom2d';
 import { KIND } from './materials';
 import { buildMarkings } from './markings';
 import { ROAD_Y, buildRoadbed, ribbon } from './roadbed';
@@ -16,7 +19,8 @@ import { WALK_Y, buildSidewalks, type SidewalkResult } from './sidewalk';
 import { SurfaceGrid, type DecalRect } from './surface';
 import { buildWalkCollision, walkHeightIn, type WalkCollision } from './collision';
 
-export interface TileInput { tile: Tile; roads: RoadSegment[]; quality: Quality }
+export interface TileInput { tile: Tile; roads: RoadSegment[]; quality: Quality;
+  pedestrianTiles?: Pick<Tile, 'tx' | 'tz' | 'sidewalks' | 'medians' | 'plazas' | 'roadbeds' | 'parking'>[] }
 export interface PackedGeometry {
   attributes: Record<string, { data: Float32Array; size: number }>;
   index: Uint16Array | Uint32Array;
@@ -61,6 +65,7 @@ export function buildStreetTile(input: TileInput): BuiltStreetTile {
     deckAt: (x, z) => deckHeightIn(bridge.decks, x, z),
     roadAt: (r, x, z) => roadDeckHeight(bridge.decks, r.id, x, z),
     roadTriangles: r => roadDeckTriangles(bridge.decks, r.id),
+    pedestrians: pedestrianClearance(input.pedestrianTiles ?? [tile], roads, triangulate),
     seed: hash2(tile.tx, tile.tz) * 10000,
   };
   buildRoadbed({ ...env, roadsV: new RoadIndex(roads, r => VEHICULAR.has(r.cls) && !r.tunnel && !r.bridge) }, road);
@@ -68,6 +73,7 @@ export function buildStreetTile(input: TileInput): BuiltStreetTile {
   for (const _ of buildSidewalks(env, walk, walks)) { /* Worker owns the whole job. */ }
   const paved = indexPolygons([...tile.sidewalks, ...tile.plazas, ...tile.roadbeds]);
   const seen = new Set<number>();
+  const pathSupport = new GroundBuilder();
   for (const r of roads) {
     if (seen.has(r.id) || r.bridge || r.tunnel || (r.cls !== 'footway' && r.cls !== 'pedestrian')) continue;
     seen.add(r.id);
@@ -78,11 +84,17 @@ export function buildStreetTile(input: TileInput): BuiltStreetTile {
         const count = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 3));
         for (let j = 0; j < count; j++) {
           const t = (j + 0.5) / count;
-          if (pointInAny(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, paved)) continue;
+          const px = a[0] + (b[0] - a[0]) * t, pz = a[1] + (b[1] - a[1]) * t;
+          // A path is no reason to pave over the roadway either: the same rule the sidewalks obey.
+          if (pointInAny(px, pz, paved) || walks.carriageway?.covers(px, pz)) continue;
           const pts: [number, number][] = [j / count, (j + 1) / count].map(s => [a[0] + (b[0] - a[0]) * s, a[1] + (b[1] - a[1]) * s]);
           const isRoad = r.surface === 'asphalt' || r.surface === 'cobblestone';
           const kind = r.surface === 'cobblestone' ? KIND.cobble : r.surface === 'asphalt' ? KIND.asphalt : r.surface === 'paving_stones' ? KIND.pavers : KIND.plainConcrete;
-          ribbon(isRoad ? road : walk, pts, Math.max(0.6, r.width / 2), () => isRoad ? ROAD_Y : WALK_Y, kind, 0, hash2(r.id, 0));
+          const hw = pathHalfWidth(walks.carriageway, Math.max(0.6, r.width / 2), px, pz, b[0] - a[0], b[1] - a[1]);
+          if (!pathPieceClear(walks.carriageway, pts, hw)) continue;
+          ribbon(isRoad ? road : walk, pts, hw,
+            () => isRoad ? ROAD_Y : WALK_Y, kind, 0, hash2(r.id, 0));
+          if (isRoad) ribbon(pathSupport, pts, hw, () => ROAD_Y, kind, 0, hash2(r.id, 0));
         }
       }
     }
@@ -90,13 +102,16 @@ export function buildStreetTile(input: TileInput): BuiltStreetTile {
   const tunnels = tunnelNetwork(roads);
   cutBuilder(road, tunnels);
   cutBuilder(walk, tunnels);
+  cutBuilder(pathSupport, tunnels);
   grid.rasterize(road.pos, road.idx, road.aA);
   grid.rasterize(walk.pos, walk.idx, walk.aA);
   const groundEnd = road.idx.length;
   buildBridges(env, road, structure, bridge);
   buildPortals(env, structure, bridge);
   grid.rasterize(road.pos, road.idx.slice(groundEnd), road.aA, Infinity);
-  const walkCollision = buildWalkCollision(walk, walks.curbs, ox, oz);
+  resolveRoadOverlaps(road, ox, oz);
+  const walkCollision = buildWalkCollision({ pos: [...walk.pos, ...pathSupport.pos],
+    aA: [...walk.aA, ...pathSupport.aA], idx: [...walk.idx, ...pathSupport.idx.map(i => i + walk.vertexCount)] } as GroundBuilder, walks.curbs, ox, oz);
   buildMarkings(env, marks, grid, walks, (x, z) => Math.max(0,
     walkHeightIn(walkCollision, Math.max(ox, Math.min(ox + TILE_SIZE - 1e-4, x)),
       Math.max(oz, Math.min(oz + TILE_SIZE - 1e-4, z)), ox, oz) - ROAD_Y));

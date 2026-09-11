@@ -1,6 +1,11 @@
+import { highwayLanePath, lanePoint } from '../../public/world/assets/lane-paths.js';
+import { isHighway, laneCount, laneWidth } from '../../public/world/assets/lane-layout.js';
+import { pedestrianClearance } from '../../public/world/assets/pedestrian-clearance.js';
+import { resolveRoadOverlaps } from '../../public/world/assets/road-overlap.js';
 import { roadFootprints } from '../../public/world/assets/fixtures.js';
 import { deckEdges, barrierRuns } from '../../public/world/assets/edges.js';
 import { clearanceProfile } from '../../public/world/assets/ramps.js';
+import { carriagewayIndex, pathHalfWidth, pathPieceClear } from '../../public/world/assets/carriageway.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -51,7 +56,7 @@ console.log('PASS exact approach cuts preserve neighbouring streets and tunnel c
 let built;
 const workerCode = readFileSync(new URL('../../public/world/assets/tile.worker-Ai2ZdmRL.js', import.meta.url), 'utf8').replace(/^import .*$/gm, '');
 const sandbox = { console, performance, self: { postMessage: result => { built = result; } },
-  $roadFootprints: roadFootprints, $deckEdges: deckEdges, $barrierRuns: barrierRuns, $clearanceProfile: clearanceProfile, $roadDeckTriangles: roadDeckTriangles, $triangleHeight: triangleHeight, $roadDeckHeight: roadDeckHeight, $supportPlanner: supportPlanner, $tunnelBuild: tunnels.buildTunnels, $tunnelNetwork: tunnels.tunnelNetwork, $tunnelCut: tunnels.cutBuilder };
+  $roadFootprints: roadFootprints, $deckEdges: deckEdges, $barrierRuns: barrierRuns, $clearanceProfile: clearanceProfile, $roadDeckTriangles: roadDeckTriangles, $triangleHeight: triangleHeight, $roadDeckHeight: roadDeckHeight, $supportPlanner: supportPlanner, $tunnelBuild: tunnels.buildTunnels, $tunnelNetwork: tunnels.tunnelNetwork, $tunnelCut: tunnels.cutBuilder, $carriagewayIndex: carriagewayIndex, $pathHalfWidth: pathHalfWidth, $pathPieceClear: pathPieceClear, $resolveRoadOverlaps: resolveRoadOverlaps, $pedestrianClearance: pedestrianClearance };
 vm.createContext(sandbox); vm.runInContext(workerCode, sandbox);
 const quality = { level: 'mobile', shadows: false };
 await sandbox.self.onmessage({ data: { id: 1, input: { tile: tile(), roads, quality } } });
@@ -80,7 +85,7 @@ function sourceModule(relative, injected, exports) {
 }
 const spec = { width: 1.8, length: 4, front: 2, rear: 2, wheelRadius: 0.3, parkedWeight: 0 };
 const sourceGround = sourceModule('vehicles/model.ts', {}, 'ground').ground;
-const common = { console, KINDS: { sedan: spec, taxi: spec }, hash01: (a, b = 0, c = 0) => ((a * 73 + b * 31 + c * 17) % 997) / 997,
+const common = { console, highwayLanePath, lanePoint, isHighway, laneCount, laneWidth, KINDS: { sedan: spec, taxi: spec }, hash01: (a, b = 0, c = 0) => ((a * 73 + b * 31 + c * 17) % 997) / 997,
   pickKind: () => 'sedan', ground: sourceGround, removeBody: () => {}, poseMatrix: () => {}, createObstacle: () => {},
   makeCar: (key, kind, x, y, z, yaw) => ({ key, kind, x, y, z, yaw, speed: 0, spin: 0 }), isIOS: () => false, TILE_SIZE: 256,
   trafficHeight: tunnels.trafficHeight, tunnelConnections: tunnels.tunnelConnections,
@@ -120,7 +125,7 @@ const start = shipped.indexOf('ln=(e,t,n)=>'), end = shipped.indexOf(';function 
 assert(start > 0 && end > start);
 const servedGround = vm.runInNewContext(`(${shipped.slice(shipped.indexOf('function jt('), shipped.indexOf('function Q('))})`);
 const actual = vm.runInNewContext(`(function(){let ${shipped.slice(start, end)};return {Roads:vn,Traffic:Cn}})()`, {
-  console, Z: common.KINDS, ht: common.hash01, vt: common.pickKind, jt: servedGround, Q: common.removeBody,
+  console, $highwayLanePath: highwayLanePath, $lanePoint: lanePoint, $isHighway: isHighway, $laneCount: laneCount, $laneWidth: laneWidth, Z: common.KINDS, ht: common.hash01, vt: common.pickKind, jt: servedGround, Q: common.removeBody,
   At: common.poseMatrix, Mt: common.createObstacle, kt: common.makeCar, e: common.isIOS, $: common.distance2,
   $tunnelHeight: tunnels.trafficHeight, $tunnelConnections: tunnels.tunnelConnections,
 });
@@ -151,11 +156,11 @@ const bridgeTile = { ...tile(), roads: bridgeRoads };
 await sandbox.self.onmessage({ data: { id: 3, input: { tile: bridgeTile, roads: bridgeRoads, quality } } });
 assert(!built.error, built.error);
 const decks = built.built.decks;
-const heights = { deckHeight: () => 18, roadHeight: (r, x, z) => r.bridge ? roadDeckHeight(decks, r.id, x, z) : 0 };
+const heights = { deckHeight: () => 18, roadHeight: (r, x, z) => roadDeckHeight(decks, r.id, x, z) };
 const bridgeCtx = { ...ctx, world: { tiles: new Map([['0_0', bridgeTile]]) }, modules: new Map([['streets', heights]]) };
 for (const [name, classes, ground] of [['source', { Roads, Traffic }, sourceGround], ['served', actual, servedGround]]) {
   assert.equal(ground(bridgeCtx, 105, 40), 18, 'unconstrained callers retain the existing highest-surface API');
-  assert(ground(bridgeCtx, 105, 40, bridgeA) < 8, 'traffic samples its own lower deck');
+  assert(ground(bridgeCtx, 105, 40, bridgeA) < roadDeckHeight(decks, overhead.id, 110, 40) - 5.8, 'traffic samples its own lower deck with headroom');
   const graph = new classes.Roads(bridgeCtx); graph.load(bridgeTile);
   const firstLane = [...graph.lanes.values()].find(l => l.road.id === bridgeA.id);
   const connections = tunnels.tunnelConnections(graph, firstLane);
@@ -166,13 +171,16 @@ for (const [name, classes, ground] of [['source', { Roads, Traffic }, sourceGrou
     lane: firstLane, along: 25, next: null, wait: 0, turn: 0, age: 0, speed: 8 };
   simulation.cars.push(vehicle);
   let passedUnder = false;
-  for (let step = 0; step < 3000 && vehicle.lane.road.id !== bridgeExit.id; step++) {
+  for (let step = 0; step < 3000 && vehicle.x < 315; step++) {
+    const previous = { x: vehicle.x, y: vehicle.y, z: vehicle.z };
     simulation.update(1 / 60, step / 60, []);
     assert.equal(vehicle.y, heights.roadHeight(vehicle.lane.road, vehicle.x, vehicle.z));
     assert.notEqual(vehicle.lane.road.id, overhead.id);
-    if (Math.abs(vehicle.x - 110) < 5) { assert(vehicle.y < 8); passedUnder = true; }
+    if (Math.abs(vehicle.x - 110) < 5) { assert(vehicle.y < roadDeckHeight(decks, overhead.id, 110, 40) - 5.8); passedUnder = true; }
+    const distance = Math.hypot(vehicle.x - previous.x, vehicle.z - previous.z);
+    assert(Math.abs(vehicle.y - previous.y) <= distance * .08 + .001, `${name}: car must follow the grade limit across tag boundaries`);
   }
-  assert(passedUnder); assert.equal(vehicle.lane.road.id, bridgeExit.id, `${name}: traffic reaches the surface exit`);
+  assert(passedUnder); assert(vehicle.x >= 315, `${name}: car drives through the extended approach`); assert.equal(vehicle.lane.road.id, bridgeExit.id, `${name}: traffic reaches the surface exit`);
   assert.equal(vehicle.y, 0);
   simulation.dispose(); graph.unload('0_0');
 }

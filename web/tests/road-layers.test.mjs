@@ -1,6 +1,9 @@
+import { pedestrianClearance } from '../../public/world/assets/pedestrian-clearance.js';
+import { resolveRoadOverlaps } from '../../public/world/assets/road-overlap.js';
 import { roadFootprints } from '../../public/world/assets/fixtures.js';
 import { deckEdges, barrierRuns } from '../../public/world/assets/edges.js';
 import { clearanceProfile } from '../../public/world/assets/ramps.js';
+import { carriagewayIndex, pathHalfWidth, pathPieceClear } from '../../public/world/assets/carriageway.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
@@ -17,7 +20,7 @@ const makeTile = (roads, extra = {}) => ({ key: '0_0', tx: 0, tz: 0, roads, buil
   parking: [], plazas: [], crossings: [], trees: [], props: [], groundElev: 0, ...extra });
 let result;
 const sandbox = { console, performance, self: { postMessage: r => { result = r; } }, $roadFootprints: roadFootprints, $deckEdges: deckEdges, $barrierRuns: barrierRuns, $clearanceProfile: clearanceProfile, $roadDeckTriangles: roadDeckTriangles, $triangleHeight: triangleHeight, $roadDeckHeight: roadDeckHeight, $supportPlanner: supportPlanner,
-  $tunnelBuild: tunnels.buildTunnels, $tunnelNetwork: tunnels.tunnelNetwork, $tunnelCut: tunnels.cutBuilder };
+  $tunnelBuild: tunnels.buildTunnels, $tunnelNetwork: tunnels.tunnelNetwork, $tunnelCut: tunnels.cutBuilder, $carriagewayIndex: carriagewayIndex, $pathHalfWidth: pathHalfWidth, $pathPieceClear: pathPieceClear, $resolveRoadOverlaps: resolveRoadOverlaps, $pedestrianClearance: pedestrianClearance };
 vm.createContext(sandbox);
 vm.runInContext(readFileSync(new URL('../../public/world/assets/tile.worker-Ai2ZdmRL.js', import.meta.url), 'utf8').replace(/^import .*$/gm, ''), sandbox);
 async function build(roads, extra = {}) {

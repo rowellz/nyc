@@ -1,9 +1,17 @@
 /** Clearance planning across bridge tags and their connected approach roads. */
+import { PEDESTRIAN_HEADROOM, PEDESTRIAN_FLOOR } from './pedestrian-clearance.js';
+import { highwayLayout } from './lane-layout.js';
 const cache = new WeakMap();
 const VEHICLES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service']);
 const pointKey = p => `${Math.round(p[0] * 2)},${Math.round(p[1] * 2)}`;
 const slab = r => r.cls === 'motorway' || r.cls === 'trunk' ? 1 : 1.4;
 const CELL = 32, STEP = 4, CLEARANCE = 4.8;
+// Rise / horizontal run. Apply to the final profile, including native bridge
+// crowns and clearance corrections, rather than just to each added lift.
+export const MAX_ROAD_GRADE = 0.08;
+export const MAX_ROAD_HEIGHT = 36;
+// Include the longest possible descent plus a sampling margin in streamed jobs.
+export const ROAD_PROFILE_REACH = Math.ceil((MAX_ROAD_HEIGHT / MAX_ROAD_GRADE + STEP * 2) / 256) * 256;
 
 export function clearanceProfile(env, road, baseProfile) {
   let profiles = cache.get(env);
@@ -49,7 +57,56 @@ function plan(env, baseProfile) {
     }
     return { road: r, base, points, length: along, hw: base.hw };
   });
-  for (const entry of entries) if (entry.road.bridge) for (const p of entry.points) nodes[p.id].layer = Math.max(nodes[p.id].layer ?? -Infinity, entry.road.layer);
+  // Roads meeting in a fan share one level wherever their footprints overlap.
+  // Independent slopes otherwise hide one road's paint beneath the neighbouring
+  // deck. Zero-distance links make the overlap a common junction surface while
+  // the grade solver extends the approaches on either side as needed.
+  const byRoad = new Map(entries.map(e => [e.road.id,e])), joined = new Set();
+  for (const entry of entries) {
+    const layout = highwayLayout(entry.road, roads);
+    for (const end of layout?.ends ?? []) {
+      if (!end?.members) continue;
+      const key = end.members.map(m=>m.id).sort((a,b)=>a-b).join(':');
+      if (joined.has(key)) continue; joined.add(key);
+      for (const member of end.members) {
+        const own = byRoad.get(member.id); if (!own) continue;
+        const points = member.end ? [...own.points].reverse() : own.points;
+        const anchor = points[0].id;
+        for (const p of points) {
+          const overlaps = end.members.some(other => {
+            if (other.id === member.id) return false;
+            const next = byRoad.get(other.id); if (!next) return false;
+            for (let i=1;i<next.road.pts.length;i++) {
+              const a=next.road.pts[i-1],b=next.road.pts[i],dx=b[0]-a[0],dz=b[1]-a[1],d=dx*dx+dz*dz;
+              if(d<1e-8)continue;
+              const t=Math.max(0,Math.min(1,((p.x-a[0])*dx+(p.z-a[1])*dz)/d));
+              if(Math.hypot(p.x-a[0]-dx*t,p.z-a[1]-dz*t)<=own.hw+next.hw+STEP)return true;
+            }
+            return false;
+          });
+          if(p.id!==anchor){nodes[anchor].links.push([p.id,0]);nodes[p.id].links.push([anchor,0]);}
+          if(!overlaps)break;
+        }
+      }
+    }
+  }
+  // Hold the whole ramp segment above a walking corridor. These are fixed ground
+  // constraints, not graph connections that could pull pedestrians up with the road.
+  if (env.pedestrians) for (const entry of entries) {
+    if (!entry.road.bridge) continue;
+    for (let i = 1; i < entry.points.length; i++) {
+      const a = entry.points[i - 1], b = entry.points[i];
+      const length = Math.hypot(b.x - a.x, b.z - a.z); if (length < 1e-6) continue;
+      const hw = entry.hw + .5, nx = -(b.z - a.z) / length * hw, nz = (b.x - a.x) / length * hw;
+      // Rendering resamples clipped ways at different stations. Cover one extra
+      // station at either end so interpolation cannot dip over the path's edge.
+      const dx = (b.x - a.x) / length * STEP, dz = (b.z - a.z) / length * STEP;
+      if (!env.pedestrians.intersects([[a.x - dx - nx, a.z - dz - nz], [b.x + dx - nx, b.z + dz - nz],
+        [b.x + dx + nx, b.z + dz + nz], [a.x - dx + nx, a.z - dz + nz]])) continue;
+      const height = PEDESTRIAN_FLOOR + PEDESTRIAN_HEADROOM + slab(entry.road) + .15;
+      for (const p of [a, b]) nodes[p.id].minimum = Math.max(nodes[p.id].minimum ?? 0, height);
+    }
+  }
   // Index complete road footprints, not just centreline intersections. This
   // catches oblique crossings and ramps whose outside edge clips a lower lane.
   const cells = new Map();
@@ -62,28 +119,6 @@ function plan(env, baseProfile) {
       }
     }
   }
-  const nearbyNodes = new Map();
-  const localJoin = (a, b, reach) => {
-    if (!nearbyNodes.has(a)) {
-      const distances = new Map([[a, 0]]), queue = [a];
-      for (let i = 0; i < queue.length; i++) {
-        const id = queue[i], d = distances.get(id);
-        for (const [other, length] of nodes[id].links) {
-          const next = d + length;
-          if (next > 80 || next >= (distances.get(other) ?? Infinity)) continue;
-          distances.set(other, next); queue.push(other);
-        }
-      }
-      nearbyNodes.set(a, distances);
-    }
-    return (nearbyNodes.get(a).get(b) ?? Infinity) < reach;
-  };
-  const approachLayer = (id, reach) => {
-    localJoin(id, id, reach);
-    let layer = -Infinity;
-    for (const [other, distance] of nearbyNodes.get(id)) if (distance < reach) layer = Math.max(layer, nodes[other].layer ?? -Infinity);
-    return layer;
-  };
   for (const upper of entries) {
     if (!upper.road.bridge) continue;
     const contacts = new Map();
@@ -118,49 +153,68 @@ function plan(env, baseProfile) {
         if (!merge) for (let k = begin; k < end; k++) {
           const i = indices[k];
           for (const lowerId of contact.get(i)) {
-            // Tiny connector ways can split a merge into several road records.
-            // A short path through actual shared nodes is still one junction.
-            if (localJoin(upper.points[i].id, lowerId, 2 * (upper.hw + lower.hw + STEP))) continue;
-            if (!lower.road.bridge && approachLayer(lowerId, 2 * (upper.hw + lower.hw + STEP)) >= upper.road.layer) continue;
-            nodes[lowerId].crossings.push([upper.points[i].id, CLEARANCE + slab(upper.road) + 0.15]);
+            const constraint = [upper.points[i].id, CLEARANCE + slab(upper.road) + 0.15, `${lower.road.id}:${upper.road.id}`];
+            nodes[lowerId].crossings.push(constraint);
           }
         }
         begin = end;
       }
     }
   }
-  // Propagate the required clearance into connected approaches. Keeping bridge
-  // tag endpoints pinned to zero forces a ramp through traffic just before them.
-  // Use the gentlest feasible grade; unusually short map loops need a steeper run.
-  let required;
-  for (const grade of [0.12, 0.18, 0.25, 0.4]) {
-    required = new Float64Array(nodes.length);
-    const queue = [], queued = new Uint8Array(nodes.length), visits = new Uint16Array(nodes.length);
-    const raise = (id, height) => {
-      if (height <= required[id] + 1e-7) return;
-      required[id] = height;
-      if (!queued[id]) { queue.push(id); queued[id] = 1; }
-    };
-    nodes.forEach(n => n.crossings.forEach(([id, height]) => raise(id, n.base + height)));
-    let feasible = true;
-    for (let cursor = 0; cursor < queue.length; cursor++) {
-      const id = queue[cursor], n = nodes[id]; queued[id] = 0;
-      if (++visits[id] > 128) { feasible = false; break; }
-      for (const [other, distance] of n.links) raise(other, required[id] - grade * distance);
-      for (const [other, height] of n.crossings) raise(other, Math.max(n.base, required[id]) + height);
-    }
-    if (feasible) break;
-    // Contradictory source topology must not discard an entire streamed tile
-    // or generate unbounded towers. Preserve its original profiles in that case.
-    if (grade === 0.4) return new Map(entries.map(entry => [entry.road.id, entry.base]));
-  }
+  const required = limitRoadGrades(nodes);
   return new Map(entries.map(({ road, base, points }) => {
-    const heights = points.map(p => Math.max(base.hAt(p.s), required[p.id]));
-    return [road.id, { hw: base.hw, H: Math.max(base.H, ...heights), hAt: s => {
+    const heights = points.map(p => required[p.id]);
+    return [road.id, { hw: base.hw, H: Math.max(...heights), hAt: s => {
       let lo = 0, hi = points.length - 1;
       while (lo + 1 < hi) { const mid = (lo + hi) >> 1; if (points[mid].s < s) lo = mid; else hi = mid; }
       const t = Math.max(0, Math.min(1, (s - points[lo].s) / (points[hi].s - points[lo].s || 1)));
       return heights[lo] + (heights[hi] - heights[lo]) * t;
     } }];
   }));
+}
+
+/** Difference constraints on the connected road network. Raising neighbours
+ * extends a climb without shaving off a bridge crown or pedestrian headroom.
+ * Source topology occasionally calls the same junction both a merge and an
+ * underpass. Reject that contradictory crossing, never relax the grade limit.
+ */
+export function limitRoadGrades(nodes) {
+  const disabled = new Set();
+  for (;;) {
+    const heights = Float64Array.from(nodes, n => Math.min(MAX_ROAD_HEIGHT, Math.max(n.base, n.minimum ?? 0)));
+    const queue = nodes.map((_, i) => i), queued = new Uint8Array(nodes.length).fill(1);
+    const previous = new Int32Array(nodes.length).fill(-1), cause = new Array(nodes.length);
+    const visits = new Uint32Array(nodes.length);
+    let conflict = -1;
+    const raise = (from, to, height, crossing) => {
+      if (height <= heights[to] + 1e-7) return;
+      heights[to] = height; previous[to] = from; cause[to] = crossing;
+      if (height > MAX_ROAD_HEIGHT + 1e-7) conflict = to;
+      if (!queued[to]) { queued[to] = 1; queue.push(to); }
+    };
+    for (let cursor = 0; cursor < queue.length && conflict < 0; cursor++) {
+      const id = queue[cursor], n = nodes[id]; queued[id] = 0;
+      if (++visits[id] % 64 === 0) {
+        const seen = new Set(); let p = id;
+        while (p >= 0 && !seen.has(p)) { seen.add(p); p = previous[p]; }
+        if (p >= 0) { conflict = p; break; }
+      }
+      for (const [other, distance] of n.links)
+        raise(id, other, heights[id] - MAX_ROAD_GRADE * distance);
+      for (const crossing of n.crossings) {
+        if (!disabled.has(crossing[2])) raise(id, crossing[0], heights[id] + crossing[1], crossing);
+      }
+    }
+    if (conflict < 0) return heights;
+    // Trace the conflicting chain (or positive cycle) and remove its least
+    // supported inferred underpass as a whole, not individual sample points.
+    const path = [], seen = new Set();
+    for (let id = conflict; id >= 0 && !seen.has(id); id = previous[id]) {
+      seen.add(id);
+      if (cause[id]) path.push({ edge: cause[id], separation: nodes[id].base - nodes[previous[id]].base });
+    }
+    path.sort((a, b) => a.separation - b.separation || String(a.edge[2]).localeCompare(String(b.edge[2])));
+    if (!path.length) throw new Error('Road grade constraint has no crossing to resolve');
+    disabled.add(path[0].edge[2]);
+  }
 }

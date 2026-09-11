@@ -1,4 +1,5 @@
 import { tunnelNetwork, tunnelHeight } from './tunnels.js';
+import { PEDESTRIAN_HEADROOM, PEDESTRIAN_FLOOR } from './pedestrian-clearance.js';
 
 const CLEARANCE = 4.8;
 const SHOULDER = 1;
@@ -78,6 +79,9 @@ export function supportPlanner(env, deckProfile) {
   });
 
   function obstructed(self, x, z, radius, top, bottom) {
+    if (top > PEDESTRIAN_FLOOR && bottom < PEDESTRIAN_FLOOR + PEDESTRIAN_HEADROOM
+      && env.pedestrians?.intersects([[x - radius - .3, z - radius - .3], [x + radius + .3, z - radius - .3],
+        [x + radius + .3, z + radius + .3], [x - radius - .3, z + radius + .3]])) return true;
     for (const entry of roads) {
       if (entry.road.id === self.id) continue;
       const reach = entry.hw + radius + SHOULDER;

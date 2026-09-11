@@ -1,3 +1,4 @@
+import { highwayLayout } from './lane-layout.js';
 /** Shared, whole-way edges: stable through OSM splits and tile clipping. */
 const unit = (x, z) => { const d = Math.hypot(x, z) || 1; return [x / d, z / d]; };
 const smooth = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
@@ -6,6 +7,7 @@ const highway = r => r.cls === 'motorway' || r.cls === 'trunk';
 
 export function deckEdges(road, roads, hw, extension = () => [0, 0]) {
   const pts = road.pts, last = pts.length - 1;
+  const layout = highwayLayout(road, roads);
   const endInfo = (r, end) => {
     const p = end ? r.pts.at(-1) : r.pts[0], q = end ? r.pts.at(-2) : r.pts[1];
     return { p, outward: unit(p[0] - q[0], p[1] - q[1]) };
@@ -43,6 +45,8 @@ export function deckEdges(road, roads, hw, extension = () => [0, 0]) {
     let incoming = before ?? after, outgoing = after ?? before;
     if (i === 0 && joins[0]) incoming = joins[0].direction;
     if (i === last && joins[1]) outgoing = joins[1].direction.map(v => -v);
+    if (i === 0 && layout?.ends[0]) incoming = outgoing = layout.ends[0].direction;
+    if (i === last && layout?.ends[1]) incoming = outgoing = layout.ends[1].direction;
     const tangent = unit(incoming[0] + outgoing[0], incoming[1] + outgoing[1]);
     const scale = Math.min(1.6, 1 / Math.max(0.6, incoming[0] * tangent[0] + incoming[1] * tangent[1]));
     return { rx: -tangent[1] * scale, rz: tangent[0] * scale };
@@ -60,9 +64,10 @@ export function deckEdges(road, roads, hw, extension = () => [0, 0]) {
       const x = pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, z = pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t;
       const rx = frames[i - 1].rx + (frames[i].rx - frames[i - 1].rx) * t, rz = frames[i - 1].rz + (frames[i].rz - frames[i - 1].rz) * t;
       const normal = unit(rx, rz);
-      const left = [x - rx * halfWidth, z - rz * halfWidth], right = [x + rx * halfWidth, z + rz * halfWidth];
+      const l = layout ? layout.edge(s,0) : -halfWidth, r = layout ? layout.edge(s,1) : halfWidth;
+      const left = [x + rx * l, z + rz * l], right = [x + rx * r, z + rz * r];
       const extra = extension({ s, x, z, left, right, dx: normal[1], dz: -normal[0], continuations: joins.filter(Boolean).map(j => j.roadId) });
-      samples.push({ s, left, right, normal, extra: extra.map(v => Math.max(0, Math.min(1.6, v))) });
+      samples.push({ s, x, z, rx, rz, left, right, normal, extra: extra.map(v => Math.max(0, Math.min(1.6, v))) });
     }
   }
   // Preserve the gap coverage while tapering the added width in and out at 1:10.
@@ -78,12 +83,26 @@ export function deckEdges(road, roads, hw, extension = () => [0, 0]) {
     const edge = side ? p.right : p.left, sign = side ? 1 : -1;
     edge[0] += sign * p.normal[0] * p.extra[side]; edge[1] += sign * p.normal[1] * p.extra[side];
   }
-  return s => {
+  const interval = s => {
     let lo = 0, hi = samples.length - 1;
     while (lo + 1 < hi) { const mid = (lo + hi) >> 1; if (samples[mid].s < s) lo = mid; else hi = mid; }
     const a = samples[lo], b = samples[hi], t = Math.max(0, Math.min(1, (s - a.s) / (b.s - a.s || 1)));
+    return { a, b, t };
+  };
+  const at = s => {
+    const { a, b, t } = interval(s);
     return [a.left.map((v, i) => v + (b.left[i] - v) * t), a.right.map((v, i) => v + (b.right[i] - v) * t)];
   };
+  // Paint shares the deck's miter and continuation direction, but keeps lane
+  // widths in metres: widening a shoulder must not spread the lane lines apart.
+  at.line = (s, offset) => {
+    const { a, b, t } = interval(s);
+    if (layout) offset = layout.offset(s, offset / layout.width + layout.count / 2);
+    return [a.x + (b.x - a.x) * t + (a.rx + (b.rx - a.rx) * t) * offset,
+      a.z + (b.z - a.z) * t + (a.rz + (b.rz - a.rz) * t) * offset];
+  };
+  at.layout = layout;
+  return at;
 }
 
 export function barrierRuns(a, b, open) {

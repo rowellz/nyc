@@ -1,3 +1,5 @@
+import { highwayLanePath as $highwayLanePath, lanePoint as $lanePoint } from './lane-paths.js';
+import { isHighway as $isHighway, laneCount as $laneCount, laneWidth as $laneWidth } from './lane-layout.js';
 // NYC functional tunnels v1
 // NYC approach signals v1
 // NYC ramp approach traffic v1
@@ -196,5 +198,431 @@ vContactShape = iContactShape; vContactFadeOffset = iContactFadeOffset; vContact
           float chassis = (1.0 - smoothstep(0.22, 0.52, length((vContactUv - 0.5) * vec2(1.0, 0.9)))) * 0.28;
           diffuseColor.a *= max(contact, chassis) * vContactFadeOffset.x;
           #include <alphatest_fragment>
-        `)},i.customProgramCacheKey=()=>`vehicle-contact-v2`,this.mesh=new T(r,i,on),this.mesh.name=`veh-contact-shadows`,this.mesh.count=0,this.mesh.frustumCulled=!1,this.mesh.renderOrder=2,this.mesh.instanceMatrix.setUsage(n),e.worldGroup.add(this.mesh)}begin(){this.count=0}add(e,t){if(t>=sn||this.count>=on)return;let n=jt(this.ctx,e.x,e.z),r=(1-a.smoothstep(t,sn*.85,sn))*(1-a.smoothstep(Math.abs(e.y-n),.15,.8));if(r<=0)return;let i=Z[e.kind],o=(i.rear-i.front)/2;this.matrix.makeRotationY(e.yaw).scale(this.scale.set(i.width+.8,1,i.length+.8)),this.matrix.setPosition(e.x+Math.sin(e.yaw)*o,n+.045,e.z+Math.cos(e.yaw)*o);let s=this.count++;this.mesh.setMatrixAt(s,this.matrix),this.shape.setXYZW(s,i.width+.8,i.length+.8,i.track/2,i.wheelbase/2),this.fadeOffset.setXY(s,r,o)}end(){if(this.mesh.count=this.count,this.mesh.visible=this.count>0,this.count)for(let e of[this.mesh.instanceMatrix,this.shape,this.fadeOffset])e.addUpdateRange(0,this.count*e.itemSize),e.needsUpdate=!0}dispose(){this.ctx.worldGroup.remove(this.mesh),this.mesh.geometry.dispose(),this.mesh.material.dispose(),this.mesh.dispose()}},ln=(e,t,n)=>`${Math.round(e*2)},${Math.round(t*2)},${n}`,un=e=>`${e.id}:${e.pts.map(e=>e.join(`,`)).join(`;`)}`,dn=e=>![`pedestrian`,`footway`,`cycleway`,`steps`].includes(e.cls),fn=2.4,pn=3.3,mn=Math.max(...Object.values(Z).map(e=>e.width/2)),hn=Math.max(...Object.values(Z).filter(e=>e.parkedWeight>0).map(e=>e.width/2));function gn(e){if(e.tunnel&&e.oneway){const n=Math.max(1,e.lanes),w=Math.min(3.3,(e.width-1)/n);return Array.from({length:n},(_,i)=>(i-(n-1)/2)*w)}if(!e.oneway)return[Math.min(1.65,e.width/4)];if(e.lanes<3)return[e.lanes===2?pn/2:0];let t=Math.max(0,e.width/2-fn-hn-mn-.3),n=Math.max(1,Math.min(e.lanes,1+Math.floor(2*t/pn)));return Array.from({length:n},(e,t)=>(t-(n-1)/2)*pn)}var _n=e=>e.lanes>=3&&[`primary`,`secondary`].includes(e.cls)&&/avenue|broadway|boulevard/i.test(e.name??``),vn=class{ctx;tiles=new Map;lanes=new Map;outgoing=new Map;refs=new Map;constructor(e){this.ctx=e}load(t){this.tiles.has(t.key)&&this.unload(t.key);let n={roads:[],parked:[],parkingSlots:0};this.tiles.set(t.key,n);for(let r of t.roads){if(!dn(r)||r.pts.length<2)continue;let i=un(r);if(n.roads.includes(i))continue;n.roads.push(i);let a=this.refs.get(i);if(a)a.count++;else{let e=[];for(let t=0;t<r.pts.length-1;t++){let n=r.pts[t],a=r.pts[t+1],o=Math.hypot(a[0]-n[0],a[1]-n[1]);if(!(o<.5))for(let s of r.oneway?[1]:[1,-1]){let c=s===1?n:a,l=s===1?a:n,u=(l[0]-c[0])/o,d=(l[1]-c[1])/o,f=gn(r);for(let n of f){let a={key:`${i}:${t}:${s}:${n}`,road:r,ax:c[0]-d*n,az:c[1]+u*n,bx:l[0]-d*n,bz:l[1]+u*n,dx:u,dz:d,length:o,start:ln(c[0],c[1],r.layer),end:ln(l[0],l[1],r.layer),speed:Math.min(r.maxspeed??(r.cls===`primary`?30:25),35)*.44704};e.push(a),this.lanes.set(a.key,a);let f=this.outgoing.get(a.start)??[];f.push(a),this.outgoing.set(a.start,f)}}}this.refs.set(i,{count:1,lanes:e})}if(!(![`primary`,`secondary`,`tertiary`,`residential`].includes(r.cls)||r.bridge||r.tunnel||r.width<7))for(let i=0;i<r.pts.length-1;i++){let a=r.pts[i],o=r.pts[i+1],s=Math.hypot(o[0]-a[0],o[1]-a[1]),c=(o[0]-a[0])/s,l=(o[1]-a[1])/s,u=r.id^Math.round(a[0]*100)^Math.imul(Math.round(a[1]*100),31),d=0;for(let i=9;i<s-8;d++){let o=vt(`parked`,ht(u,d,1)),f=Z[o],p=Math.max(6.5,f.length+1.5);for(let p of r.cls===`primary`?[1]:[1,-1]){if(i+f.length/2>s-6)continue;let m=(r.width/2-fn)*p;if((r.oneway?gn(r):[-gn(r)[0],gn(r)[0]]).some(e=>Math.abs(m-e)<f.width/2+mn+.3))continue;let h=a[0]+c*i-l*m,g=a[1]+l*i+c*m;if(Math.floor(h/256)!==t.tx||Math.floor(g/256)!==t.tz||t.props.some(e=>e.kind===`hydrant`&&Math.hypot(e.x-h,e.z-g)<5+f.length/2)||this.ctx.modules.get(`buildings`)?.isInside?.(h,g)||t.roads.some(e=>dn(e)&&e.id!==r.id&&e.pts.some((t,n)=>{let i=e.pts[n+1];if(!i||e.layer!==r.layer)return!1;let a=Math.hypot(i[0]-t[0],i[1]-t[1]);if(a<.5)return!1;let o=(i[0]-t[0])/a,s=(i[1]-t[1])/a,u=Math.abs(c*o+l*s),d=Math.abs(c*s-l*o);if(u>.95)return!1;let p=(h-t[0])*o+(g-t[1])*s,m=u*f.length/2+d*f.width/2;if(p<-m||p>a+m)return!1;let _=(h-t[0])*-s+(g-t[1])*o;return(e.oneway?gn(e):[-gn(e)[0],gn(e)[0]]).some(e=>Math.abs(_-e)<d*f.length/2+u*f.width/2+mn+.5)}))||e()&&(h-this.ctx.camera.position.x)**2+(g-this.ctx.camera.position.z)**2>6400||(n.parkingSlots++,ht(u,d,p*23)>.7))continue;let _=r.oneway?1:p,v=kt(`p:${r.id}:${u}:${d*2+(p===1?0:1)}`,o,h,jt(this.ctx,h,g),g,Math.atan2(-c*_,-l*_),u+d*7+p);At(v),n.parked.push(v)}i+=p}}}}unload(e){let t=this.tiles.get(e);if(t){for(let e of t.parked)Q(this.ctx,e);for(let e of t.roads){let t=this.refs.get(e);if(!(!t||--t.count>0)){for(let e of t.lanes){this.lanes.delete(e.key);let t=this.outgoing.get(e.start)?.filter(t=>t!==e)??[];t.length?this.outgoing.set(e.start,t):this.outgoing.delete(e.start)}this.refs.delete(e)}}this.tiles.delete(e)}}dispose(){for(let e of this.tiles.keys())this.unload(e)}},yn=150,bn=.7;function xn(e,t,n,r,i){let a=(e.ax-n.x)*r+(e.az-n.z)*i,o=e.dx*r+e.dz*i;if(Math.abs(o)<.01)return a>8?t:null;let s=(8-a)/o,c=o>0?Math.max(t[0],s):t[0],l=o<0?Math.min(t[1],s):t[1];return l>c?[c,l]:null}function Sn(e,t,n){let r=t.x-e.ax,i=t.z-e.az,a=r*e.dx+i*e.dz,o=r*e.dz-i*e.dx;if(Math.abs(o)>=n)return null;let s=Math.sqrt(n*n-o*o),c=Math.max(8,a-s),l=Math.min(e.length-10,a+s);return l>c?[c,l]:null}var Cn=class{ctx;roads;cars=[];serial=0;spawnClock=0;buckets=new Map;bucketPool=[];constructor(e,t){this.ctx=e,this.roads=t}choose(e){let t=$tunnelConnections(this.roads,e.lane).filter(t=>t.dx*e.lane.dx+t.dz*e.lane.dz>-.8),n=null,r=-1/0;for(let i=0;i<t.length;i++){let a=t[i],o=a.dx*e.lane.dx+a.dz*e.lane.dz,s=Math.abs((a.ax-e.lane.bx)*e.lane.dz-(a.az-e.lane.bz)*e.lane.dx),c=ht(this.serial+e.key.length,Math.floor(e.age*10),i)+o*(_n(e.lane.road)?1.8:.55)-(o>.8?s*.7:0);c>r&&(n=a,r=c)}return n}update(e,t,n){let r=this.ctx,i=r.state.screenshotMode?r.camera.position:r.state.local.state;for(let e=this.cars.length-1;e>=0;e--){let t=this.cars[e];(!this.roads.lanes.has(t.lane.key)||$(t,i)>450**2||this.cars.length>r.quality.maxTraffic)&&(Q(r,t),this.cars.splice(e,1))}if(this.spawnClock-=e,this.spawnClock<=0&&r.quality.maxTraffic>0){this.spawnClock=.25;let e=r.camera.matrixWorld.elements,t=r.state.screenshotMode?-e[8]:-Math.sin(r.state.local.state.yaw),a=r.state.screenshotMode?-e[10]:-Math.cos(r.state.local.state.yaw),o=e=>(e.x-i.x)*t+(e.z-i.z)*a>8,s=[...this.roads.lanes.values()].flatMap(e=>{let n=Sn(e,i,350),r=_n(e.road)?Sn(e,i,yn):null;return n?[{lane:e,range:n,near:r,ahead:r?xn(e,r,i,t,a):null}]:[]}),c=s.filter(e=>e.near),l=r.state.screenshotMode?c.filter(e=>e.ahead):[],u=new Set(c.map(e=>e.lane.road.name)),d=s.flatMap(e=>{if(!_n(e.lane.road)||!u.has(e.lane.road.name))return[];let n=xn(e.lane,e.range,i,t,a);if(!n)return[];let r=Sn(e.lane,i,260);return(r?[[n[0],Math.min(n[1],r[0])],[Math.max(n[0],r[1]),n[1]]]:[n]).filter(e=>e[1]>e[0]).map(t=>({...e,range:t}))}),f=this.cars.filter(e=>_n(e.lane.road)&&$(e,i)<yn**2).length,p=this.cars.filter(e=>_n(e.lane.road)&&$(e,i)<yn**2&&o(e)).length,m=r.quality.maxTraffic>=25&&d.length>0&&!this.cars.some(e=>e.kind===`bus`&&u.has(e.lane.road.name)&&o(e)&&$(e,i)>180**2),h=c.length?Math.ceil(r.quality.maxTraffic*(r.state.screenshotMode?bn:.9)):0,g=l.length?Math.ceil(h*.55):0;for(let e=0;(f<h||p<g||m)&&this.cars.length>=r.quality.maxTraffic&&e<2;e++){let e=-1,t=(r.state.screenshotMode?180:165)**2;for(let n=0;n<this.cars.length;n++){if(this.cars[n].kind===`bus`)continue;let r=$(this.cars[n],i);r>t&&(e=n,t=r)}if(e<0)break;Q(r,this.cars[e]),this.cars.splice(e,1)}let _=this.cars.reduce((e,t)=>e+ +(t.kind===`taxi`),0),v=this.cars.reduce((e,t)=>e+ +(t.kind===`bus`),0);for(let e=0;s.length&&e<48&&this.cars.length<r.quality.maxTraffic;e++){let t=++this.serial,a=p<g&&l.length>0&&e%3!=2,u=m,y=!u&&(f<h||a)&&c.length>0&&e%6!=5,b=u?d:y?a?l:c:s,x=0,S=b.map(e=>{let t=y?a?e.ahead:e.near:e.range;return x+=t[1]-t[0]}),C=ht(t,71)*x,w=b[S.findIndex(e=>e>C)],T=w.lane,E=y?a?w.ahead:w.near:w.range,D=vt(`traffic`,ht(t,23));D===`bus`&&![`primary`,`secondary`].includes(T.road.cls)&&(D=`sedan`),_-this.cars.length*.45>2&&D===`taxi`?D=`sedan`:_-this.cars.length*.45<-2&&(D=`taxi`),(u||_n(T.road)&&v<Math.floor(r.quality.maxTraffic/25))&&(D=`bus`);let O=E[0]+ht(t,19)*(E[1]-E[0]),ee=T.ax+T.dx*O,k=T.az+T.dz*O,A=$tunnelHeight(r.world,T.road,ee,k,jt(r,ee,k,T.road)),j=Z[D],M=e=>{if(Math.abs(e.y-A)>3)return!1;let t=e.x-ee,n=e.z-k,r=Z[e.kind],i=Math.abs(-Math.sin(e.yaw)*T.dx-Math.cos(e.yaw)*T.dz),a=Math.sqrt(Math.max(0,1-i*i));return Math.abs(t*T.dx+n*T.dz)<j.length/2+i*r.length/2+a*r.width/2+(y?4:7)&&Math.abs(t*T.dz-n*T.dx)<j.width/2+a*r.length/2+i*r.width/2+.3};if(this.cars.some(M)||n.some(M))continue;let N={...kt(`traffic:${t}`,D,ee,A,k,Math.atan2(-T.dx,-T.dz),t),lane:T,along:O,next:null,wait:0,turn:0,age:t*.1};N.speed=T.speed*.4,this.cars.push(N),_n(T.road)&&$(N,i)<yn**2&&f++,_n(T.road)&&$(N,i)<yn**2&&o(N)&&p++,D===`taxi`&&_++,D===`bus`&&v++,u&&(m=!1)}}for(let e of this.buckets.values())e.length=0,this.bucketPool.push(e);this.buckets.clear();let a=e=>{let t=Math.floor(e.x/20)+Math.floor(e.z/20)*65536,n=this.buckets.get(t);n||(n=this.bucketPool.pop()??[],this.buckets.set(t,n)),n.push(e)};for(let e of this.cars)a(e);for(let e of n)a(e);let o=r.modules.get(`props`);for(let n of this.cars){let i=n.lane,a=Z[n.kind];n.age+=e;let s=i.length-n.along;s<30&&(!n.next||!this.roads.lanes.has(n.next.key))&&(n.next=this.choose(n)),n.turn=n.next?i.dx*n.next.dz-i.dz*n.next.dx:0;let c=i.speed*(Math.abs(n.turn)>.3&&s<16?.45:1),l=1/0,u=i.road.tunnel||i.road.bridge||n.y>.3?null:o?.signalFor?.(n.x,n.z,i.dx,i.dz);if(u&&u.state!==`green`&&(u.state===`red`||u.dist>n.speed*.8+a.front)){let e=(u.stopX-n.x)*i.dx+(u.stopZ-n.z)*i.dz;e>0&&(l=Math.max(0,e-a.front-1))}let d=e=>{if(e===n||Math.abs(e.y-n.y)>3)return;let t=e.x-n.x,r=e.z-n.z,o=t*i.dx+r*i.dz;o<=0||o>60||Math.abs(t*i.dz-r*i.dx)>(a.width+Z[e.kind].width)/2+.3||(l=Math.min(l,Math.max(0,o-a.front-Z[e.kind].rear-2.5)))},f=n.x+i.dx*60,p=n.z+i.dz*60,m=Math.floor((Math.min(n.x,f)-4)/20),h=Math.floor((Math.max(n.x,f)+4)/20),g=Math.floor((Math.min(n.z,p)-4)/20),_=Math.floor((Math.max(n.z,p)+4)/20);for(let e=m;e<=h;e++)for(let t=g;t<=_;t++){let n=this.buckets.get(e+t*65536);if(n)for(let e of n)d(e)}let v=this.roads.outgoing.get(i.end)?.some(e=>e.dx*i.dx+e.dz*i.dz<.8)??!1;if(!u&&v&&s<a.front+7){n.wait+=e;let t=this.cars.some(e=>e!==n&&Math.abs(e.y-n.y)<3&&e.lane!==i&&Math.hypot(e.x-i.bx,e.z-i.bz)<5&&e.speed>.5);(n.wait<.65||t)&&(l=Math.min(l,Math.max(0,s-a.front-2)))}!n.next&&s<12&&(c=Math.min(c,Math.max(0,s-1))),c=Math.min(c,Math.sqrt(7*l));let y=n.speed;n.speed+=Math.max(-6*e,Math.min(2.5*e,c-n.speed)),n.speed=Math.max(0,n.speed),n.brake=+(y>n.speed+.01||n.speed<.2),n.along+=Math.min(n.speed*e,l),n.along>=i.length-.8&&(n.next&&this.roads.lanes.has(n.next.key)?(n.along=Math.max(0,n.along-i.length),n.lane=n.next,n.next=null,n.wait=0):(n.age+=1,n.speed<.5&&(Q(r,n),n.along=-1e3)));let b=Math.atan2(-n.lane.dx,-n.lane.dz),x=Math.atan2(Math.sin(b-n.yaw),Math.cos(b-n.yaw));n.yaw+=x*Math.min(1,e*7),n.steer=Math.max(-.5,Math.min(.5,x));let S=Math.min(1,e*15);n.x+=(n.lane.ax+n.lane.dx*n.along-n.x)*S,n.z+=(n.lane.az+n.lane.dz*n.along-n.z)*S,n.y=$tunnelHeight(r.world,n.lane.road,n.x,n.z,jt(r,n.x,n.z,n.lane.road)),n.spin-=n.speed*e/a.wheelRadius,n.siren=n.kind===`nypd`&&Math.sin(t*.035+n.age*.01)>.985,At(n),!r.state.screenshotMode&&$(n,r.state.local.state)<1e4?(Mt(r,n,!0),n.body?.setNextKinematicTranslation(n),n.body?.setNextKinematicRotation({x:0,y:Math.sin(n.yaw/2),z:0,w:Math.cos(n.yaw/2)})):Q(r,n)}for(let e=this.cars.length-1;e>=0;e--)this.cars[e].along<0&&this.cars.splice(e,1)}unload(){for(let e=this.cars.length-1;e>=0;e--)this.roads.lanes.has(this.cars[e].lane.key)||(Q(this.ctx,this.cars[e]),this.cars.splice(e,1))}dispose(){for(let e of this.cars)Q(this.ctx,e);this.cars.length=0,this.buckets.clear(),this.bucketPool.length=0}};function wn(e,t){let n=e.getAttribute(`uv`),r=e.index,i=0;for(let e=0;e<r.count;e+=3)[0,1,2].every(i=>{let a=r.getX(e+i),o=n.getX(a),s=n.getY(a);return o>=t.u0-1e-6&&o<=t.u1+1e-6&&s>=t.v0-1e-6&&s<=t.v1+1e-6})&&i++;return i}function Tn(e,t){let n=t.pools.get(`sedan`);if(!n?.nearCount)return{status:`no mid-distance sedan`};let i=e.renderer,a=e.camera,o=i.getDrawingBufferSize(new r),s=o.x,c=o.y,l=[],f=n.geo.glass,p=f.getAttribute(`position`),m=f.getAttribute(`normal`),h=new d,g=new u,_=new u,v=new u;for(let e=0;e<n.nearCount;e++){n.near.getMatrixAt(e,h);let t=new u().setFromMatrixPosition(h).distanceTo(a.position);if(!(t<10||t>40))for(let n=0;n<f.index.count;n+=3){let r=[0,1,2].map(e=>f.index.getX(n+e));if(_.fromBufferAttribute(m,r[0]),!(_.z>-.25||_.y<.1||Math.abs(_.x)>.35)){g.set(0,0,0);for(let e of r)g.add(new u().fromBufferAttribute(p,e));g.divideScalar(3),!(g.y<Z.sedan.height*.6||g.z>=0)&&(g.applyMatrix4(h),_.transformDirection(h),v.copy(a.position).sub(g),!(_.dot(v)<=0)&&(g.project(a),!(Math.abs(g.x)>.97||Math.abs(g.y)>.97||g.z>1)&&l.push({x:Math.floor((g.x+1)*.5*s),y:Math.floor((g.y+1)*.5*c),instance:e,distance:t})))}}}if(!l.length)return{status:`no front-facing 10–40 m sedan windshield in frame`};let y=i.getRenderTarget(),b=i.autoClear,x=i.shadowMap.autoUpdate,S=t.glassMat.envMapIntensity,C=i.getContext(),w=()=>{e.composer?e.composer.render(0):(i.setRenderTarget(null),i.render(e.scene,a)),i.setRenderTarget(null)},T=()=>l.map(e=>{let t=new Uint8Array(4);return C.readPixels(e.x,e.y,1,1,C.RGBA,C.UNSIGNED_BYTE,t),[...t.slice(0,3)]});try{i.shadowMap.autoUpdate=!1,i.autoClear=!0,w();let n=T();t.glassMat.envMapIntensity=0,w();let r=T(),a=0,o=-1;for(let e=0;e<n.length;e++){let t=n[e].reduce((t,n,i)=>t+Math.abs(n-r[e][i]),0);t>o&&(a=e,o=t)}let s=l[a];return{status:o>6?`live sky reflection verified`:`occluded or no measurable environment reflection`,source:`full scene, postprocessed framebuffer, glass env intensity A/B`,lod:`near (10–40 m mid-distance)`,instance:s.instance,distance:+s.distance.toFixed(2),pixel:[s.x,c-1-s.y],rgb:n[a],withoutEnvironment:r[a],channelDelta:o,envMap:t.glassMat.envMap?.uuid??null,sceneEnvironmentMatches:t.glassMat.envMap===e.scene.environment}}finally{t.glassMat.envMapIntensity=S,w(),i.setRenderTarget(y),i.autoClear=b,i.shadowMap.autoUpdate=x}}function En(e,t,n,r){let i,a=-1/0,o=new p,s=new d,c=new v;return Object.defineProperty(e.stats,"vehicleProbe",{configurable:!0,enumerable:!0,get:()=>{if(!window.__ready)return{status:`waiting for ready`};s.multiplyMatrices(e.camera.projectionMatrix,e.camera.matrixWorldInverse),o.setFromProjectionMatrix(s);let l=n.cars.filter(e=>{let t=Z[e.kind];return c.set(new u(e.x,e.y+t.height/2,e.z),t.length*.6),o.intersectsSphere(c)}),d={};for(let t of l)if(_n(t.lane.road)){let n=d[t.lane.road.name]??={total:0,moving:0,queued:0,within150:0};n.total++,t.speed>.5?n.moving++:n.queued++,Math.hypot(t.x-e.camera.position.x,t.z-e.camera.position.z)<150&&n.within150++}let f=[`taxi`,`nypd`,`bus`,`boxtruck`].map(n=>{let r=t.pools.get(n),i=r.far.material,a=n===`boxtruck`||n===`bus`?F.boxSide:F.decalL,o=(i.map?.image)?.getContext(`2d`)?.getImageData(a.x,a.y,a.w,a.h).data,s=new Set;if(o)for(let e=0;e<o.length;e+=64)s.add(o[e]<<16|o[e+1]<<8|o[e+2]);return{kind:n,midInstances:r.nearCount,farInstances:r.farCount,map:i.map?.name,boundToKindAtlas:i.map===r.atlas.map,sharedMidFarMaterial:r.near.material===r.far.material,mapUploaded:i.map?Dn(e.renderer,i.map)!==void 0:!1,liveryTriangles:{mid:wn(r.geo.opaque,a),far:wn(r.geo.far,a)},sampledColors:s.size}});return(!i||i.status!==`live sky reflection verified`&&performance.now()-a>2e3)&&(a=performance.now(),i=Tn(e,t)),{cap:e.quality.maxTraffic,totalTraffic:n.cars.length,inFrustum:l.length,movingInFrustum:l.filter(e=>e.speed>.5).length,avenues:d,nearAvenueTraffic:n.cars.filter(t=>_n(t.lane.road)&&Math.hypot(t.x-e.camera.position.x,t.z-e.camera.position.z)<150).length,contacts:{count:r.mesh.count,multiply:r.mesh.material.blending===4},wheels:[...t.pools.values()].map(e=>({kind:e.spec.id,mid:wn(e.geo.opaque,F.wheelHub),far:wn(e.geo.far,F.wheelHub)})),liveries:f,windshield:i}}}),()=>{delete e.stats.vehicleProbe}}function Dn(e,t){return e.properties.get(t).__version}async function On(t){let n=e(),r=new Ot(t);for(;!r.buildNext();)await new Promise(e=>setTimeout(e,0));for(let e of r.pools.values())e.far.castShadow=!1;let i=new vn(t),a=new Cn(t,i),o=new Qt(t),s=new an(t),c=new cn(t),l=t.state.screenshotMode&&typeof location<`u`&&new URLSearchParams(location.search).has(`vehicleProbe`)?En(t,r,a,c):void 0,m=new Map,h=new Map,_=new Map,y=[],b=[],x=[],S=[],C=new u(1/0,0,1/0),w={updateMs:0,fixedMs:0,renderMs:0,parked:0,parkingSlots:0,traffic:0,near:0,far:0,draws:0},T=new p,E=new d,D=new v,O=new g,ee=new f(0,0,0,`YXZ`),j=new u,M=new u(1,1,1),N=null,P=null,F=0,te,I=!0,ne=0,re=!1,L=-1/0,ie=[];function ae(){t.physics.world.colliders.forEach(e=>{let t=e.parent()?.userData;t?.surface===`player`&&t.local&&e.isEnabled()&&(e.setEnabled(!1),ie.push(e))})}function oe(e){return i.tiles.has(`${Math.floor(e.x/256)}_${Math.floor(e.z/256)}`)}function se(){if(n&&$(C,t.camera.position)>64)for(let e of t.world.tiles.values())i.load(e);y.length=0,w.parkingSlots=0;for(let e of i.tiles.values())w.parkingSlots+=e.parkingSlots;for(let e of i.tiles.values())for(let r of e.parked){if(n&&$(r,t.camera.position)>6400||m.has(r.key)||_.has(r.key)){Q(t,r);continue}y.push(r)}for(let e of m.values())oe(e)&&!_.has(e.key)&&(!n||$(e,t.camera.position)<=6400)?y.push(e):Q(t,e);for(let e of y)!t.state.screenshotMode&&$(e,t.state.local.state)<8100?Mt(t,e,!1):Q(t,e);w.parked=y.length,C.copy(t.camera.position),x.length=S.length=0;for(let e of y)$(e,C)<580**2&&x.push(e),$(e,t.state.screenshotMode?C:t.state.local.state)<210**2&&S.push(e);I=!1}function ce(e,t,n,r){if(re||!Number.isFinite(r)||r<0)return null;I&&se();let i=null,a=r**2;for(let o of y){if(_.has(o.key)||Math.abs(o.y-t)>2.5)continue;let s=Z[o.kind],c=(e-o.x)**2+(n-o.z)**2;if(c>(r+s.length)**2)continue;let l=-s.width/2-.85,u=Math.cos(o.yaw),d=Math.sin(o.yaw),f=o.x+u*l+d*s.seatZ,p=o.z-d*l+u*s.seatZ,m=Math.min(c,(e-f)**2+(n-p)**2);m<a&&(i=o,a=m)}return i}function le(e){let n=N;if(!n)return;let r=n.car,i=t.state.local.state;N=null,F=0,n.dispose();for(let e of ie.splice(0))e.isValid()&&e.setEnabled(!0);if(_.get(r.key)===t.state.local.id&&_.delete(r.key),r.y=jt(t,r.x,r.z),r.speed=0,r.steer=0,r.brake=0,r.siren=!1,At(r),m.set(r.key,r),t.state.local.vehicleKey=null,i.vehicleId=0,i.flags&=~(k.InVehicle|k.Airborne),i.steer=i.throttle=0,i.anim=A.Idle,e){let e=t.modules.get(`buildings`),n=Nt(r,Z[r.kind]);e?.isInside?.(n.x,n.z)&&(n=Nt(r,Z[r.kind],1)),i.x=n.x,i.z=n.z,i.y=jt(t,n.x,n.z)+.05,i.vx=i.vy=i.vz=0}I=!0,t.events.emit(`exitedVehicle`)}function ue(e){if(e.key){if(e.driverId?_.set(e.key,e.driverId):_.delete(e.key),N?.car.key===e.key&&e.driverId!==t.state.local.id&&le(!t.state.local.dead),P?.car.key===e.key){let n=P;if(P=null,e.driverId===t.state.local.id&&t.state.local.id!==0&&!t.state.local.dead&&!t.state.screenshotMode){let r=n.car;Q(t,r);let i=kt(r.key,r.kind,r.x,r.y,r.z,r.yaw,1);i.color.copy(r.color),At(i),ae(),N=new Wt(t,i,e.id),t.state.local.vehicleKey=e.key,N.update(0),t.events.emit(`enteredVehicle`,e.key)}else e.driverId===t.state.local.id&&t.net.send({t:`exitVehicle`})}else e.driverId===t.state.local.id&&!N&&t.net.send({t:`exitVehicle`});I=!0}}function de(){let e=t.now??0;if(re||!t.state.welcomed||!t.net.connected||t.state.screenshotMode||t.state.local.dead||e-L<.25)return;if(L=e,N){F||=(t.net.sendState(),t.net.send({t:`exitVehicle`}),e+3);return}if(P||!t.net.connected||!t.state.local.id)return;let n=t.state.local.state,r=ce(n.x,n.y,n.z,3);r&&(P={car:r,until:e+5},t.net.sendState(),t.net.send({t:`enterVehicle`,key:r.key,kind:r.kind,x:r.x,y:r.y,z:r.z,yaw:r.yaw}))}function fe(e){for(let[e,n]of h){let r=t.state.remotes.get(e)?.render;(!r||!(r.flags&k.InVehicle)||r.vehicleId!==n.vehicleId||t.state.vehicles.get(n.vehicleId)?.driverId!==e)&&(Q(t,n.car),_.has(n.car.key)||(n.car.speed=0,n.car.brake=0,m.set(n.car.key,n.car),I=!0),h.delete(e))}for(let[n,r]of t.state.remotes){let i=r.render;if(!(i.flags&k.InVehicle)||!i.vehicleId)continue;let a=t.state.vehicles.get(i.vehicleId);if(!a||a.driverId!==n)continue;let o=h.get(n);o||(o={car:kt(a.key,a.kind,i.x,i.y,i.z,i.yaw,i.vehicleId),vehicleId:i.vehicleId},h.set(n,o));let s=o.car,c=Math.hypot(i.vx,i.vz);s.brake=+(c<s.speed-e*.8),s.speed=c,s.x=i.x,s.y=i.y,s.z=i.z,s.yaw=i.yaw,s.steer=-i.steer*.4,s.spin-=c*e/Z[s.kind].wheelRadius,O.setFromEuler(ee.set(i.pitch,i.yaw,i.roll,`YXZ`)),s.matrix.compose(j.set(i.x,i.y,i.z),O,M),!t.state.screenshotMode&&$(s,t.state.local.state)<1e4?(Mt(t,s,!0),s.body?.setNextKinematicTranslation(s),s.body?.setNextKinematicRotation(O)):Q(t,s)}}function pe(e,n){t.state.local.dead||t.state.screenshotMode||(P={car:kt(e.key,Z[e.kind]?e.kind:`sedan`,n.x,n.y,n.z,n.yaw,1),until:(t.now??0)+5},ue(e))}let me=[t.events.on(`tileLoaded`,e=>{i.load(e),I=!0}),t.events.on(`tileUnloaded`,e=>{i.unload(e),a.unload(),o.unload(e);for(let e of m.values())oe(e)||Q(t,e);I=!0}),t.events.on(`interact`,de),t.events.on(`localDeath`,()=>{P=null,N&&t.net.send({t:`exitVehicle`}),le(!1)}),t.events.on(`localRespawn`,()=>{P=null,le(!1)}),t.net.onMessage(e=>{if(e.t===`welcome`&&e.vehicle&&!e.dead&&!t.state.screenshotMode)pe(e.vehicle,e.spawn);else if(e.t===`vehicle`){if(e.v.key)ue(e.v);else{_.clear();for(let e of t.state.vehicles.values())e.driverId&&_.set(e.key,e.driverId);I=!0}}else if(e.t===`vehicles`){_.clear();for(let t of e.list)ue(t);I=!0}})];for(let e of t.state.vehicles.values())e.driverId===t.state.local.id&&e.key===t.state.local.vehicleKey?pe(e,t.state.local.state):ue(e);for(let e of t.world.tiles.values())i.load(e);function R(e,n,r,i,a=!1){e=Z[e]?e:`sedan`;let o=`placed:${e}:${m.size}`,s=kt(o,e,n,jt(t,n,r),r,i,7);return s.siren=a,At(s),m.set(o,s),I=!0,o}if(t.state.screenshotMode&&typeof location<`u`)for(let e of(new URLSearchParams(location.search).get(`place`)??``).split(`;`)){let[t,n,r,i,a]=e.split(`,`);Z[t]&&Number.isFinite(+n)&&Number.isFinite(+r)&&R(t,+n,+r,-((+i||0)*Math.PI)/180,a===`1`)}function he(e,i,a,o=0){let s=Z[e.kind],l=$(e,t.camera.position);if(l>Math.min(520,t.quality.drawDistance)**2||(D.center.set(e.x,e.y+s.height/2,e.z),D.radius=s.length*.6,!T.intersectsSphere(D)))return;let u=r.scratch();u.matrix.copy(e.matrix),u.color.copy(e.color),u.spin=e.spin,u.steer=e.steer,u.lightA[0]=i,u.lightA[1]=e.brake,u.lightA[2]=+(o<-.25),u.lightA[3]=+(o>.25),u.lightB[0]=+!!e.siren,u.lightB[2]=a,N?.car===e&&(u.susp[0]=N.suspension[0],u.susp[1]=N.suspension[1],u.susp[2]=N.suspension[2],u.susp[3]=N.suspension[3],u.lightB[1]=+(N.state.gear<0));let d=t.quality.level===`low`||t.quality.level===`mobile`?55:t.quality.level===`medium`?85:140;r.write(e.kind,u,n||l<d*d?0:140),c.add(e,Math.sqrt(l))}return typeof window<`u`&&(window.__vehicles={local:()=>N,place:(e,t,n,r=0)=>N?.place(e,t,n,r),parked:()=>(I&&se(),y.map(e=>({key:e.key,x:e.x,y:e.y,z:e.z,yaw:e.yaw,kind:e.kind})))}),{name:`vehicles`,stats:w,interact:de,nearestEnterable(e,t,n,r){let i=ce(e,t,n,r);return i?{key:i.key,kind:i.kind,label:Z[i.kind].label,x:i.x,z:i.z}:null},driving:()=>N?.state??null,remoteSpeed:e=>h.get(e)?.car.speed??0,driverSeatMatrix:()=>N?.driverSeatMatrix()??null,traffic:()=>a.cars,place:R,update(e,n){if(re)return;let i=performance.now();!te&&typeof window<`u`&&(te=window.__loop?.onFixedStep(e=>{let t=performance.now();N?.fixed(e),w.fixedMs=performance.now()-t})),P&&P.until<n&&(P=null),F&&F<n&&(F=0),N&&(!t.net.connected||t.state.local.vehicleKey!==N.car.key)&&le(!t.state.local.dead),N&&!te&&N.fixed(Math.min(e,1/30)),N?.update(e),fe(e),(I||$(C,t.camera.position)>2500||!t.state.screenshotMode&&n>=ne)&&(se(),ne=n+.5),b.length=0,N&&b.push(N.car);for(let e of h.values())b.push(e.car);for(let e of S)$(e,t.state.screenshotMode?t.camera.position:t.state.local.state)<150**2&&b.push(e);a.update(e,n,b),o.update(n,N),w.traffic=a.cars.length,t.modules.has(`atmosphere`)||(r.uniforms.uTime.value=n,r.uniforms.uNight.value=1-t.time.daylight,r.uniforms.uWet.value=t.state.weather.wetness),w.updateMs=performance.now()-i},preRender(){if(re)return;let e=performance.now();t.camera.updateMatrixWorld(),E.multiplyMatrices(t.camera.projectionMatrix,t.camera.matrixWorldInverse),T.setFromProjectionMatrix(E),r.begin(),c.begin();let i=rn(r.uniforms.uNight.value,t.state.weather.condition,t.time.daylight);s.begin(r.uniforms.uNight.value,t.state.weather.condition,t.time.daylight),N&&(he(N.car,N.headlights?i:0,0),s.add(N.car,N.headlights?i:0));for(let e of h.values())he(e.car,i,0),s.add(e.car,i);for(let e of a.cars)he(e,i,1,e.turn),s.add(e,i);for(let e of x)!_.has(e.key)&&(!n||$(e,t.camera.position)<=6400)&&he(e,0,0);r.end(),c.end(),s.end(),Object.assign(w,r.stats()),c.mesh.visible&&w.draws++,w.renderMs=performance.now()-e},dispose(){if(!re){re=!0,l?.(),typeof window<`u`&&delete window.__vehicles,me.forEach(e=>e()),te?.(),P=null,N&&t.net.send({t:`exitVehicle`}),le(!1),i.dispose(),a.dispose();for(let e of m.values())Q(t,e);for(let e of h.values())Q(t,e.car);m.clear(),h.clear(),_.clear(),y.length=0,b.length=0,x.length=S.length=0,c.dispose(),s.dispose(),o.dispose(),r.dispose()}}}}export{On as createVehicles};
+        `)},i.customProgramCacheKey=()=>`vehicle-contact-v2`,this.mesh=new T(r,i,on),this.mesh.name=`veh-contact-shadows`,this.mesh.count=0,this.mesh.frustumCulled=!1,this.mesh.renderOrder=2,this.mesh.instanceMatrix.setUsage(n),e.worldGroup.add(this.mesh)}begin(){this.count=0}add(e,t){if(t>=sn||this.count>=on)return;let n=jt(this.ctx,e.x,e.z),r=(1-a.smoothstep(t,sn*.85,sn))*(1-a.smoothstep(Math.abs(e.y-n),.15,.8));if(r<=0)return;let i=Z[e.kind],o=(i.rear-i.front)/2;this.matrix.makeRotationY(e.yaw).scale(this.scale.set(i.width+.8,1,i.length+.8)),this.matrix.setPosition(e.x+Math.sin(e.yaw)*o,n+.045,e.z+Math.cos(e.yaw)*o);let s=this.count++;this.mesh.setMatrixAt(s,this.matrix),this.shape.setXYZW(s,i.width+.8,i.length+.8,i.track/2,i.wheelbase/2),this.fadeOffset.setXY(s,r,o)}end(){if(this.mesh.count=this.count,this.mesh.visible=this.count>0,this.count)for(let e of[this.mesh.instanceMatrix,this.shape,this.fadeOffset])e.addUpdateRange(0,this.count*e.itemSize),e.needsUpdate=!0}dispose(){this.ctx.worldGroup.remove(this.mesh),this.mesh.geometry.dispose(),this.mesh.material.dispose(),this.mesh.dispose()}},ln=(e,t,n)=>`${Math.round(e*2)},${Math.round(t*2)},${n}`, $laneClasses=(()=>{
+const highwayLanePath=$highwayLanePath,isHighway=$isHighway,laneCount=$laneCount,laneWidth=$laneWidth,lanePoint=$lanePoint;
+const isIOS=e,TILE_SIZE=256,KINDS=Z,hash01=ht,pickKind=vt,makeCar=kt,ground=jt,poseMatrix=At,removeBody=Q,createObstacle=Mt,distance2=$,trafficHeight=$tunnelHeight,tunnelConnections=$tunnelConnections;
+/** Shared road records are reference-counted: OSM polylines occur in multiple tiles. */
+
+
+
+
+
+
+
+
+
+
+
+
+const node = (x        , z        , layer        ) => `${Math.round(x * 2)},${Math.round(z * 2)},${layer}`;
+const roadKey = (r             ) => `${r.id}:${r.pts.map(p => p.join(',')).join(';')}`;
+const driveable = (r             ) => !['pedestrian', 'footway', 'cycleway', 'steps'].includes(r.cls);
+
+const PARKING_INSET = 2.4; // car centre from curb, not from a through-lane centre
+const LANE_WIDTH = 3.3;
+const TRAFFIC_HALF_WIDTH = Math.max(...Object.values(KINDS).map(s => s.width / 2));
+const PARKED_HALF_WIDTH = Math.max(...Object.values(KINDS).filter(s => s.parkedWeight > 0).map(s => s.width / 2));
+
+/** Reserve parking before dividing a one-way carriageway, including odd lane counts. */
+function laneOffsets(r             )           {
+  if (isHighway(r)) return Array.from({ length: laneCount(r) }, (_, i) => (i + .5 - laneCount(r) / 2) * laneWidth(r));
+  if (r.tunnel && r.oneway) {
+    const count = Math.max(1, r.lanes), width = Math.min(3.3, (r.width - 1) / count);
+    return Array.from({ length: count }, (_, i) => (i - (count - 1) / 2) * width);
+  }
+  if (!r.oneway) return [Math.min(1.65, r.width / 4)];
+  if (r.lanes < 3) return [r.lanes === 2 ? LANE_WIDTH / 2 : 0];
+  const half = Math.max(0, r.width / 2 - PARKING_INSET - PARKED_HALF_WIDTH - TRAFFIC_HALF_WIDTH - 0.3);
+  const count = Math.max(1, Math.min(r.lanes, 1 + Math.floor(2 * half / LANE_WIDTH)));
+  return Array.from({ length: count }, (_, i) => (i - (count - 1) / 2) * LANE_WIDTH);
+}
+
+const isAvenue = (r             )          => r.lanes >= 3 && ['primary', 'secondary'].includes(r.cls)
+  && /avenue|broadway|boulevard/i.test(r.name ?? '');
+
+class Roads {
+  tiles = new Map                                                                  ();
+  lanes = new Map              ();
+  outgoing = new Map                ();
+          refs = new Map                                          ();
+  constructor(ctx             ) { this.ctx = ctx; }
+
+  load(tile      )       {
+    if (this.tiles.has(tile.key)) this.unload(tile.key);
+    const record = { roads: []            , parked: []         , parkingSlots: 0 };
+    this.tiles.set(tile.key, record);
+    for (const r of tile.roads) {
+      if (!driveable(r) || r.pts.length < 2) continue;
+      const key = roadKey(r);
+      if (record.roads.includes(key)) continue;
+      record.roads.push(key);
+      const ref = this.refs.get(key);
+      if (ref) ref.count++;
+      else {
+        const lanes         = [];
+        for (let i = 0; i < r.pts.length - 1; i++) {
+          const a = r.pts[i], b = r.pts[i + 1];
+          const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          if (length < 0.5) continue;
+          for (const sign of r.oneway ? [1] : [1, -1]) {
+            const p = sign === 1 ? a : b, q = sign === 1 ? b : a;
+            const dx = (q[0] - p[0]) / length, dz = (q[1] - p[1]) / length;
+            const offsets = laneOffsets(r);
+            for (const offset of offsets) {
+              const lane       = { segment: i, offset, key: `${key}:${i}:${sign}:${offset}`, road: r, ax: p[0] - dz * offset, az: p[1] + dx * offset,
+                bx: q[0] - dz * offset, bz: q[1] + dx * offset, dx, dz, length,
+                start: node(p[0], p[1], r.layer), end: node(q[0], q[1], r.layer),
+                speed: Math.min(r.maxspeed ?? (r.cls === 'primary' ? 30 : 25), 35) * 0.44704 };
+              lanes.push(lane);
+              this.lanes.set(lane.key, lane);
+              const out = this.outgoing.get(lane.start) ?? [];
+              out.push(lane);
+              this.outgoing.set(lane.start, out);
+            }
+          }
+        }
+        this.refs.set(key, { count: 1, lanes });
+      }
+      if (!['primary', 'secondary', 'tertiary', 'residential'].includes(r.cls) || r.bridge || r.tunnel || r.width < 7) continue;
+      for (let i = 0; i < r.pts.length - 1; i++) {
+        const a = r.pts[i], b = r.pts[i + 1];
+        const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        const dx = (b[0] - a[0]) / length, dz = (b[1] - a[1]) / length;
+        const seed = r.id ^ Math.round(a[0] * 100) ^ Math.imul(Math.round(a[1] * 100), 31);
+        let slot = 0;
+        for (let d = 9; d < length - 8; slot++) {
+          const kind = pickKind('parked', hash01(seed, slot, 1)), spec = KINDS[kind];
+          const space = Math.max(6.5, spec.length + 1.5);
+          for (const side of r.cls === 'primary' ? [1] : [1, -1]) {
+            if (d + spec.length / 2 > length - 6) continue;
+            const offset = (r.width / 2 - PARKING_INSET) * side;
+            // A narrow two-way street may have no room for curb parking. Never
+            // squeeze a parked truck into a live lane merely to fill the fleet.
+            const through = r.oneway ? laneOffsets(r) : [-laneOffsets(r)[0], laneOffsets(r)[0]];
+            if (through.some(o => Math.abs(offset - o) < spec.width / 2 + TRAFFIC_HALF_WIDTH + 0.3)) continue;
+            const x = a[0] + dx * d - dz * offset, z = a[1] + dz * d + dx * offset;
+            if (Math.floor(x / TILE_SIZE) !== tile.tx || Math.floor(z / TILE_SIZE) !== tile.tz) continue;
+            if (tile.props.some(p => p.kind === 'hydrant' && Math.hypot(p.x - x, p.z - z) < 5 + spec.length / 2)) continue;
+            const buildings = this.ctx.modules.get('buildings')                                                                ;
+            if (buildings?.isInside?.(x, z)) continue;
+            // Segment endpoints aren't necessarily intersections (OSM splits a
+            // block into short pieces). Also reserve crossing streets' lanes.
+            if (tile.roads.some(other => driveable(other) && other.id !== r.id && other.pts.some((p, j) => {
+              const q = other.pts[j + 1];
+              if (!q || other.layer !== r.layer) return false;
+              const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+              if (len < 0.5) return false;
+              const ux = (q[0] - p[0]) / len, uz = (q[1] - p[1]) / len;
+              const dot = Math.abs(dx * ux + dz * uz), cross = Math.abs(dx * uz - dz * ux);
+              if (dot > 0.95) return false;
+              const along = (x - p[0]) * ux + (z - p[1]) * uz;
+              const end = dot * spec.length / 2 + cross * spec.width / 2;
+              if (along < -end || along > len + end) return false;
+              const lateral = (x - p[0]) * -uz + (z - p[1]) * ux;
+              const offsets = other.oneway ? laneOffsets(other) : [-laneOffsets(other)[0], laneOffsets(other)[0]];
+              return offsets.some(o => Math.abs(lateral - o) < cross * spec.length / 2 + dot * spec.width / 2 + TRAFFIC_HALF_WIDTH + 0.5);
+            }))) continue;
+            if (isIOS() && (x - this.ctx.camera.position.x) ** 2 + (z - this.ctx.camera.position.z) ** 2 > 80 ** 2) continue;
+            record.parkingSlots++;
+            if (hash01(seed, slot, side * 23) > 0.7) continue;
+            const direction = r.oneway ? 1 : side;
+            const car = makeCar(`p:${r.id}:${seed}:${slot * 2 + (side === 1 ? 0 : 1)}`, kind, x, ground(this.ctx, x, z), z,
+              Math.atan2(-dx * direction, -dz * direction), seed + slot * 7 + side);
+            poseMatrix(car);
+            record.parked.push(car);
+          }
+          d += space;
+        }
+      }
+    }
+    this.refreshHighways();
+  }
+
+          refreshHighways()       {
+    const roads = [...this.refs.values()].map(ref => ref.lanes[0]?.road).filter(Boolean)                 ;
+    for (const lane of this.lanes.values()) {
+      const path = highwayLanePath(lane.road, roads, lane.segment ?? 0, lane.offset ?? 0);
+      if (path) Object.assign(lane, path);
+    }
+  }
+
+  unload(key        )       {
+    const tile = this.tiles.get(key);
+    if (!tile) return;
+    for (const car of tile.parked) removeBody(this.ctx, car);
+    for (const key of tile.roads) {
+      const ref = this.refs.get(key);
+      if (!ref || --ref.count > 0) continue;
+      for (const lane of ref.lanes) {
+        this.lanes.delete(lane.key);
+        const out = this.outgoing.get(lane.start)?.filter(l => l !== lane) ?? [];
+        if (out.length) this.outgoing.set(lane.start, out);
+        else this.outgoing.delete(lane.start);
+      }
+      this.refs.delete(key);
+    }
+    this.tiles.delete(key);
+    this.refreshHighways();
+  }
+
+  dispose()       { for (const key of this.tiles.keys()) this.unload(key); }
+}
+
+
+
+
+
+const AVENUE_RADIUS = 150;
+const AVENUE_SHARE = 0.7;
+
+function aheadRange(lane      , range                  , focus                          , fx        , fz        )                          {
+  const base = (lane.ax - focus.x) * fx + (lane.az - focus.z) * fz, slope = lane.dx * fx + lane.dz * fz;
+  if (Math.abs(slope) < 0.01) return base > 8 ? range : null;
+  const boundary = (8 - base) / slope;
+  const lo = slope > 0 ? Math.max(range[0], boundary) : range[0];
+  const hi = slope < 0 ? Math.min(range[1], boundary) : range[1];
+  return hi > lo ? [lo, hi] : null;
+}
+
+/** Clip a lane to a focus disc, rather than rejecting long blocks by their midpoint. */
+function spawnRange(lane      , focus                          , radius        )                          {
+  const dx = focus.x - lane.ax, dz = focus.z - lane.az;
+  const along = dx * lane.dx + dz * lane.dz, cross = dx * lane.dz - dz * lane.dx;
+  if (Math.abs(cross) >= radius) return null;
+  const half = Math.sqrt(radius * radius - cross * cross);
+  const lo = Math.max(8, along - half), hi = Math.min(lane.length - 10, along + half);
+  return hi > lo ? [lo, hi] : null;
+}
+
+class Traffic {
+  cars               = [];
+          serial = 0;
+          spawnClock = 0;
+          buckets = new Map               ();
+          bucketPool          = [];
+  constructor(ctx             , roads       ) { this.ctx = ctx; this.roads = roads; }
+
+          choose(car            )              {
+    let choices = tunnelConnections(this.roads, car.lane).filter(l => l.dx * car.lane.dx + l.dz * car.lane.dz > -0.8);
+    if (car.lane.path) {
+      const connected = choices.filter(l => Math.hypot(l.ax-car.lane.bx,l.az-car.lane.bz)<.1);
+      if (connected.length) choices = connected;
+    }
+    let best              = null, score = -Infinity;
+    for (let i = 0; i < choices.length; i++) {
+      const l = choices[i], dot = l.dx * car.lane.dx + l.dz * car.lane.dz;
+      const lateral = Math.abs((l.ax - car.lane.bx) * car.lane.dz - (l.az - car.lane.bz) * car.lane.dx);
+      const s = hash01(this.serial + car.key.length, Math.floor(car.age * 10), i)
+        + dot * (isAvenue(car.lane.road) ? 1.8 : 0.55) - (dot > 0.8 ? lateral * 0.7 : 0);
+      if (s > score) { best = l; score = s; }
+    }
+    return best;
+  }
+
+  update(dt        , t        , obstacles                )       {
+    const ctx = this.ctx, focus = ctx.state.screenshotMode ? ctx.camera.position : ctx.state.local.state;
+    for (let i = this.cars.length - 1; i >= 0; i--) {
+      const c = this.cars[i];
+      if (!this.roads.lanes.has(c.lane.key) || distance2(c, focus) > 450 ** 2 || this.cars.length > ctx.quality.maxTraffic) {
+        removeBody(ctx, c); this.cars.splice(i, 1);
+      }
+    }
+    this.spawnClock -= dt;
+    if (this.spawnClock <= 0 && ctx.quality.maxTraffic > 0) {
+      this.spawnClock = 0.25;
+      const cameraMatrix = ctx.camera.matrixWorld.elements;
+      const fx = ctx.state.screenshotMode ? -cameraMatrix[8] : -Math.sin(ctx.state.local.state.yaw);
+      const fz = ctx.state.screenshotMode ? -cameraMatrix[10] : -Math.cos(ctx.state.local.state.yaw);
+      const ahead = (c     ) => (c.x - focus.x) * fx + (c.z - focus.z) * fz > 8;
+      const lanes = [...this.roads.lanes.values()].flatMap(lane => {
+        const range = spawnRange(lane, focus, 350);
+        const near = isAvenue(lane.road) ? spawnRange(lane, focus, AVENUE_RADIUS) : null;
+        return range ? [{ lane, range, near, ahead: near ? aheadRange(lane, near, focus, fx, fz) : null }] : [];
+      });
+      const avenues = lanes.filter(l => l.near);
+      // Framing reservations belong to shots only. In play, looking behind you
+      // must not drain the player's upstream traffic supply.
+      const approaches = ctx.state.screenshotMode ? avenues.filter(l => l.ahead) : [];
+      const avenueNames = new Set(avenues.map(l => l.lane.road.name));
+      // One bus starts on the upstream approach, not all buses in the local queue.
+      // This also keeps a real transit silhouette in the avenue's distant stream.
+      const transitFeeds = lanes.flatMap(l => {
+        if (!isAvenue(l.lane.road) || !avenueNames.has(l.lane.road.name)) return [];
+        const outer = aheadRange(l.lane, l.range, focus, fx, fz);
+        if (!outer) return [];
+        const inner = spawnRange(l.lane, focus, 260);
+        const ranges                     = inner
+          ? [[outer[0], Math.min(outer[1], inner[0])], [Math.max(outer[0], inner[1]), outer[1]]]
+          : [outer];
+        return ranges.filter(r => r[1] > r[0]).map(range => ({ ...l, range }));
+      });
+      let nearCount = this.cars.filter(c => isAvenue(c.lane.road) && distance2(c, focus) < AVENUE_RADIUS ** 2).length;
+      let aheadCount = this.cars.filter(c => isAvenue(c.lane.road) && distance2(c, focus) < AVENUE_RADIUS ** 2 && ahead(c)).length;
+      let needsTransitFeed = ctx.quality.maxTraffic >= 25 && transitFeeds.length > 0 && !this.cars.some(c =>
+        c.kind === 'bus' && avenueNames.has(c.lane.road.name) && ahead(c) && distance2(c, focus) > 180 ** 2);
+      const target = avenues.length ? Math.ceil(ctx.quality.maxTraffic * (ctx.state.screenshotMode ? AVENUE_SHARE : 0.9)) : 0;
+      const approachTarget = approaches.length ? Math.ceil(target * 0.55) : 0;
+      // Reserve the existing cap for the focus avenue at every hour. Retire at most
+      // two distant cars per tick as the focus moves; never delete the queue in view.
+      for (let retired = 0; (nearCount < target || aheadCount < approachTarget || needsTransitFeed) && this.cars.length >= ctx.quality.maxTraffic && retired < 2; retired++) {
+        let index = -1, farthest = (ctx.state.screenshotMode ? 180 : AVENUE_RADIUS + 15) ** 2;
+        for (let i = 0; i < this.cars.length; i++) {
+          if (this.cars[i].kind === 'bus') continue; // preserve sparse transit routes during local rebalancing
+          const d = distance2(this.cars[i], focus);
+          if (d > farthest) { index = i; farthest = d; }
+        }
+        if (index < 0) break;
+        removeBody(ctx, this.cars[index]); this.cars.splice(index, 1);
+      }
+      let taxis = this.cars.reduce((n, c) => n + (c.kind === 'taxi' ? 1 : 0), 0);
+      let buses = this.cars.reduce((n, c) => n + (c.kind === 'bus' ? 1 : 0), 0);
+      for (let attempt = 0; lanes.length && attempt < 48 && this.cars.length < ctx.quality.maxTraffic; attempt++) {
+        const id = ++this.serial;
+        // Most attempts fill the local reservation; spare attempts still feed cross streets
+        // when an avenue is saturated. Length weighting avoids overfilling tiny OSM segments.
+        const forward = aheadCount < approachTarget && approaches.length > 0 && attempt % 3 !== 2;
+        const transitFeed = needsTransitFeed;
+        const local = !transitFeed && (nearCount < target || forward) && avenues.length > 0 && attempt % 6 !== 5;
+        const candidates = transitFeed ? transitFeeds : local ? forward ? approaches : avenues : lanes;
+        let weightTotal = 0;
+        const weights = candidates.map(l => { const r = local ? forward ? l.ahead  : l.near  : l.range; return weightTotal += r[1] - r[0]; });
+        const pick = hash01(id, 71) * weightTotal;
+        const selected = candidates[weights.findIndex(w => w > pick)], lane = selected.lane;
+        const range = local ? forward ? selected.ahead  : selected.near  : selected.range;
+        let kind = pickKind('traffic', hash01(id, 23));
+        if (kind === 'bus' && !['primary', 'secondary'].includes(lane.road.cls)) kind = 'sedan';
+        // Rejected spawns/short-lived routes must not bias a small local fleet
+        // far away from its 45% cab mix. Keep a little random variation.
+        if (taxis - this.cars.length * 0.45 > 2 && kind === 'taxi') kind = 'sedan';
+        else if (taxis - this.cars.length * 0.45 < -2) kind = 'taxi';
+        // Maintain a small transit share on arterial routes; rejection of long footprints
+        // otherwise removes every bus from a dense all-car local reservation.
+        if (transitFeed || isAvenue(lane.road) && buses < Math.floor(ctx.quality.maxTraffic / 25)) kind = 'bus';
+        const along = range[0] + hash01(id, 19) * (range[1] - range[0]);
+        const spawn = lanePoint(lane, along), x = spawn.x, z = spawn.z;
+        const y = trafficHeight(ctx.world, lane.road, x, z, ground(ctx, x, z, lane.road)), spec = KINDS[kind];
+        // A radial exclusion around curbside cars sealed off every nearby through lane.
+        // Project the other footprint into this lane: queue clearance is longitudinal,
+        // not a ten-metre lateral exclusion from parking and adjacent traffic.
+        const blocked = (other     ) => {
+          if (Math.abs(other.y - y) > 3) return false;
+          const dx = other.x - x, dz = other.z - z, os = KINDS[other.kind];
+          const dot = Math.abs(-Math.sin(other.yaw) * lane.dx - Math.cos(other.yaw) * lane.dz);
+          const cross = Math.sqrt(Math.max(0, 1 - dot * dot));
+          return Math.abs(dx * lane.dx + dz * lane.dz) < spec.length / 2 + dot * os.length / 2 + cross * os.width / 2 + (local ? 4 : 7)
+            && Math.abs(dx * lane.dz - dz * lane.dx) < spec.width / 2 + cross * os.length / 2 + dot * os.width / 2 + 0.3;
+        };
+        if (this.cars.some(blocked) || obstacles.some(blocked)) continue;
+        const c             = { ...makeCar(`traffic:${id}`, kind, x, y, z, Math.atan2(-spawn.dx, -spawn.dz), id),
+          lane, along, next: null, wait: 0, turn: 0, age: id * 0.1 };
+        c.speed = lane.speed * 0.4;
+        this.cars.push(c);
+        if (isAvenue(lane.road) && distance2(c, focus) < AVENUE_RADIUS ** 2) nearCount++;
+        if (isAvenue(lane.road) && distance2(c, focus) < AVENUE_RADIUS ** 2 && ahead(c)) aheadCount++;
+        if (kind === 'taxi') taxis++;
+        if (kind === 'bus') buses++;
+        if (transitFeed) needsTransitFeed = false;
+      }
+    }
+    // Spatial broad phase for queues. A full scan of every parked car for every AI driver gets
+    // expensive in dense Midtown tiles, even though only a narrow strip ahead can affect the car.
+    for (const bucket of this.buckets.values()) { bucket.length = 0; this.bucketPool.push(bucket); }
+    this.buckets.clear();
+    const insert = (c     ) => {
+      const key = Math.floor(c.x / 20) + Math.floor(c.z / 20) * 65536;
+      let bucket = this.buckets.get(key);
+      if (!bucket) { bucket = this.bucketPool.pop() ?? []; this.buckets.set(key, bucket); }
+      bucket.push(c);
+    };
+    for (const c of this.cars) insert(c);
+    for (const c of obstacles) insert(c);
+    const signals = ctx.modules.get('props')                       ;
+    for (const c of this.cars) {
+      const lane = c.lane, spec = KINDS[c.kind];
+      const heading = lanePoint(lane, c.along);
+      c.age += dt;
+      const remain = lane.length - c.along;
+      if (remain < 30 && (!c.next || !this.roads.lanes.has(c.next.key))) c.next = this.choose(c);
+      c.turn = c.next ? heading.dx * c.next.dz - heading.dz * c.next.dx : 0;
+      let desired = lane.speed * (Math.abs(c.turn) > 0.3 && remain < 16 ? 0.45 : 1);
+      let gap = Infinity;
+      const signal = lane.road.tunnel || lane.road.bridge || c.y > 0.3 ? null : signals?.signalFor?.(c.x, c.z, heading.dx, heading.dz);
+      if (signal && signal.state !== 'green' && (signal.state === 'red' || signal.dist > c.speed * 0.8 + spec.front)) {
+        const ahead = (signal.stopX - c.x) * heading.dx + (signal.stopZ - c.z) * heading.dz;
+        if (ahead > 0) gap = Math.max(0, ahead - spec.front - 1);
+      }
+      // Queue across lane boundaries as well as within a lane; no passing through stopped cars.
+      const avoid = (other     ) => {
+        if (other === c || Math.abs(other.y - c.y) > 3) return;
+        const dx = other.x - c.x, dz = other.z - c.z;
+        const ahead = dx * heading.dx + dz * heading.dz;
+        if (ahead <= 0 || ahead > 60 || Math.abs(dx * heading.dz - dz * heading.dx) > (spec.width + KINDS[other.kind].width) / 2 + 0.3) return;
+        gap = Math.min(gap, Math.max(0, ahead - spec.front - KINDS[other.kind].rear - 2.5));
+      };
+      const endX = c.x + heading.dx * 60, endZ = c.z + heading.dz * 60;
+      const x0 = Math.floor((Math.min(c.x, endX) - 4) / 20), x1 = Math.floor((Math.max(c.x, endX) + 4) / 20);
+      const z0 = Math.floor((Math.min(c.z, endZ) - 4) / 20), z1 = Math.floor((Math.max(c.z, endZ) + 4) / 20);
+      for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
+        const bucket = this.buckets.get(x + z * 65536);
+        if (bucket) for (const other of bucket) avoid(other);
+      }
+      // At unsignaled junctions, stop briefly, then yield to vehicles already in the junction.
+      // Parallel continuations of the same avenue aren't intersections.
+      const junction = this.roads.outgoing.get(lane.end)?.some(l => l.dx * heading.dx + l.dz * heading.dz < 0.8) ?? false;
+      if (!signal && junction && remain < spec.front + 7) {
+        c.wait += dt;
+        const occupied = this.cars.some(o => o !== c && Math.abs(o.y - c.y) < 3 && o.lane !== lane && Math.hypot(o.x - lane.bx, o.z - lane.bz) < 5 && o.speed > 0.5);
+        if (c.wait < 0.65 || occupied) gap = Math.min(gap, Math.max(0, remain - spec.front - 2));
+      }
+      // Lane drops need an ordered yield before the guides converge. Two cars
+      // abreast have no longitudinal "ahead" gap until their bodies overlap.
+      if (lane.path && c.next && remain < 30) {
+        const yieldTo = this.cars.some(other => other !== c && Math.abs(other.y-c.y)<3 && (
+          other.lane === c.next && other.along < spec.length + 4 ||
+          other.next === c.next && other.lane !== lane && (
+            other.lane.length-other.along < remain-.5 ||
+            Math.abs(other.lane.length-other.along-remain)<=.5 && other.key<c.key)));
+        if (yieldTo) gap=Math.min(gap,Math.max(0,remain-25));
+      }
+      if (!c.next && remain < 12) desired = Math.min(desired, Math.max(0, remain - 1));
+      desired = Math.min(desired, Math.sqrt(2 * 3.5 * gap));
+      const old = c.speed;
+      c.speed += Math.max(-6 * dt, Math.min(2.5 * dt, desired - c.speed));
+      c.speed = Math.max(0, c.speed);
+      c.brake = old > c.speed + 0.01 || c.speed < 0.2 ? 1 : 0;
+      c.along += Math.min(c.speed * dt, gap);
+      if (c.along >= lane.length) {
+        if (c.next && this.roads.lanes.has(c.next.key)) { c.along = Math.max(0, c.along - lane.length); c.lane = c.next; c.next = null; c.wait = 0; }
+        else { c.age += 1; if (c.speed < 0.5) { removeBody(ctx, c); c.along = -1000; } }
+      }
+      const target = lanePoint(c.lane, c.along);
+      const targetYaw = Math.atan2(-target.dx, -target.dz);
+      const delta = Math.atan2(Math.sin(targetYaw - c.yaw), Math.cos(targetYaw - c.yaw));
+      c.yaw += delta * Math.min(1, dt * 7);
+      c.steer = Math.max(-0.5, Math.min(0.5, delta));
+      const follow = Math.min(1, dt * 15);
+      c.x += (target.x - c.x) * follow;
+      c.z += (target.z - c.z) * follow;
+      c.y = trafficHeight(ctx.world, c.lane.road, c.x, c.z, ground(ctx, c.x, c.z, c.lane.road));
+      c.spin -= c.speed * dt / spec.wheelRadius;
+      c.siren = c.kind === 'nypd' && Math.sin(t * 0.035 + c.age * 0.01) > 0.985;
+      poseMatrix(c);
+      if (!ctx.state.screenshotMode && distance2(c, ctx.state.local.state) < 100 ** 2) {
+        createObstacle(ctx, c, true);
+        c.body?.setNextKinematicTranslation(c);
+        c.body?.setNextKinematicRotation({ x: 0, y: Math.sin(c.yaw / 2), z: 0, w: Math.cos(c.yaw / 2) });
+      } else removeBody(ctx, c);
+    }
+    for (let i = this.cars.length - 1; i >= 0; i--) if (this.cars[i].along < 0) this.cars.splice(i, 1);
+  }
+
+  unload()       {
+    for (let i = this.cars.length - 1; i >= 0; i--) if (!this.roads.lanes.has(this.cars[i].lane.key)) {
+      removeBody(this.ctx, this.cars[i]); this.cars.splice(i, 1);
+    }
+  }
+  dispose()       { for (const c of this.cars) removeBody(this.ctx, c); this.cars.length = 0; this.buckets.clear(); this.bucketPool.length = 0; }
+}
+
+return {Roads,Traffic,isAvenue};})(),vn=$laneClasses.Roads,Cn=$laneClasses.Traffic,_n=$laneClasses.isAvenue;function wn(e,t){let n=e.getAttribute(`uv`),r=e.index,i=0;for(let e=0;e<r.count;e+=3)[0,1,2].every(i=>{let a=r.getX(e+i),o=n.getX(a),s=n.getY(a);return o>=t.u0-1e-6&&o<=t.u1+1e-6&&s>=t.v0-1e-6&&s<=t.v1+1e-6})&&i++;return i}function Tn(e,t){let n=t.pools.get(`sedan`);if(!n?.nearCount)return{status:`no mid-distance sedan`};let i=e.renderer,a=e.camera,o=i.getDrawingBufferSize(new r),s=o.x,c=o.y,l=[],f=n.geo.glass,p=f.getAttribute(`position`),m=f.getAttribute(`normal`),h=new d,g=new u,_=new u,v=new u;for(let e=0;e<n.nearCount;e++){n.near.getMatrixAt(e,h);let t=new u().setFromMatrixPosition(h).distanceTo(a.position);if(!(t<10||t>40))for(let n=0;n<f.index.count;n+=3){let r=[0,1,2].map(e=>f.index.getX(n+e));if(_.fromBufferAttribute(m,r[0]),!(_.z>-.25||_.y<.1||Math.abs(_.x)>.35)){g.set(0,0,0);for(let e of r)g.add(new u().fromBufferAttribute(p,e));g.divideScalar(3),!(g.y<Z.sedan.height*.6||g.z>=0)&&(g.applyMatrix4(h),_.transformDirection(h),v.copy(a.position).sub(g),!(_.dot(v)<=0)&&(g.project(a),!(Math.abs(g.x)>.97||Math.abs(g.y)>.97||g.z>1)&&l.push({x:Math.floor((g.x+1)*.5*s),y:Math.floor((g.y+1)*.5*c),instance:e,distance:t})))}}}if(!l.length)return{status:`no front-facing 10–40 m sedan windshield in frame`};let y=i.getRenderTarget(),b=i.autoClear,x=i.shadowMap.autoUpdate,S=t.glassMat.envMapIntensity,C=i.getContext(),w=()=>{e.composer?e.composer.render(0):(i.setRenderTarget(null),i.render(e.scene,a)),i.setRenderTarget(null)},T=()=>l.map(e=>{let t=new Uint8Array(4);return C.readPixels(e.x,e.y,1,1,C.RGBA,C.UNSIGNED_BYTE,t),[...t.slice(0,3)]});try{i.shadowMap.autoUpdate=!1,i.autoClear=!0,w();let n=T();t.glassMat.envMapIntensity=0,w();let r=T(),a=0,o=-1;for(let e=0;e<n.length;e++){let t=n[e].reduce((t,n,i)=>t+Math.abs(n-r[e][i]),0);t>o&&(a=e,o=t)}let s=l[a];return{status:o>6?`live sky reflection verified`:`occluded or no measurable environment reflection`,source:`full scene, postprocessed framebuffer, glass env intensity A/B`,lod:`near (10–40 m mid-distance)`,instance:s.instance,distance:+s.distance.toFixed(2),pixel:[s.x,c-1-s.y],rgb:n[a],withoutEnvironment:r[a],channelDelta:o,envMap:t.glassMat.envMap?.uuid??null,sceneEnvironmentMatches:t.glassMat.envMap===e.scene.environment}}finally{t.glassMat.envMapIntensity=S,w(),i.setRenderTarget(y),i.autoClear=b,i.shadowMap.autoUpdate=x}}function En(e,t,n,r){let i,a=-1/0,o=new p,s=new d,c=new v;return Object.defineProperty(e.stats,"vehicleProbe",{configurable:!0,enumerable:!0,get:()=>{if(!window.__ready)return{status:`waiting for ready`};s.multiplyMatrices(e.camera.projectionMatrix,e.camera.matrixWorldInverse),o.setFromProjectionMatrix(s);let l=n.cars.filter(e=>{let t=Z[e.kind];return c.set(new u(e.x,e.y+t.height/2,e.z),t.length*.6),o.intersectsSphere(c)}),d={};for(let t of l)if(_n(t.lane.road)){let n=d[t.lane.road.name]??={total:0,moving:0,queued:0,within150:0};n.total++,t.speed>.5?n.moving++:n.queued++,Math.hypot(t.x-e.camera.position.x,t.z-e.camera.position.z)<150&&n.within150++}let f=[`taxi`,`nypd`,`bus`,`boxtruck`].map(n=>{let r=t.pools.get(n),i=r.far.material,a=n===`boxtruck`||n===`bus`?F.boxSide:F.decalL,o=(i.map?.image)?.getContext(`2d`)?.getImageData(a.x,a.y,a.w,a.h).data,s=new Set;if(o)for(let e=0;e<o.length;e+=64)s.add(o[e]<<16|o[e+1]<<8|o[e+2]);return{kind:n,midInstances:r.nearCount,farInstances:r.farCount,map:i.map?.name,boundToKindAtlas:i.map===r.atlas.map,sharedMidFarMaterial:r.near.material===r.far.material,mapUploaded:i.map?Dn(e.renderer,i.map)!==void 0:!1,liveryTriangles:{mid:wn(r.geo.opaque,a),far:wn(r.geo.far,a)},sampledColors:s.size}});return(!i||i.status!==`live sky reflection verified`&&performance.now()-a>2e3)&&(a=performance.now(),i=Tn(e,t)),{cap:e.quality.maxTraffic,totalTraffic:n.cars.length,inFrustum:l.length,movingInFrustum:l.filter(e=>e.speed>.5).length,avenues:d,nearAvenueTraffic:n.cars.filter(t=>_n(t.lane.road)&&Math.hypot(t.x-e.camera.position.x,t.z-e.camera.position.z)<150).length,contacts:{count:r.mesh.count,multiply:r.mesh.material.blending===4},wheels:[...t.pools.values()].map(e=>({kind:e.spec.id,mid:wn(e.geo.opaque,F.wheelHub),far:wn(e.geo.far,F.wheelHub)})),liveries:f,windshield:i}}}),()=>{delete e.stats.vehicleProbe}}function Dn(e,t){return e.properties.get(t).__version}async function On(t){let n=e(),r=new Ot(t);for(;!r.buildNext();)await new Promise(e=>setTimeout(e,0));for(let e of r.pools.values())e.far.castShadow=!1;let i=new vn(t),a=new Cn(t,i),o=new Qt(t),s=new an(t),c=new cn(t),l=t.state.screenshotMode&&typeof location<`u`&&new URLSearchParams(location.search).has(`vehicleProbe`)?En(t,r,a,c):void 0,m=new Map,h=new Map,_=new Map,y=[],b=[],x=[],S=[],C=new u(1/0,0,1/0),w={updateMs:0,fixedMs:0,renderMs:0,parked:0,parkingSlots:0,traffic:0,near:0,far:0,draws:0},T=new p,E=new d,D=new v,O=new g,ee=new f(0,0,0,`YXZ`),j=new u,M=new u(1,1,1),N=null,P=null,F=0,te,I=!0,ne=0,re=!1,L=-1/0,ie=[];function ae(){t.physics.world.colliders.forEach(e=>{let t=e.parent()?.userData;t?.surface===`player`&&t.local&&e.isEnabled()&&(e.setEnabled(!1),ie.push(e))})}function oe(e){return i.tiles.has(`${Math.floor(e.x/256)}_${Math.floor(e.z/256)}`)}function se(){if(n&&$(C,t.camera.position)>64)for(let e of t.world.tiles.values())i.load(e);y.length=0,w.parkingSlots=0;for(let e of i.tiles.values())w.parkingSlots+=e.parkingSlots;for(let e of i.tiles.values())for(let r of e.parked){if(n&&$(r,t.camera.position)>6400||m.has(r.key)||_.has(r.key)){Q(t,r);continue}y.push(r)}for(let e of m.values())oe(e)&&!_.has(e.key)&&(!n||$(e,t.camera.position)<=6400)?y.push(e):Q(t,e);for(let e of y)!t.state.screenshotMode&&$(e,t.state.local.state)<8100?Mt(t,e,!1):Q(t,e);w.parked=y.length,C.copy(t.camera.position),x.length=S.length=0;for(let e of y)$(e,C)<580**2&&x.push(e),$(e,t.state.screenshotMode?C:t.state.local.state)<210**2&&S.push(e);I=!1}function ce(e,t,n,r){if(re||!Number.isFinite(r)||r<0)return null;I&&se();let i=null,a=r**2;for(let o of y){if(_.has(o.key)||Math.abs(o.y-t)>2.5)continue;let s=Z[o.kind],c=(e-o.x)**2+(n-o.z)**2;if(c>(r+s.length)**2)continue;let l=-s.width/2-.85,u=Math.cos(o.yaw),d=Math.sin(o.yaw),f=o.x+u*l+d*s.seatZ,p=o.z-d*l+u*s.seatZ,m=Math.min(c,(e-f)**2+(n-p)**2);m<a&&(i=o,a=m)}return i}function le(e){let n=N;if(!n)return;let r=n.car,i=t.state.local.state;N=null,F=0,n.dispose();for(let e of ie.splice(0))e.isValid()&&e.setEnabled(!0);if(_.get(r.key)===t.state.local.id&&_.delete(r.key),r.y=jt(t,r.x,r.z),r.speed=0,r.steer=0,r.brake=0,r.siren=!1,At(r),m.set(r.key,r),t.state.local.vehicleKey=null,i.vehicleId=0,i.flags&=~(k.InVehicle|k.Airborne),i.steer=i.throttle=0,i.anim=A.Idle,e){let e=t.modules.get(`buildings`),n=Nt(r,Z[r.kind]);e?.isInside?.(n.x,n.z)&&(n=Nt(r,Z[r.kind],1)),i.x=n.x,i.z=n.z,i.y=jt(t,n.x,n.z)+.05,i.vx=i.vy=i.vz=0}I=!0,t.events.emit(`exitedVehicle`)}function ue(e){if(e.key){if(e.driverId?_.set(e.key,e.driverId):_.delete(e.key),N?.car.key===e.key&&e.driverId!==t.state.local.id&&le(!t.state.local.dead),P?.car.key===e.key){let n=P;if(P=null,e.driverId===t.state.local.id&&t.state.local.id!==0&&!t.state.local.dead&&!t.state.screenshotMode){let r=n.car;Q(t,r);let i=kt(r.key,r.kind,r.x,r.y,r.z,r.yaw,1);i.color.copy(r.color),At(i),ae(),N=new Wt(t,i,e.id),t.state.local.vehicleKey=e.key,N.update(0),t.events.emit(`enteredVehicle`,e.key)}else e.driverId===t.state.local.id&&t.net.send({t:`exitVehicle`})}else e.driverId===t.state.local.id&&!N&&t.net.send({t:`exitVehicle`});I=!0}}function de(){let e=t.now??0;if(re||!t.state.welcomed||!t.net.connected||t.state.screenshotMode||t.state.local.dead||e-L<.25)return;if(L=e,N){F||=(t.net.sendState(),t.net.send({t:`exitVehicle`}),e+3);return}if(P||!t.net.connected||!t.state.local.id)return;let n=t.state.local.state,r=ce(n.x,n.y,n.z,3);r&&(P={car:r,until:e+5},t.net.sendState(),t.net.send({t:`enterVehicle`,key:r.key,kind:r.kind,x:r.x,y:r.y,z:r.z,yaw:r.yaw}))}function fe(e){for(let[e,n]of h){let r=t.state.remotes.get(e)?.render;(!r||!(r.flags&k.InVehicle)||r.vehicleId!==n.vehicleId||t.state.vehicles.get(n.vehicleId)?.driverId!==e)&&(Q(t,n.car),_.has(n.car.key)||(n.car.speed=0,n.car.brake=0,m.set(n.car.key,n.car),I=!0),h.delete(e))}for(let[n,r]of t.state.remotes){let i=r.render;if(!(i.flags&k.InVehicle)||!i.vehicleId)continue;let a=t.state.vehicles.get(i.vehicleId);if(!a||a.driverId!==n)continue;let o=h.get(n);o||(o={car:kt(a.key,a.kind,i.x,i.y,i.z,i.yaw,i.vehicleId),vehicleId:i.vehicleId},h.set(n,o));let s=o.car,c=Math.hypot(i.vx,i.vz);s.brake=+(c<s.speed-e*.8),s.speed=c,s.x=i.x,s.y=i.y,s.z=i.z,s.yaw=i.yaw,s.steer=-i.steer*.4,s.spin-=c*e/Z[s.kind].wheelRadius,O.setFromEuler(ee.set(i.pitch,i.yaw,i.roll,`YXZ`)),s.matrix.compose(j.set(i.x,i.y,i.z),O,M),!t.state.screenshotMode&&$(s,t.state.local.state)<1e4?(Mt(t,s,!0),s.body?.setNextKinematicTranslation(s),s.body?.setNextKinematicRotation(O)):Q(t,s)}}function pe(e,n){t.state.local.dead||t.state.screenshotMode||(P={car:kt(e.key,Z[e.kind]?e.kind:`sedan`,n.x,n.y,n.z,n.yaw,1),until:(t.now??0)+5},ue(e))}let me=[t.events.on(`tileLoaded`,e=>{i.load(e),I=!0}),t.events.on(`tileUnloaded`,e=>{i.unload(e),a.unload(),o.unload(e);for(let e of m.values())oe(e)||Q(t,e);I=!0}),t.events.on(`interact`,de),t.events.on(`localDeath`,()=>{P=null,N&&t.net.send({t:`exitVehicle`}),le(!1)}),t.events.on(`localRespawn`,()=>{P=null,le(!1)}),t.net.onMessage(e=>{if(e.t===`welcome`&&e.vehicle&&!e.dead&&!t.state.screenshotMode)pe(e.vehicle,e.spawn);else if(e.t===`vehicle`){if(e.v.key)ue(e.v);else{_.clear();for(let e of t.state.vehicles.values())e.driverId&&_.set(e.key,e.driverId);I=!0}}else if(e.t===`vehicles`){_.clear();for(let t of e.list)ue(t);I=!0}})];for(let e of t.state.vehicles.values())e.driverId===t.state.local.id&&e.key===t.state.local.vehicleKey?pe(e,t.state.local.state):ue(e);for(let e of t.world.tiles.values())i.load(e);function R(e,n,r,i,a=!1){e=Z[e]?e:`sedan`;let o=`placed:${e}:${m.size}`,s=kt(o,e,n,jt(t,n,r),r,i,7);return s.siren=a,At(s),m.set(o,s),I=!0,o}if(t.state.screenshotMode&&typeof location<`u`)for(let e of(new URLSearchParams(location.search).get(`place`)??``).split(`;`)){let[t,n,r,i,a]=e.split(`,`);Z[t]&&Number.isFinite(+n)&&Number.isFinite(+r)&&R(t,+n,+r,-((+i||0)*Math.PI)/180,a===`1`)}function he(e,i,a,o=0){let s=Z[e.kind],l=$(e,t.camera.position);if(l>Math.min(520,t.quality.drawDistance)**2||(D.center.set(e.x,e.y+s.height/2,e.z),D.radius=s.length*.6,!T.intersectsSphere(D)))return;let u=r.scratch();u.matrix.copy(e.matrix),u.color.copy(e.color),u.spin=e.spin,u.steer=e.steer,u.lightA[0]=i,u.lightA[1]=e.brake,u.lightA[2]=+(o<-.25),u.lightA[3]=+(o>.25),u.lightB[0]=+!!e.siren,u.lightB[2]=a,N?.car===e&&(u.susp[0]=N.suspension[0],u.susp[1]=N.suspension[1],u.susp[2]=N.suspension[2],u.susp[3]=N.suspension[3],u.lightB[1]=+(N.state.gear<0));let d=t.quality.level===`low`||t.quality.level===`mobile`?55:t.quality.level===`medium`?85:140;r.write(e.kind,u,n||l<d*d?0:140),c.add(e,Math.sqrt(l))}return typeof window<`u`&&(window.__vehicles={local:()=>N,place:(e,t,n,r=0)=>N?.place(e,t,n,r),parked:()=>(I&&se(),y.map(e=>({key:e.key,x:e.x,y:e.y,z:e.z,yaw:e.yaw,kind:e.kind})))}),{name:`vehicles`,stats:w,interact:de,nearestEnterable(e,t,n,r){let i=ce(e,t,n,r);return i?{key:i.key,kind:i.kind,label:Z[i.kind].label,x:i.x,z:i.z}:null},driving:()=>N?.state??null,remoteSpeed:e=>h.get(e)?.car.speed??0,driverSeatMatrix:()=>N?.driverSeatMatrix()??null,traffic:()=>a.cars,place:R,update(e,n){if(re)return;let i=performance.now();!te&&typeof window<`u`&&(te=window.__loop?.onFixedStep(e=>{let t=performance.now();N?.fixed(e),w.fixedMs=performance.now()-t})),P&&P.until<n&&(P=null),F&&F<n&&(F=0),N&&(!t.net.connected||t.state.local.vehicleKey!==N.car.key)&&le(!t.state.local.dead),N&&!te&&N.fixed(Math.min(e,1/30)),N?.update(e),fe(e),(I||$(C,t.camera.position)>2500||!t.state.screenshotMode&&n>=ne)&&(se(),ne=n+.5),b.length=0,N&&b.push(N.car);for(let e of h.values())b.push(e.car);for(let e of S)$(e,t.state.screenshotMode?t.camera.position:t.state.local.state)<150**2&&b.push(e);a.update(e,n,b),o.update(n,N),w.traffic=a.cars.length,t.modules.has(`atmosphere`)||(r.uniforms.uTime.value=n,r.uniforms.uNight.value=1-t.time.daylight,r.uniforms.uWet.value=t.state.weather.wetness),w.updateMs=performance.now()-i},preRender(){if(re)return;let e=performance.now();t.camera.updateMatrixWorld(),E.multiplyMatrices(t.camera.projectionMatrix,t.camera.matrixWorldInverse),T.setFromProjectionMatrix(E),r.begin(),c.begin();let i=rn(r.uniforms.uNight.value,t.state.weather.condition,t.time.daylight);s.begin(r.uniforms.uNight.value,t.state.weather.condition,t.time.daylight),N&&(he(N.car,N.headlights?i:0,0),s.add(N.car,N.headlights?i:0));for(let e of h.values())he(e.car,i,0),s.add(e.car,i);for(let e of a.cars)he(e,i,1,e.turn),s.add(e,i);for(let e of x)!_.has(e.key)&&(!n||$(e,t.camera.position)<=6400)&&he(e,0,0);r.end(),c.end(),s.end(),Object.assign(w,r.stats()),c.mesh.visible&&w.draws++,w.renderMs=performance.now()-e},dispose(){if(!re){re=!0,l?.(),typeof window<`u`&&delete window.__vehicles,me.forEach(e=>e()),te?.(),P=null,N&&t.net.send({t:`exitVehicle`}),le(!1),i.dispose(),a.dispose();for(let e of m.values())Q(t,e);for(let e of h.values())Q(t,e.car);m.clear(),h.clear(),_.clear(),y.length=0,b.length=0,x.length=S.length=0,c.dispose(),s.dispose(),o.dispose(),r.dispose()}}}}export{On as createVehicles};
 //# sourceMappingURL=vehicles-_zJz3z3J.js.map

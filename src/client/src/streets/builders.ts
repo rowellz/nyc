@@ -23,6 +23,7 @@ export interface TileEnv {
   /** The sampled deck belonging to one road, even under another deck. */
   roadAt: (road: RoadSegment, x: number, z: number) => number;
   roadTriangles: (road: RoadSegment) => number[][][];
+  pedestrians?: { intersects(poly: number[][]): boolean };
   seed: number;
 }
 

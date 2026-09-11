@@ -57,7 +57,7 @@ const source = readFileSync(root + 'src/client/src/streets/markings.ts', 'utf8')
 const body = source.slice(source.indexOf('export function buildMarkings'));
 let markings = stripTypeScriptTypes(body).replace('export function buildMarkings', 'function ai');
 const open = markings.indexOf('{') + 1;
-markings = markings.slice(0, open) + '\n  const TILE_SIZE=256, RoadIndex=sr, clipPolylineToRect=cr, hash2=Z, pointAlong=or, polylineLength=ar, ROAD_Y=Sr, WALK_Y=Wr, ATLAS=X;\n  const yawToDir=yaw=>[-Math.sin(yaw),-Math.cos(yaw)];\n' + markings.slice(open);
+markings = markings.slice(0, open) + '\n  const deckEdges=$deckEdges, TILE_SIZE=256, RoadIndex=sr, clipPolylineToRect=cr, hash2=Z, pointAlong=or, polylineLength=ar, ROAD_Y=Sr, WALK_Y=Wr, ATLAS=X;\n  const yawToDir=yaw=>[-Math.sin(yaw),-Math.cos(yaw)];\n' + markings.slice(open);
 const a = code.indexOf('function ai('), b = code.indexOf('let oi={', a);
 if (a < 0 || b < a) throw new Error('Cannot locate the served markings builder');
 code = code.slice(0, a) + markings + '\n' + code.slice(b);
