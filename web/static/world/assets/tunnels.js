@@ -7,7 +7,10 @@ export const TUNNEL_CLEARANCE = 5.6;
 export const PORTAL_DEPTH = 8;
 export const APPROACH_GRADE = 0.06;
 const GRADE = 0.06;
-const APPROACH_REACH = PORTAL_DEPTH / APPROACH_GRADE + 8;
+// Match ramps.js's maximum planned bridge height. Continue through short,
+// untagged connecting ways until the ceiling is above every possible deck;
+// stopping at ground level leaves the next elevated way with a vertical step.
+export const APPROACH_REACH = (PORTAL_DEPTH + 36) / APPROACH_GRADE + 8;
 const networkCache = new WeakMap();
 const vehicular = r => !['footway', 'pedestrian', 'steps', 'cycleway'].includes(r.cls);
 const motorway = r => r.cls === 'motorway' || r.cls === 'trunk';
@@ -323,7 +326,10 @@ export function tunnelSupport(world, x, z, referenceY, fallback) {
       const reach = Math.max(Math.hypot(left[0]-q.x,left[1]-q.z), Math.hypot(right[0]-q.x,right[1]-q.z));
       if (q.distance > reach || across < 0.2 || across > width-0.2) continue;
     } else if (q.distance > Math.max(2, p.road.width / 2) - 0.2) continue;
-    const h = tunnelHeight(p, q.along) + 0.025;
+    // Continue support through zero onto the rising bridge. The zero-capped
+    // tunnel construction profile would otherwise drop a low ramp to ground.
+    const h = p.approach ? Math.min(fallback, approachCeiling(p, q.along) + 0.025)
+      : tunnelHeight(p, q.along) + 0.025;
     if (referenceY < h + TUNNEL_CLEARANCE - 1 && referenceY >= h - 2) best = h;
   }
   return best;

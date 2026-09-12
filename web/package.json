@@ -11,8 +11,8 @@
     "start": "node server.js",
     "test": "PORT=${PORT:-3000} NODE_PATH=./node_modules node ../server/test-protocol.js",
     "test:ui": "node tests/look-stick.test.mjs && node tests/touch-zoom.test.mjs && node tests/camera-boot.test.mjs && node tests/water-reflection.test.mjs",
-    "test:tunnels": "node tests/tunnels.test.mjs && node tests/foundations.test.mjs && node tests/buried-tunnels.test.mjs && node tests/tunnel-worker.test.mjs && node tests/tunnel-water.test.mjs && node tests/tunnel-barriers.test.mjs",
-    "test:roads": "node tests/road-layers.test.mjs && node tests/road-grades.test.mjs && node tests/lane-continuity.test.mjs && node tests/road-fixtures.test.mjs && node tests/road-overlap.test.mjs && node tests/pedestrian-clearance.test.mjs && node tests/motorway-width.test.mjs",
+    "test:tunnels": "node tests/tunnels.test.mjs && node tests/foundations.test.mjs && node tests/buried-tunnels.test.mjs && node tests/tunnel-worker.test.mjs && node tests/tunnel-water.test.mjs && node tests/tunnel-barriers.test.mjs && node tests/tunnel-bridge.test.mjs",
+    "test:roads": "node tests/road-layers.test.mjs && node tests/road-grades.test.mjs && node tests/lane-continuity.test.mjs && node tests/road-fixtures.test.mjs && node tests/road-overlap.test.mjs && node tests/pedestrian-clearance.test.mjs && node tests/motorway-width.test.mjs && node tests/motorway-curves.test.mjs",
     "test:sidewalks": "node tests/sidewalk-carriageway.test.mjs",
     "test:peds": "node tests/pedestrian-height.test.mjs"
   },

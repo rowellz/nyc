@@ -11,12 +11,23 @@ export function tunnelAssetTransform(rel, source) {
       'Rr(p,c,d,s),$tunnelFinish(c,d,s,m,$profiles),Hr(p,d,s),f.rasterize(c.pos,c.idx,c.aA,1/0);');
     replace('-Sr)),{meshes:[pi(c.build())', '-Sr)),$tunnelCut(u,$profiles),{meshes:[pi(c.build())');
   } else if (rel === 'world/assets/lane-layout.js') {
+    source = "import { taperGore } from './lane-transitions.js';\n" + source;
     // A fan shifts the whole lane envelope sideways. Carry the outside shoulder
     // with it too; shifting only the shared edge can invert a narrow ramp's deck.
     replace('let v=sign*hw,own=sign*hw;',
       'const lateral=offset(s,0)-base(s,0);let v=sign*hw+lateral,own=v;');
+    replace('pts.push({...pointAt(record,s,l.base(s,q)),d:from+d})',
+      'pts.push({...pointAt(record,s,l.base(s,q)),d:from+d,laneSpan:l.count*l.width})');
+    replace('const tables=(links,side,other,paints)=>{\n    let from=0;',
+      'const tables=(links,side,other,paints)=>{\n    const taper=[];let from=0;');
+    replace('record.gores[side].push({gaps,paints,end:link?-1:end});',
+      'record.gores[side].push({gaps,paints,end:link?-1:end});taper.push({gaps,from,end,length:record.length,laneSpan:l.count*l.width});');
+    replace('from+=record.length;\n    }\n  };\n  for(const [left,right] of fans)',
+      'from+=record.length;\n    }\n    taperGore(taper,GORE_STEP,GORE_NEAR,Math.max(...other.map(p=>p.laneSpan)));\n  };\n  for(const [left,right] of fans)');
   } else if (rel === 'world/assets/ramps.js') {
-    source = "import { approachProfile } from './tunnels.js';\n" + source;
+    source = "import { approachProfile, APPROACH_REACH } from './tunnels.js';\n" + source;
+    replace('Math.ceil((MAX_ROAD_HEIGHT / MAX_ROAD_GRADE + STEP * 2) / 256) * 256',
+      'Math.ceil(Math.max(MAX_ROAD_HEIGHT / MAX_ROAD_GRADE + STEP * 2, APPROACH_REACH) / 256) * 256');
     replace('return profiles.get(road.id) ?? baseProfile(env, road);',
       'return approachProfile(env, road, profiles.get(road.id) ?? baseProfile(env, road));');
   } else if (rel === 'world/assets/foundations.js') {

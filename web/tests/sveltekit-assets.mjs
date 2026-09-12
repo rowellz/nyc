@@ -8,9 +8,11 @@ import { tunnelAssetTransform } from '../src/lib/server/tunnel-assets.js';
 const directory = mkdtempSync(`${tmpdir()}/nyc-sveltekit-assets-`);
 export const assets = pathToFileURL(`${directory}/`);
 const original = new URL('../../public/world/assets/', import.meta.url);
-for (const name of readdirSync(original).filter(name => name.endsWith('.js'))) {
-  const source = name === 'tunnels.js'
-    ? readFileSync(new URL('../static/world/assets/tunnels.js', import.meta.url), 'utf8')
+const overrides = new URL('../static/world/assets/', import.meta.url);
+const local = new Set(readdirSync(overrides));
+for (const name of new Set([...readdirSync(original), ...local].filter(name => name.endsWith('.js')))) {
+  const source = local.has(name)
+    ? readFileSync(new URL(name, overrides), 'utf8')
     : tunnelAssetTransform(`world/assets/${name}`, readFileSync(new URL(name, original), 'utf8'));
   writeFileSync(new URL(name, assets), source);
 }
