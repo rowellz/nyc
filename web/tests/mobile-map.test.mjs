@@ -62,6 +62,7 @@ for (const touch of [false, true]) {
   check(button.getAttribute('aria-expanded') === 'false' && !bubbled, 'collapse announces state without passing the click to the game');
   bars.textContent = '75 HP';
   slider.value = '40';
+  slider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   dom.runIntervals();
   check(content.hidden, 'admin refresh does not reopen the HUD');
   button.click();
@@ -91,30 +92,43 @@ console.log('\n=== admin traffic density ===');
   const control = document.querySelector('.traffic-density');
   const slider = control.querySelector('input');
   check(control.hidden === false, 'traffic slider is visible to admins');
-  check(slider.value === '100', 'slider starts at full admin density');
-  check(dom.window.__game.ctx.quality.maxTraffic === 400, '100% raises the mobile traffic ceiling to 400 cars');
+  check(slider.value === '20', 'slider starts at the device budget');
+  check(slider.max === '400' && dom.window.__game.ctx.quality.maxTraffic === 20, 'admin ceiling is available without automatically increasing traffic');
   slider.value = '40';
   slider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-  check(dom.window.__game.ctx.quality.maxTraffic === 160, 'slider scales the enhanced traffic cap');
-  check(control.querySelector('output').textContent === '40%', 'selected density is shown');
+  check(dom.window.__game.ctx.quality.maxTraffic === 40, 'admins explicitly choose an increased traffic budget');
+  check(control.querySelector('output').textContent === '40 cars', 'selected car budget is shown');
 
   dom.window.__game.ctx.state.admin = false;
   dom.runIntervals();
-  check(control.hidden === true, 'control hides when admin access is removed');
+  check(control.hidden === false && slider.max === '20', 'control keeps the standard range on admin logout');
   check(dom.window.__game.ctx.quality.maxTraffic === 20, 'normal traffic budget is restored on admin logout');
   dom.window.close();
 }
 {
   const dom = boot({ admin: true, cap: 480 });
-  check(dom.window.__game.ctx.quality.maxTraffic === 480, '100% never lowers a device with a larger native budget');
+  check(dom.window.__game.ctx.quality.maxTraffic === 480, 'the control preserves a larger native traffic budget');
   dom.window.close();
 }
 {
-  const dom = boot({ admin: false });
-  check(dom.window.document.querySelector('.traffic-density').hidden, 'non-admin players never see the slider');
+  const dom = boot({ admin: false, cap: 6 });
+  const control = dom.window.document.querySelector('.traffic-density');
+  const slider = control.querySelector('input');
+  check(!control.hidden, 'non-admin players on port 3000 see the slider');
+  check(slider.value === '6' && slider.max === '6', 'iPhone retains its six-car default');
+  slider.value = '2';
+  slider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  check(dom.window.__game.ctx.quality.maxTraffic === 2, 'regular players can lower traffic density');
   dom.window.__game.ctx.state.admin = true;
   dom.runIntervals();
-  check(!dom.window.document.querySelector('.traffic-density').hidden, 'control appears when asynchronous admin state arrives');
+  check(slider.max === '400' && slider.value === '2', 'admin status expands the range without changing the selection');
+  dom.window.__game.ctx.state.admin = false;
+  dom.runIntervals();
+  check(slider.max === '6' && slider.value === '2', 'lower user selection survives admin logout');
+  slider.value = '0';
+  slider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  dom.runIntervals();
+  check(dom.window.__game.ctx.quality.maxTraffic === 0, 'zero traffic remains zero after refresh');
   dom.window.close();
 }
 

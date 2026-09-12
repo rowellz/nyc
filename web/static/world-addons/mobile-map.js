@@ -1,6 +1,6 @@
 /**
  * Anchors a collapsible play-mode HUD upper-left, makes its mobile minimap collapsible, and
- * puts a live traffic-density slider beside it for admins.
+ * puts a live traffic-density slider beside it, with a higher ceiling for admins.
  *
  * The mirrored client already shrinks its map for touch, but its status chips
  * come first in DOM order and there is no way to reclaim that part of the
@@ -139,59 +139,51 @@
     control.className = 'traffic-density ia';
     control.hidden = true;
     var label = document.createElement('label');
-    label.htmlFor = 'admin-traffic-density';
+    label.htmlFor = 'traffic-density';
     label.innerHTML = '<span>Traffic density</span>';
     var value = document.createElement('output');
-    value.htmlFor = 'admin-traffic-density';
-    value.textContent = '100%';
+    value.htmlFor = 'traffic-density';
+    value.textContent = '';
     label.appendChild(value);
     var slider = document.createElement('input');
-    slider.id = 'admin-traffic-density';
+    slider.id = 'traffic-density';
     slider.type = 'range';
     slider.min = '0';
-    slider.max = '100';
-    slider.step = '10';
-    slider.value = '100';
+    slider.step = '1';
     slider.setAttribute('aria-label', 'Traffic density');
     control.append(label, slider);
     slot.insertAdjacentElement('afterend', control);
 
     var baseCap = null;
-    var adminCap = null;
-    var wasAdmin = false;
     function context() {
       return window.__game && window.__game.ctx;
     }
-    function syncAdmin() {
+    function syncTraffic() {
       var ctx = context();
       var admin = !!(ctx && ctx.state && ctx.state.admin);
-      control.hidden = !admin;
-      if (!ctx || !ctx.quality) return;
-      if (admin && baseCap === null) {
+      control.hidden = !ctx || !ctx.quality;
+      if (control.hidden) return;
+      if (baseCap === null) {
         baseCap = Math.max(0, Math.round(ctx.quality.maxTraffic));
-        adminCap = Math.max(ADMIN_TRAFFIC_CAP, baseCap);
       }
-      if (admin && !wasAdmin && adminCap !== null) {
-        slider.value = '100';
-        value.textContent = '100%';
-        ctx.quality.maxTraffic = adminCap;
-      }
-      if (!admin && wasAdmin && baseCap !== null) {
-        ctx.quality.maxTraffic = baseCap;
-        slider.value = '100';
-        value.textContent = '100%';
-      }
-      wasAdmin = admin;
+      var cap = admin ? Math.max(ADMIN_TRAFFIC_CAP, baseCap) : baseCap;
+      // Showing the control must never raise the device's traffic budget.
+      // iPhone starts at six cars; hundreds are an explicit admin choice.
+      var selected = Math.max(0, Math.min(cap, Math.round(ctx.quality.maxTraffic)));
+      ctx.quality.maxTraffic = selected;
+      slider.max = String(cap);
+      slider.value = String(selected);
+      value.textContent = selected + ' cars';
     }
     slider.addEventListener('input', function () {
       var ctx = context();
-      if (!ctx || !ctx.state.admin || !ctx.quality || adminCap === null) return;
-      var percent = Math.max(0, Math.min(100, Number(slider.value)));
-      ctx.quality.maxTraffic = Math.round(adminCap * percent / 100);
-      value.textContent = percent + '%';
+      if (!ctx || !ctx.quality || baseCap === null) return;
+      var cap = ctx.state && ctx.state.admin ? Math.max(ADMIN_TRAFFIC_CAP, baseCap) : baseCap;
+      ctx.quality.maxTraffic = Math.max(0, Math.min(cap, Math.round(Number(slider.value))));
+      syncTraffic();
     });
-    syncAdmin();
-    window.setInterval(syncAdmin, 500);
+    syncTraffic();
+    window.setInterval(syncTraffic, 500);
     return true;
   }
 

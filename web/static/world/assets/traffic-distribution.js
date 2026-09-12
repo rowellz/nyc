@@ -59,6 +59,9 @@ export function trafficKind(group, random) {
 }
 
 export function spawnTraffic(traffic, obstacles, deps) {
+  // A full fleet needs no spawn candidates. Dense motorway networks otherwise
+  // get clipped and weighted four times per second without adding a single car.
+  if (traffic.cars.length >= traffic.ctx.quality.maxTraffic) return;
   const { lanePoint, hash01, KINDS, ground, trafficHeight, makeCar } = deps;
   const ctx = traffic.ctx, focus = ctx.state.screenshotMode ? ctx.camera.position : ctx.state.local.state;
   const radius = trafficRadius(ctx), candidates = [], groups = new Map();

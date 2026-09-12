@@ -191,9 +191,10 @@ tapping again restores it. The whole map, vitals, and location stack is pinned
 to the safe upper-left corner on desktop and mobile; the desktop notification
 feed sits in the lower-left corner. A `HUD −` button on desktop and mobile
 collapses the whole stack to a `HUD +` button; expanding restores its contents.
-Admins also get a live traffic-density slider
-beside the map, scaled from zero to a 400-car ceiling (or the device's native
-budget when that is higher); it is hidden from everyone else. `?mobilemap=1`
+Everyone gets a live traffic-density slider beside the map, from zero to their
+device's native budget. Admins can explicitly raise it to 400 cars (or the native
+budget when higher). Showing the control preserves the selected count, including
+the iPhone default of six cars. `?mobilemap=1`
 exposes the map control on desktop for testing, while `?mobilemap=0` disables
 the addon.
 
@@ -205,6 +206,99 @@ views favor roads ahead without excluding the surrounding network. Vehicle mixes
 vary by road type, with fewer taxis and more passenger and delivery vehicles on
 highways. The rendering pools allow more simultaneous cars, including distant
 models on iOS. Run `cd web && npm run test:traffic` for the Cross Bronx replay.
+
+The SvelteKit streaming transform in `streaming-assets.js` installs
+`predictive-streaming.js` before the first tile request. All quality presets now load tiles
+within a **1,500 m radius** of the player/free camera. Distance is measured to tile
+edges, so tiles intersecting the radius are included. The iOS quality override
+also uses 1,500 m; its fog now fades from 1,200 to 2,100 m instead of disappearing
+completely at 700 m. The existing camera far plane already exceeds these ranges.
+Mobile keeps the simplified roads and existing device-specific effects budgets.
+
+iOS allows up to **192 resident tiles** to accommodate the 1.5 km circle, one
+additional route tile and three recently used tiles. `IOS_STREAMING` in
+`predictive-streaming.js` holds its resident and request limits. The larger area
+requires more memory and scene work. The immediate surrounding nine tiles take
+priority over farther work; startup waits for only those nine before expanding.
+iOS looks up to 256 m beyond the radius in the travel direction; Android retains
+three forward slots and its longer search window. Desktop looks up to 512 m beyond
+the draw distance. Camera facing supplies the direction when stationary. These
+windows are search limits, not promises to build every tile within them.
+
+Street workers, queued mobile building workers and terrain/building commits use
+the shared tile priority, with regular FIFO turns to finish older background work.
+Recent tiles survive brief turns for up to six seconds. Mobile retires at most
+one tile per frame, separately from publishing new tiles. iOS overlaps four tile
+requests on its existing decoder; Android retains two. Decoded replies waiting
+for scene publication count against those request limits. Mobile still commits
+at most one tile per frame. Obsolete replies release their slots even while
+scene building is backed up. On iOS, an already-decoded missing occupied tile can
+pass the busy-job gate; neighboring tiles still wait for builders to catch up.
+When memory permits, that occupied tile also precedes further scene retirement.
+
+Run `cd web && npm run test:streaming` for the served quality/fog settings, 1.5 km
+coverage, actual GWB upper-level road data, nearby priority, blocked builders,
+turns, teleports, retries and memory bounds. These simulations check scheduling
+and data availability; they do not measure Safari frame rates or real device
+scene-construction latency.
+
+Mobile roads use plain gray shades in
+`web/static/world/assets/mobile-road-material.js`: darker asphalt, lighter
+concrete, and medium-gray cobblestone, with subtle variation between roads.
+This material removes surface texture sampling, cracks, tire wear, normal maps
+and animated puddles; ordinary lighting, fog, lane markings and geometry remain.
+Mobile skips downloading, generating and uploading the unused asphalt and
+cobblestone maps. Desktop retains its detailed road material.
+
+Other mobile street performance settings are tuned in
+`web/static/world/assets/mobile-build-policy.js` (`MOBILE_STREET_BUDGET`). Surface
+maps are capped at 128 px, procedural noise at 64 px, and the lane-paint/decal
+atlas at 512 px, with 2× anisotropy and mipmaps retained. The worker and no-worker
+texture paths share this limit; building textures keep their existing budget.
+The procedural generator now recognizes `mobile`, which previously selected
+1024 px maps. Mobile also uses the drawn manhole decal without fetching its two
+photographs. Maps load once per street module, so this reduces startup work,
+uploads and resident texture memory, rather than per-tile network traffic.
+`mobile-performance-assets.js` applies these hooks to the served chunks.
+
+The shared scene commit queue gives mobile road jobs three generator steps per
+background step, choosing road tiles with the streamer's travel priority. Its
+3 ms deadline, one-texture-upload limit, cancellation and shader-compilation
+waits remain in force. Buildings still receive a share while roads are busy.
+Street worker dispatch also combines invalidations within 100 ms (waiting at
+most 400 ms during continuous arrivals) and prevents two workers from rebuilding
+different revisions of the same tile concurrently. Existing geometry stays in
+place until its replacement is ready. These timings live beside the texture
+settings in `MOBILE_STREET_BUDGET`.
+The mobile pedestrian startup grace period uses four seconds of wall time;
+slow frames no longer stretch that wait and delay the HUD. Crowd spawning keeps
+running after the startup gate is released.
+Mobile parking refreshes keep lane references and highway paths intact, update
+only parking inside the 80 m window, and reuse cars that remain in that window.
+`mobile-props.js` moves lamp-clearance geometry to `mobile-props.worker.js`,
+caches placements across camera movement, and stages terrain queries and buffer
+updates through the shared scene queue. Rounded instance capacity avoids
+reallocating meshes when a kind gains or loses a single prop. Run
+`cd web && npm run test:movement` for parking identity, worker placement,
+per-frame work, cancellation and instance reuse checks.
+Run `cd web && npm run test:textures` for texture dimensions, a dense-building
+queue replay, cancellation, upload limits and static-serving checks.
+
+For remaining iPhone stalls, record an actual device through
+[Safari remote Web Inspector](https://webkit.org/web-inspector/enabling-web-inspector/)
+and inspect the [Timelines tab](https://webkit.org/web-inspector/timelines-tab/):
+compare network completion with JavaScript/worker work and long rendering frames.
+The iOS preset already disables shadows, SSAO, bloom and reflections. Texture
+dimensions, shader cost, geometry generation and scene commits are the next
+useful areas to measure; a desktop replay does not establish iPhone frame time.
+
+Port 3000 serves the production image, so changes require
+`docker compose up -d --build web`. Port 5173 uses the source bind mounts.
+The regular traffic control works with `ADMIN=0`; enabling admin mode is not
+required to lower density, and the control never increases traffic on its own.
+The served HTML and module/worker imports carry the revision from
+`web/src/lib/server/client-cache.js`, bypassing older immutable copies of the
+mirror's unchanged hashed filenames. A normal page reload picks up this release.
 
 **`look-stick.js` gives touch devices a thumbstick for the camera**, in both of
 the client's modes.

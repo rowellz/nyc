@@ -19,6 +19,10 @@ const scope = { $spawnTraffic:spawnTraffic, $trafficRadius:trafficRadius, lanePo
   ground:()=>0, trafficHeight:(_w,r)=>r.layer*6, makeCar:(key,kind,x,y,z,yaw)=>({key,kind,x,y,z,yaw,speed:0,spin:0}),
   removeBody:()=>{},createObstacle:()=>{},poseMatrix:()=>{},distance2,
   isAvenue:r=>/avenue/i.test(r.name??''),tunnelConnections:()=>[] };
+for (const cap of [0, 6, 400]) {
+  spawnTraffic({ ctx: { quality: { maxTraffic: cap } }, cars: Array(cap),
+    get roads() { throw Error('full fleets must not traverse the lane network'); } }, [], {});
+}
 const Traffic = vm.runInNewContext(bundle.slice(start,end)+'\nTraffic',scope);
 const lanes = new Map();
 for (const [cls, z, layer] of [['motorway',-140,0],['primary',-60,1],['residential',80,0]]) {
