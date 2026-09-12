@@ -16,8 +16,8 @@
  * setTouchMove() are both no-ops; ui/index.ts never un-hides the touch overlay;
  * the free camera looks by *mouse* drag (mousedown/mousemove on the canvas, so a
  * touch drag never reaches it) and moves by reading `input.keys` directly. So in
- * camera mode this puts up its own overlay with both sticks and drives those two
- * paths: the left stick sets WASD in `input.keys`, and the right stick
+ * camera mode this puts up its own overlay with both sticks and height buttons:
+ * the left stick sets WASD in `input.keys`, Up/Down set E/Q, and the right stick
  * synthesises the mouse drag the free camera is listening for.
  *
  * Rates come from the client, not from taste. core/input.ts drives the gamepad's
@@ -76,6 +76,10 @@
     '.ls-stick.ls-look{right:22px}',
     '.ls-knob{position:absolute;left:36px;top:36px;width:40px;height:40px;border-radius:50%;',
     'background:#ffffffaa;pointer-events:none}',
+    '.ls-height{position:absolute;left:50%;bottom:max(25px,env(safe-area-inset-bottom));',
+    'display:flex;gap:10px;transform:translateX(-50%);pointer-events:auto}',
+    '.ls-height button{width:58px;height:46px;border:1px solid #ffffff77;border-radius:14px;',
+    'background:#11202ecc;color:white;font:600 11px system-ui;touch-action:none}',
     '#touch-controls .actions{bottom:calc(max(24px,env(safe-area-inset-bottom)) + 128px)}',
     // Keep the drag-to-look zone clear of the stick on short (landscape) screens.
     '#touch-controls .look{height:min(56%,calc(82% - 149px))}',
@@ -84,6 +88,7 @@
     '.ls-stick.ls-move{left:16px}',
     '.ls-stick.ls-look{right:16px}',
     '.ls-knob{left:28px;top:28px}',
+    '.ls-height button{width:52px;height:40px}',
     '#touch-controls .actions{bottom:calc(max(20px,env(safe-area-inset-bottom)) + 108px)}}',
   ].join('');
 
@@ -93,6 +98,7 @@
   var input = null;
   var move = { x: 0, y: 0 };   // camera mode only
   var look = { x: 0, y: 0 };
+  var height = { up: false, down: false };
   var held = [];               // key codes we are holding down in input.keys
   var drag = null;             // synthetic mouse cursor driving the free camera
 
@@ -151,6 +157,39 @@
     host.appendChild(el);
   }
 
+  function makeHeightControls(host) {
+    var controls = document.createElement('div');
+    controls.className = 'ls-height';
+    function add(label, direction) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.setAttribute('aria-label', label + ' camera');
+      controls.appendChild(button);
+      var pointerId = null;
+      function release(e) {
+        if (e && e.pointerId !== pointerId) return;
+        pointerId = null;
+        height[direction] = false;
+      }
+      button.addEventListener('pointerdown', function (e) {
+        if (pointerId !== null) return;
+        e.preventDefault();
+        pointerId = e.pointerId;
+        if (button.setPointerCapture) button.setPointerCapture(pointerId);
+        height[direction] = true;
+      });
+      ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (type) {
+        button.addEventListener(type, release);
+      });
+      window.addEventListener('blur', function () { release(); });
+    }
+    add('Down', 'down');
+    add('Up', 'up');
+    host.appendChild(controls);
+    return controls;
+  }
+
   /** Play mode: one extra stick inside the client's own overlay. */
   function installPlay(container) {
     // TouchControls.update() only ever un-hides its overlay for real touch
@@ -193,6 +232,7 @@
       drag = null;
       window.dispatchEvent(new MouseEvent('mouseup', { button: 0, bubbles: true }));
     });
+    makeHeightControls(overlay);
     return overlay;
   }
 
@@ -208,6 +248,8 @@
     else if (-move.y < -MOVE_THRESHOLD) want.push('KeyS');
     if (move.x > MOVE_THRESHOLD) want.push('KeyD');
     else if (move.x < -MOVE_THRESHOLD) want.push('KeyA');
+    if (height.up && !height.down) want.push('KeyE');
+    else if (height.down && !height.up) want.push('KeyQ');
     // An analog stick against binary keys: lean all the way to go fast.
     if (want.length && Math.sqrt(move.x * move.x + move.y * move.y) > FAST_THRESHOLD) want.push('ShiftLeft');
 

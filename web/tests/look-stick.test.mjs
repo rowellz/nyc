@@ -161,6 +161,7 @@ console.log('\n=== camera mode (?spot=): the client disables input entirely ==='
   check(overlay !== null, 'it puts up its own overlay, not the client’s hidden one');
   check(container.hidden === true, 'and leaves the client’s overlay hidden');
   check(!!stick && !!moveStick, 'with both sticks: move and look');
+  check(overlay.querySelectorAll('.ls-height button').length === 2, 'with explicit camera up/down controls');
 }
 
 console.log('\n--- left stick -> input.keys, which the free camera reads directly ---');
@@ -186,6 +187,27 @@ console.log('\n--- left stick -> input.keys, which the free camera reads directl
   fireMove('pointerup', 158 - 30, 158);
   step(0.05);
   check(keys.size === 0, 'releasing lets every key go');
+}
+
+console.log('\n--- height buttons -> camera elevation keys ---');
+{
+  const { w, overlay, keys, step } = boot({ search: '?spot=times-square' });
+  const [down, up] = overlay.querySelectorAll('.ls-height button');
+  const fireButton = (button, type, pointerId) => {
+    const e = new w.Event(type, { bubbles: true, cancelable: true });
+    Object.assign(e, { pointerId });
+    button.dispatchEvent(e);
+  };
+  fireButton(down, 'pointerdown', 3);
+  step(0.05);
+  check(keys.has('KeyQ'), 'Down holds the free camera descend key');
+  fireButton(down, 'pointerup', 3);
+  fireButton(up, 'pointerdown', 4);
+  step(0.05);
+  check(keys.has('KeyE') && !keys.has('KeyQ'), 'Up holds the free camera rise key');
+  fireButton(up, 'pointerup', 4);
+  step(0.05);
+  check(keys.size === 0, 'releasing a height button stops vertical movement');
 }
 
 console.log('\n--- right stick -> the mouse drag the free camera listens for ---');

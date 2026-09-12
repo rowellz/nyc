@@ -21,6 +21,9 @@ const DEV_TAGS = DEV ? '<script type="module" src="/@vite/client"></script>' : '
 /** Addon scripts per page, relative to PUBLIC_DIR. Injected in order. */
 export const ADDONS = {
   'world/index.html': [
+    // Stops rapid thumbstick touches from becoming Safari double-tap or pinch
+    // zoom gestures. The game controls use Pointer Events for their actions.
+    '/world-addons/touch-zoom.js',
     // A right-hand camera stick for touch devices, in both of the client's
     // modes; upstream ships only a movement stick and a drag-to-look zone.
     '/world-addons/look-stick.js',

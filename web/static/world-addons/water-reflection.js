@@ -33,7 +33,8 @@
  *                         the glitter follows ?water
  *
  * Once running, `__water.scale` and `__water.glitter` retune both live, with no
- * recompile.
+ * recompile. Camera mode also hides the plane while the camera is below it, so
+ * underground roads remain visible during inspection; normal play is unchanged.
  */
 (function () {
   'use strict';
@@ -56,12 +57,14 @@
   }
 
   var params = new URLSearchParams(location.search);
+  var cameraMode = params.has('spot') || params.has('fly');
   var scale = clamp01(parseFloat(params.get('water')), DEFAULT_SCALE);
   // The sun lobes follow the main scale unless given their own: asking for a
   // dull river usually means dulling the glitter with it, but wanting the
   // sparkle back over dead-flat water is the one exception worth a knob.
   var glitter = clamp01(parseFloat(params.get('waterglitter')), scale);
-  if (scale === 1 && glitter === 1) return;   // upstream: touch nothing at all
+  var reflectionsUntouched = scale === 1 && glitter === 1;
+  if (reflectionsUntouched && !cameraMode) return;
 
   // Uniform objects are reused across recompiles, so changing `.value` retunes
   // the shader on the next frame without rebuilding the program.
@@ -87,6 +90,10 @@
 
     var mesh = scene.getObjectByName('env-water');
     var mat = mesh && mesh.material;
+    if (mesh && cameraMode && ctx.camera && Number.isFinite(ctx.camera.position?.y)) {
+      var waterLevel = Number.isFinite(mesh.position?.y) ? mesh.position.y : -1.6;
+      mesh.visible = ctx.camera.position.y >= waterLevel + 0.05;
+    }
     if (!mat || mat === material) return;
     material = mat;
 
@@ -95,6 +102,7 @@
       if (mat.userData.waterEnvBase === undefined) mat.userData.waterEnvBase = mat.envMapIntensity;
       if (mat.userData.waterSpecularBase === undefined) mat.userData.waterSpecularBase = mat.specularIntensity;
     }
+    if (reflectionsUntouched) return;
     applyMaterialTerms();
 
     mat.onBeforeCompile = function (shader) {
@@ -112,7 +120,7 @@
       shader.fragmentShader = patched;
     };
 
-    if (timer) { clearInterval(timer); timer = 0; }
+    if (timer && !cameraMode) { clearInterval(timer); timer = 0; }
   }
 
   window.__water = {
