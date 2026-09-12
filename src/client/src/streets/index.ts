@@ -1,3 +1,7 @@
+import { syncTunnelTerrain, tunnelSupport } from './tunnels.js';
+import { roadDeckHeight } from './supports.js';
+import { pedestrianTiles } from './pedestrian-clearance.js';
+import { ROAD_PROFILE_REACH } from './ramps.js';
 /** Streaming/lifetime glue for the streets builders. World geometry stays static between tile changes. */
 import * as THREE from 'three';
 import type { GameContext, GameModule } from '@/core/context';
@@ -20,6 +24,12 @@ export interface StreetsModule extends GameModule {
   surfaceAt(x: number, z: number): string | null;
   /** Highest street support: elevated roadway, 0.15 m sidewalk, curb-cut slope, or zero on road/ground. */
   deckHeight(x: number, z: number): number;
+  /** Ground-level pedestrian support, excluding elevated road decks. */
+  walkingHeight(x: number, z: number): number;
+  /** Actual ground-level path geometry; null while the tile is still building. */
+  walkableAt(x: number, z: number): boolean | null;
+  /** Height of the road a traffic lane belongs to, including under other decks. */
+  roadHeight(road: RoadSegment, x: number, z: number): number;
 }
 
 interface TileRecord {
@@ -65,12 +75,31 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
     return Math.max(deckHeightIn(rec.decks, x, z), rec.walkCollision
       ? walkHeightIn(rec.walkCollision, x, z, rec.tile.tx * TILE_SIZE, rec.tile.tz * TILE_SIZE) : 0);
   }
-  // Character safety clamps, pedestrian roots and vehicle placement all use this
-  // existing API. Preserve core land/water and landmark decks; own only this overlay.
+  function roadHeight(road: RoadSegment, x: number, z: number): number {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return 0;
+    const rec = tiles.get(tileKey(Math.floor(x / TILE_SIZE), Math.floor(z / TILE_SIZE)));
+    return rec ? roadDeckHeight(rec.decks, road.id, x, z) : 0;
+  }
+  // Preserve core land/water and landmark support. Ground-level crowds sample
+  // only the walking mesh; the general physics query also includes road decks.
   const baseGroundHeight = ctx.physics.groundHeight;
-  const groundHeight = (x: number, z: number) => {
+  function walkingHeight(x: number, z: number): number {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return 0;
+    const base = baseGroundHeight.call(ctx.physics, x, z);
+    const rec = tiles.get(tileKey(Math.floor(x / TILE_SIZE), Math.floor(z / TILE_SIZE)));
+    const walk = rec?.walkCollision
+      ? walkHeightIn(rec.walkCollision, x, z, rec.tile.tx * TILE_SIZE, rec.tile.tz * TILE_SIZE) : 0;
+    return walk > 0 ? Math.max(base, walk) : base;
+  }
+  function walkableAt(x: number, z: number): boolean | null {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return false;
+    const rec = tiles.get(tileKey(Math.floor(x / TILE_SIZE), Math.floor(z / TILE_SIZE)));
+    if (!rec?.walkCollision) return rec?.grid ? false : null;
+    return walkHeightIn(rec.walkCollision, x, z, rec.tile.tx * TILE_SIZE, rec.tile.tz * TILE_SIZE) > 0.001;
+  }
+  const groundHeight = (x: number, z: number, referenceY?: number) => {
     const base = baseGroundHeight.call(ctx.physics, x, z), street = deckHeight(x, z);
-    return street > 0 ? Math.max(base, street) : base;
+    return tunnelSupport(ctx.world, x, z, referenceY, street > 0 ? Math.max(base, street) : base);
   };
   ctx.physics.groundHeight = groundHeight;
   const dirty = new Set<TileRecord>();
@@ -187,7 +216,7 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
     for (const r of changed.roads) if (r.pts.length > 1) bounds.push(ringBBox(r.pts));
     for (const rec of tiles.values()) {
       const x = rec.tile.tx * TILE_SIZE, z = rec.tile.tz * TILE_SIZE;
-      if (!bounds.some(b => b.maxX >= x - 80 && b.minX <= x + TILE_SIZE + 80 && b.maxZ >= z - 80 && b.minZ <= z + TILE_SIZE + 80)) continue;
+      if (!bounds.some(b => b.maxX >= x - ROAD_PROFILE_REACH && b.minX <= x + TILE_SIZE + ROAD_PROFILE_REACH && b.maxZ >= z - ROAD_PROFILE_REACH && b.minZ <= z + TILE_SIZE + ROAD_PROFILE_REACH)) continue;
       rec.revision++;
       rec.job?.cancel();
       if (worker) { rec.job = builds.job(`streets:${rec.tile.key}`); dirty.add(rec); }
@@ -214,7 +243,8 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
   function inputFor(rec: TileRecord): TileInput {
     const t = rec.tile;
     const roads = new Map<number, RoadSegment>();
-    for (const r of ctx.world.roadsNear((t.tx + 0.5) * TILE_SIZE, (t.tz + 0.5) * TILE_SIZE, TILE_SIZE / 2 + 80)) roads.set(r.id, r);
+    // Clearance can carry a climb through several short approach ways.
+    for (const r of ctx.world.roadsNear((t.tx + 0.5) * TILE_SIZE, (t.tz + 0.5) * TILE_SIZE, TILE_SIZE / 2 + ROAD_PROFILE_REACH)) roads.set(r.id, r);
     for (const r of t.roads) roads.set(r.id, r);
     // Bridge ramp decisions also need roads at endpoints outside this tile.
     for (const r of Array.from(roads.values())) if (r.bridge || r.tunnel) {
@@ -227,7 +257,8 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
       const other = ctx.world.tiles.get(tileKey(x, z));
       if (other) neighbors.push(other);
     }
-    return { tile: { ...t, crossings: crossingsInTile(t, neighbors) }, roads: Array.from(roads.values()), quality: ctx.quality };
+    return { tile: { ...t, crossings: crossingsInTile(t, neighbors) }, roads: Array.from(roads.values()),
+      pedestrianTiles: pedestrianTiles(ctx.world, t), quality: ctx.quality };
   }
 
   function pump(): void {
@@ -267,7 +298,9 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
         geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(x, y, z), radius);
         mesh.name = `${group.name}:${['road', 'walk', 'markings', 'structure'][i]}`;
         mesh.receiveShadow = true;
-        mesh.castShadow = i === 3 && ctx.quality.shadows;
+        // Bridge slabs, barriers and piers must not project motorway shadows
+        // onto the ground or other road decks beneath them.
+        mesh.castShadow = false;
         if (i === 2) mesh.renderOrder = 2;
         let warm = compiled.get(materials[i]);
         if (!warm) { warm = ctx.renderer.compileAsync(mesh, ctx.camera, ctx.scene); compiled.set(materials[i], warm); }
@@ -283,6 +316,7 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
       grid.metal = built.metal;
       rec.grid = grid;
       rec.decks = built.decks;
+      syncTunnelTerrain(ctx, rec.tile);
       yield;
       if (built.walkCollision.index.length) {
         while (ctx.physics.ready === false) yield;
@@ -335,6 +369,9 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
       return tiles.get(tileKey(Math.floor(x / TILE_SIZE), Math.floor(z / TILE_SIZE)))?.grid?.query(x, z) ?? null;
     },
     deckHeight,
+    walkingHeight,
+    walkableAt,
+    roadHeight,
     dispose() {
       builds.dispose();
       if (disposed) return;

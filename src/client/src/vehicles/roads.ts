@@ -1,4 +1,6 @@
 /** Shared road records are reference-counted: OSM polylines occur in multiple tiles. */
+import { highwayLanePath } from '../streets/lane-paths.js';
+import { isHighway, laneCount, laneWidth } from '../streets/lane-layout.js';
 import { isIOS } from '@/core/quality';
 import type { GameContext } from '@/core/context';
 import type { RoadSegment, Tile } from '@shared/world';
@@ -13,11 +15,13 @@ export interface Lane {
   dx: number; dz: number; length: number;
   start: string; end: string;
   speed: number;
+  segment?: number; offset?: number;
+  path?: { x: number; z: number; s: number }[];
 }
 
 const node = (x: number, z: number, layer: number) => `${Math.round(x * 2)},${Math.round(z * 2)},${layer}`;
 const roadKey = (r: RoadSegment) => `${r.id}:${r.pts.map(p => p.join(',')).join(';')}`;
-const driveable = (r: RoadSegment) => !r.tunnel && !['pedestrian', 'footway', 'cycleway', 'steps'].includes(r.cls);
+const driveable = (r: RoadSegment) => !['pedestrian', 'footway', 'cycleway', 'steps'].includes(r.cls);
 
 export const PARKING_INSET = 2.4; // car centre from curb, not from a through-lane centre
 const LANE_WIDTH = 3.3;
@@ -26,6 +30,11 @@ const PARKED_HALF_WIDTH = Math.max(...Object.values(KINDS).filter(s => s.parkedW
 
 /** Reserve parking before dividing a one-way carriageway, including odd lane counts. */
 export function laneOffsets(r: RoadSegment): number[] {
+  if (isHighway(r)) return Array.from({ length: laneCount(r) }, (_, i) => (i + .5 - laneCount(r) / 2) * laneWidth(r));
+  if (r.tunnel && r.oneway) {
+    const count = Math.max(1, r.lanes), width = Math.min(3.3, (r.width - 1) / count);
+    return Array.from({ length: count }, (_, i) => (i - (count - 1) / 2) * width);
+  }
   if (!r.oneway) return [Math.min(1.65, r.width / 4)];
   if (r.lanes < 3) return [r.lanes === 2 ? LANE_WIDTH / 2 : 0];
   const half = Math.max(0, r.width / 2 - PARKING_INSET - PARKED_HALF_WIDTH - TRAFFIC_HALF_WIDTH - 0.3);
@@ -65,7 +74,7 @@ export class Roads {
             const dx = (q[0] - p[0]) / length, dz = (q[1] - p[1]) / length;
             const offsets = laneOffsets(r);
             for (const offset of offsets) {
-              const lane: Lane = { key: `${key}:${i}:${sign}:${offset}`, road: r, ax: p[0] - dz * offset, az: p[1] + dx * offset,
+              const lane: Lane = { segment: i, offset, key: `${key}:${i}:${sign}:${offset}`, road: r, ax: p[0] - dz * offset, az: p[1] + dx * offset,
                 bx: q[0] - dz * offset, bz: q[1] + dx * offset, dx, dz, length,
                 start: node(p[0], p[1], r.layer), end: node(q[0], q[1], r.layer),
                 speed: Math.min(r.maxspeed ?? (r.cls === 'primary' ? 30 : 25), 35) * 0.44704 };
@@ -79,7 +88,7 @@ export class Roads {
         }
         this.refs.set(key, { count: 1, lanes });
       }
-      if (!['primary', 'secondary', 'tertiary', 'residential'].includes(r.cls) || r.bridge || r.width < 7) continue;
+      if (!['primary', 'secondary', 'tertiary', 'residential'].includes(r.cls) || r.bridge || r.tunnel || r.width < 7) continue;
       for (let i = 0; i < r.pts.length - 1; i++) {
         const a = r.pts[i], b = r.pts[i + 1];
         const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -131,6 +140,15 @@ export class Roads {
         }
       }
     }
+    this.refreshHighways();
+  }
+
+  private refreshHighways(): void {
+    const roads = [...this.refs.values()].map(ref => ref.lanes[0]?.road).filter(Boolean) as RoadSegment[];
+    for (const lane of this.lanes.values()) {
+      const path = highwayLanePath(lane.road, roads, lane.segment ?? 0, lane.offset ?? 0);
+      if (path) Object.assign(lane, path);
+    }
   }
 
   unload(key: string): void {
@@ -149,6 +167,7 @@ export class Roads {
       this.refs.delete(key);
     }
     this.tiles.delete(key);
+    this.refreshHighways();
   }
 
   dispose(): void { for (const key of this.tiles.keys()) this.unload(key); }

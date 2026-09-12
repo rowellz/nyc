@@ -87,7 +87,7 @@ export class Driving {
     this.staticLength = REST - sag;
     const mountY = spec.wheelRadius + this.staticLength - this.com;
     this.q.setFromAxisAngle(this.up.set(0, 1, 0), car.yaw);
-    const groundY = Math.max(car.y, ctx.physics.groundHeight(car.x, car.z));
+    const groundY = Math.max(car.y, ctx.physics.groundHeight(car.x, car.z, car.y));
     const L = spec.length, W = spec.width, H = spec.height * 0.82;
     this.inertia = { x: spec.mass / 12 * (H * H + L * L), y: spec.mass / 12 * (W * W + L * L) * 0.85, z: spec.mass / 12 * (W * W + H * H) };
     this.body = ctx.physics.world.createRigidBody(R.RigidBodyDesc.dynamic()

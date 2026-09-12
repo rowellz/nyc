@@ -2,9 +2,13 @@
  * Sidewalks, medians and plazas at y = 0.15 with granite curbs (0.12 m face + 3 cm bevel) on every edge that
  * borders a roadbed, pedestrian ramps (curb cuts with tactile pads) at crosswalk ends, yellow curb paint near
  * hydrants. Fallback ribbons when a tile has no planimetric sidewalks.
+ *
+ * All paving is trimmed to the carriageway (carriageway.js) and curbed where it was trimmed:
+ * planimetric sidewalk polygons overhang the curb, and a slab laid over the lanes buries the paint under it.
  */
 import type { Pt, Ring } from '@shared/world';
 import { GroundBuilder, type TileEnv } from './builders';
+import { carriagewayIndex } from './carriageway.js';
 import { GRID_DIR, STREET, clipConvex, clipPolylineToRect, dir4, edgeOnRect, hash2, indexPolygons, pointInAny, ringBBox, signedArea, subtractConvex, triangulate, yawToDir, type IndexedPolygon, type NearestSample } from './geom2d';
 import { KIND } from './materials';
 
@@ -41,6 +45,8 @@ export interface CurbEdge {
 export interface SidewalkResult {
   ramps: Ramp[];
   curbs: CurbEdge[];
+  /** the roadway the tile's paving was trimmed to, for anything paved after the sidewalks */
+  carriageway?: Carriageway;
 }
 
 type EdgeFlag = 0 | 1 | 2 | 3 | 4; // 0 none, 1 curb, 2 ramp return (a on the curb line), 3 ramp inner edge, 4 ramp return (b on the curb line)
@@ -51,12 +57,23 @@ interface RingState {
   sign: number; // +1 when outward = (dz, -dx)
 }
 
+/** the motor-traffic surface index from carriageway.js */
+interface Carriageway {
+  empty: boolean;
+  covers(x: number, z: number): boolean;
+  clip(ring: Pt[]): Pt[][] | null;
+}
+
 interface PolyState {
   rings: RingState[];
   kind: number;
   rand: number;
   /** paving that already owns this ground: triangles whose centroid falls inside are not emitted */
   under?: IndexedPolygon[];
+  /** roadway this paving may not cover: the slab is trimmed to it and curbed on the trim */
+  road?: Carriageway;
+  /** curb runs the trim created (filled by emitTop, emitted by emitCurbs) */
+  cuts?: CurbEdge[];
 }
 
 function outward(r: RingState, i: number): [number, number, number] {
@@ -66,7 +83,7 @@ function outward(r: RingState, i: number): [number, number, number] {
   return [(dz / len) * r.sign, (-dx / len) * r.sign, len];
 }
 
-function prepare(env: TileEnv, poly: Ring[], kind: number, rand: number, fallback = false, under?: IndexedPolygon[]): PolyState | null {
+function prepare(env: TileEnv, poly: Ring[], kind: number, rand: number, fallback = false, under?: IndexedPolygon[], road?: Carriageway): PolyState | null {
   const rings: RingState[] = [];
   for (let ri = 0; ri < poly.length; ri++) {
     const ring = poly[ri];
@@ -88,8 +105,12 @@ function prepare(env: TileEnv, poly: Ring[], kind: number, rand: number, fallbac
       if (!edgeOnRect(a, b, env.rect)) {
         const [ox, oz, len] = outward(st, i);
         if (len > 0.05) {
-          const mx = (a[0] + b[0]) / 2 + ox * 0.45, mz = (a[1] + b[1]) / 2 + oz * 0.45;
-          if (pointInAny(mx, mz, env.roadbeds, 0.1)) flag = 1;
+          const cx = (a[0] + b[0]) / 2, cz = (a[1] + b[1]) / 2;
+          const mx = cx + ox * 0.45, mz = cz + oz * 0.45;
+          // An edge with roadway on BOTH sides is the data overhanging the curb, not a curb: no stone and
+          // no pedestrian ramp there. What survives the trim is curbed on the trimmed edge instead.
+          if (road && road.covers(cx - ox * 0.3, cz - oz * 0.3)) flag = 0;
+          else if (pointInAny(mx, mz, env.roadbeds, 0.1)) flag = 1;
           else if (fallback) {
             const near = env.roadsS.nearest(mx, mz, 30);
             if (near && near.dist < near.seg.width / 2 && Math.abs((b[0] - a[0]) * near.dz - (b[1] - a[1]) * near.dx) < len * 0.05) flag = 1;
@@ -105,7 +126,7 @@ function prepare(env: TileEnv, poly: Ring[], kind: number, rand: number, fallbac
     }
     rings.push(st);
   }
-  return rings.length ? { rings, kind, rand, under } : null;
+  return rings.length ? { rings, kind, rand, under, road } : null;
 }
 
 /** insert pedestrian ramps (notches) at crosswalk ends: returns the ramps created */
@@ -189,25 +210,68 @@ function insertRamps(env: TileEnv, polys: PolyState[]): Ramp[] {
   return ramps;
 }
 
+/** does this trimmed edge run along an edge of the source polygon, which carries its own curb? */
+function onSourceEdge(p: PolyState, ax: number, az: number, bx: number, bz: number): boolean {
+  const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 1;
+  const ux = dx / len, uz = dz / len;
+  const cx = (ax + bx) / 2, cz = (az + bz) / 2;
+  for (const r of p.rings) {
+    const n = r.pts.length;
+    for (let i = 0; i < n; i++) {
+      const s = r.pts[i], e = r.pts[(i + 1) % n];
+      const ex = e[0] - s[0], ez = e[1] - s[1], el = Math.hypot(ex, ez);
+      if (el < 1e-6) continue;
+      if (Math.abs((ex / el) * uz - (ez / el) * ux) > 0.02) continue; // not parallel
+      const t = ((cx - s[0]) * ex + (cz - s[1]) * ez) / (el * el);
+      if (t < -0.02 || t > 1.02) continue;
+      if (Math.hypot(cx - s[0] - ex * t, cz - s[1] - ez * t) < 0.05) return true;
+    }
+  }
+  return false;
+}
+
+/** Curb the trimmed edge: the roadway is outside it and paving inside, and the source polygon has no edge there. */
+function cutCurbs(p: PolyState, part: Pt[]): void {
+  const road = p.road!;
+  const sign = signedArea(part) > 0 ? 1 : -1;
+  for (let i = 0; i < part.length; i++) {
+    const a = part[i], b = part[(i + 1) % part.length];
+    const dx = b[0] - a[0], dz = b[1] - a[1], len = Math.hypot(dx, dz);
+    if (len < 0.3) continue;
+    const nx = (dz / len) * sign, nz = (-dx / len) * sign;
+    const cx = (a[0] + b[0]) / 2, cz = (a[1] + b[1]) / 2;
+    if (!road.covers(cx + nx * 0.35, cz + nz * 0.35)) continue;
+    if (road.covers(cx - nx * 0.25, cz - nz * 0.25)) continue;
+    if (onSourceEdge(p, a[0], a[1], b[0], b[1])) continue;
+    (p.cuts ??= []).push({ ax: a[0], az: a[1], bx: b[0], bz: b[1], nx, nz });
+  }
+}
+
 function emitTop(env: TileEnv, gb: GroundBuilder, p: PolyState): void {
   const poly = p.rings.map((r) => r.pts);
   const tri = triangulate(poly);
   if (!tri) return;
-  const base = gb.vertexCount;
-  const n = tri.verts.length / 2;
   // A varying angle inside rot2(worldPosition, angle) stretches the grid:
   // small angle changes are amplified by distance from the world origin.
   // Keep one normalized, street-aligned frame over the whole polygon.
   const bb = ringBBox(poly[0]);
   const near = env.roadsS.nearest((bb.minX + bb.maxX) / 2, (bb.minZ + bb.maxZ) / 2, 70);
   const [c4, s4] = near ? dir4(near.dx, near.dz) : dir4(GRID_DIR[0], GRID_DIR[1]);
-  for (let i = 0; i < n; i++) {
-    const x = tri.verts[i * 2], z = tri.verts[i * 2 + 1];
-    // aA.y = signed offset from the nearest vehicular centreline, aA.z = its half-width, aB.w = 1 (a sidewalk top):
-    // the shader derives the distance to the curb for the grime band along the gutter side.
-    const nv = env.roadsV.nearest(x, z, 45, tmpNear);
-    gb.vertex(x, WALK_Y, z, 0, 1, 0, p.kind, nv ? nv.side : 0, nv ? nv.seg.width / 2 : 0, p.rand, c4, s4, 0, 1);
-  }
+  // aA.y = signed offset from the nearest vehicular centreline, aA.z = its half-width, aB.w = 1 (a sidewalk top):
+  // the shader derives the distance to the curb for the grime band along the gutter side.
+  // Every attribute here is a function of the position and the polygon, so trimmed pieces share their
+  // corners with the triangles they were cut from instead of duplicating the whole boundary.
+  const shared = new Map<string, number>();
+  const vertex = (x: number, z: number): number => {
+    const key = `${Math.fround(x)},${Math.fround(z)}`;
+    let v = shared.get(key);
+    if (v === undefined) {
+      const nv = env.roadsV.nearest(x, z, 45, tmpNear);
+      shared.set(key, (v = gb.vertex(x, WALK_Y, z, 0, 1, 0, p.kind, nv ? nv.side : 0, nv ? nv.seg.width / 2 : 0, p.rand, c4, s4, 0, 1)));
+    }
+    return v;
+  };
+  const corner = (i: number): number => vertex(tri.verts[i * 2], tri.verts[i * 2 + 1]);
   for (let i = 0; i < tri.tris.length; i += 3) {
     const a = tri.tris[i], b = tri.tris[i + 1], c = tri.tris[i + 2];
     if (p.under) {
@@ -215,7 +279,23 @@ function emitTop(env: TileEnv, gb: GroundBuilder, p: PolyState): void {
       const cz = (tri.verts[a * 2 + 1] + tri.verts[b * 2 + 1] + tri.verts[c * 2 + 1]) / 3;
       if (pointInAny(cx, cz, p.under)) continue;
     }
-    gb.tri(base + a, base + b, base + c);
+    const parts = p.road ? p.road.clip([a, b, c].map((v) => [tri.verts[v * 2], tri.verts[v * 2 + 1]] as Pt)) : null;
+    if (!parts) {
+      gb.tri(corner(a), corner(b), corner(c));
+      continue;
+    }
+    // Subtraction keeps the winding, so each piece still fans +y.
+    for (const part of parts) {
+      if (part.length < 3 || Math.abs(signedArea(part)) < 1e-4) continue;
+      const vs = part.map(([x, z]) => vertex(x, z));
+      for (let k = 1; k + 1 < vs.length; k++) {
+        // A trimmed corner can leave three collinear points: no triangle, and nothing to shade.
+        const o = part[0], u = part[k], w = part[k + 1];
+        if (Math.abs((u[0] - o[0]) * (w[1] - o[1]) - (w[0] - o[0]) * (u[1] - o[1])) < 1e-7) continue;
+        gb.tri(vs[0], vs[k], vs[k + 1]);
+      }
+      cutCurbs(p, part);
+    }
   }
 }
 
@@ -227,6 +307,55 @@ function nearHydrant(env: TileEnv, x: number, z: number, r: number): boolean {
   return false;
 }
 
+/**
+ * One curb run: granite face, bevel and top band, split every ~6 m so hydrant paint can vary along it.
+ * Pieces whose paving side is roadway are dropped — an edge can cross the curb line partway along.
+ */
+function curbEdge(env: TileEnv, gb: GroundBuilder, p: PolyState, out: SidewalkResult,
+  ax: number, az: number, bx: number, bz: number, ox: number, oz: number, along: number): void {
+  const len = Math.hypot(bx - ax, bz - az);
+  const pieces = Math.max(1, Math.ceil(len / 6));
+  const kept: boolean[] = [];
+  for (let k = 0; k < pieces; k++) {
+    const t = (k + 0.5) / pieces;
+    const mx = ax + (bx - ax) * t, mz = az + (bz - az) * t;
+    kept[k] = !p.road || !p.road.covers(mx - ox * 0.3, mz - oz * 0.3);
+  }
+  // Collide against the runs that survive, not the edge the data drew: a dropped piece is open roadway.
+  for (let k = 0; k < pieces;) {
+    if (!kept[k]) { k++; continue; }
+    let j = k;
+    while (j < pieces && kept[j]) j++;
+    const t0 = k / pieces, t1 = j / pieces;
+    out.curbs.push({ ax: ax + (bx - ax) * t0, az: az + (bz - az) * t0, bx: ax + (bx - ax) * t1, bz: az + (bz - az) * t1, nx: ox, nz: oz });
+    k = j;
+  }
+  for (let k = 0; k < pieces; k++) {
+    if (!kept[k]) continue;
+    const t0 = k / pieces, t1 = (k + 1) / pieces;
+    const px = ax + (bx - ax) * t0, pz = az + (bz - az) * t0;
+    const qx = ax + (bx - ax) * t1, qz = az + (bz - az) * t1;
+    const paint = nearHydrant(env, (px + qx) / 2, (pz + qz) / 2, 4.5) ? 1 : 0;
+    const a0 = along + len * t0, a1 = along + len * t1;
+    gb.wall(px, pz, qx, qz, 0, CURB_TOP, ox, 0, oz, KIND.curb, a0, a1, p.rand, paint, 0, ox, oz);
+    // bevel: from the face top inward 3 cm up to the sidewalk level
+    const bn = 0.7071;
+    gb.wall(px, pz, qx, qz, CURB_TOP, WALK_Y, ox * bn, bn, oz * bn, KIND.curb, a0, a1, p.rand, paint, 0.03, ox, oz);
+    // granite top: the curb stone shows ~15 cm of its top beside the flags (a lighter band with the stone joints)
+    // aA.y on the top band = inset from the curb line, so the shader can put the mortar line
+    // exactly where the stone butts the flags instead of guessing at it from world position.
+    const ty = WALK_Y + 0.004, ix = -ox, iz = -oz;
+    const v0 = gb.vertex(px + ix * 0.02, ty, pz + iz * 0.02, 0, 1, 0, KIND.curb, 0.02, a0, p.rand, ox, oz, paint, 0);
+    const v1 = gb.vertex(qx + ix * 0.02, ty, qz + iz * 0.02, 0, 1, 0, KIND.curb, 0.02, a1, p.rand, ox, oz, paint, 0);
+    const v2 = gb.vertex(qx + ix * CURB_W, ty, qz + iz * CURB_W, 0, 1, 0, KIND.curb, CURB_W, a1, p.rand, ox, oz, paint, 0);
+    const v3 = gb.vertex(px + ix * CURB_W, ty, pz + iz * CURB_W, 0, 1, 0, KIND.curb, CURB_W, a0, p.rand, ox, oz, paint, 0);
+    // +y winding: (v1 - v0) x (v3 - v0) in xz must point up
+    const ny = (qz - pz) * ix - (qx - px) * iz;
+    if (ny > 0) gb.quad(v0, v1, v2, v3);
+    else gb.quad(v0, v3, v2, v1);
+  }
+}
+
 function emitCurbs(env: TileEnv, gb: GroundBuilder, p: PolyState, out: SidewalkResult): void {
   for (const r of p.rings) {
     const n = r.pts.length;
@@ -236,32 +365,7 @@ function emitCurbs(env: TileEnv, gb: GroundBuilder, p: PolyState, out: SidewalkR
       const [ox, oz, len] = outward(r, i);
       const f = r.flags[i];
       if (f === 1) {
-        out.curbs.push({ ax: a[0], az: a[1], bx: b[0], bz: b[1], nx: ox, nz: oz });
-        // split long edges so hydrant paint can vary along them
-        const pieces = Math.max(1, Math.ceil(len / 6));
-        for (let k = 0; k < pieces; k++) {
-          const t0 = k / pieces, t1 = (k + 1) / pieces;
-          const ax = a[0] + (b[0] - a[0]) * t0, az = a[1] + (b[1] - a[1]) * t0;
-          const bx = a[0] + (b[0] - a[0]) * t1, bz = a[1] + (b[1] - a[1]) * t1;
-          const paint = nearHydrant(env, (ax + bx) / 2, (az + bz) / 2, 4.5) ? 1 : 0;
-          const a0 = along + len * t0, a1 = along + len * t1;
-          gb.wall(ax, az, bx, bz, 0, CURB_TOP, ox, 0, oz, KIND.curb, a0, a1, p.rand, paint, 0, ox, oz);
-          // bevel: from the face top inward 3 cm up to the sidewalk level
-          const bn = 0.7071;
-          gb.wall(ax, az, bx, bz, CURB_TOP, WALK_Y, ox * bn, bn, oz * bn, KIND.curb, a0, a1, p.rand, paint, 0.03, ox, oz);
-          // granite top: the curb stone shows ~15 cm of its top beside the flags (a lighter band with the stone joints)
-          // aA.y on the top band = inset from the curb line, so the shader can put the mortar line
-          // exactly where the stone butts the flags instead of guessing at it from world position.
-          const ty = WALK_Y + 0.004, ix = -ox, iz = -oz;
-          const v0 = gb.vertex(ax + ix * 0.02, ty, az + iz * 0.02, 0, 1, 0, KIND.curb, 0.02, a0, p.rand, ox, oz, paint, 0);
-          const v1 = gb.vertex(bx + ix * 0.02, ty, bz + iz * 0.02, 0, 1, 0, KIND.curb, 0.02, a1, p.rand, ox, oz, paint, 0);
-          const v2 = gb.vertex(bx + ix * CURB_W, ty, bz + iz * CURB_W, 0, 1, 0, KIND.curb, CURB_W, a1, p.rand, ox, oz, paint, 0);
-          const v3 = gb.vertex(ax + ix * CURB_W, ty, az + iz * CURB_W, 0, 1, 0, KIND.curb, CURB_W, a0, p.rand, ox, oz, paint, 0);
-          // +y winding: (v1 - v0) x (v3 - v0) in xz must point up
-          const ny = (bz - az) * ix - (bx - ax) * iz;
-          if (ny > 0) gb.quad(v0, v1, v2, v3);
-          else gb.quad(v0, v3, v2, v1);
-        }
+        curbEdge(env, gb, p, out, a[0], a[1], b[0], b[1], ox, oz, along);
       } else if (f === 2 || f === 4) {
         // ramp return: a wedge from sidewalk level down to the ramp surface (the ramp rises inward).
         // The notch (ramp) lies on the outward side of this boundary edge, so the wall faces `outward`.
@@ -279,6 +383,10 @@ function emitCurbs(env: TileEnv, gb: GroundBuilder, p: PolyState, out: SidewalkR
       }
       along += len;
     }
+  }
+  // The trimmed edge of a slab that overhung the curb: a curb of its own, where the roadway actually starts.
+  for (const c of p.cuts ?? []) {
+    curbEdge(env, gb, p, out, c.ax, c.az, c.bx, c.bz, c.nx, c.nz, hash2(p.rand, c.ax) * 30);
   }
 }
 
@@ -321,7 +429,7 @@ function emitRamp(env: TileEnv, gb: GroundBuilder, rp: Ramp, rand: number): void
 }
 
 /** Derive sidewalks without paving over buildings, intersections, parks or plazas. */
-function fallbackRibbons(env: TileEnv): PolyState[] {
+function fallbackRibbons(env: TileEnv, road?: Carriageway): PolyState[] {
   const obstacles = [...env.tile.buildings.map(b => b.footprint), ...env.tile.water,
     ...env.tile.parks, ...env.tile.plazas, ...env.tile.medians, ...env.tile.parking, ...env.tile.roadbeds];
   // Road envelopes are needed even when planimetric roadbeds are absent.
@@ -375,7 +483,7 @@ function fallbackRibbons(env: TileEnv): PolyState[] {
             if (!parts.length) break;
           }
           for (const part of parts) {
-            const poly = prepare(env, [part], KIND.flags, hash2(r.id, side), true);
+            const poly = prepare(env, [part], KIND.flags, hash2(r.id, side), true, undefined, road);
             if (!poly) continue;
             result.push(poly);
             // Two street envelopes share sidewalk corners. Own each patch once
@@ -396,29 +504,33 @@ export function* buildSidewalks(env: TileEnv, gb: GroundBuilder, out: SidewalkRe
   const { tile } = env;
   const polys: PolyState[] = [];
   let k = 0;
+  // Median data can also cross live lanes. Real traffic islands remain in roadbed holes.
+  const index = carriagewayIndex(tile, tile.roads, triangulate) as Carriageway;
+  const road = index.empty ? undefined : index;
+  out.carriageway = road;
   const add = (list: Ring[][], kind: number) => {
     for (const poly of list) {
-      const st = prepare(env, poly, kind, hash2(env.seed + 7, k++));
+      const st = prepare(env, poly, kind, hash2(env.seed + 7, k++), false, undefined, road);
       if (st) polys.push(st);
     }
   };
   add(tile.sidewalks, KIND.flags);
   // A median/plaza is not evidence that the tile has sidewalk coverage.
-  if (!polys.length) polys.push(...fallbackRibbons(env));
+  if (!polys.length) polys.push(...fallbackRibbons(env, road));
   // Planimetric plazas and medians routinely lie inside the block's sidewalk polygon: the NYPL frontage
   // at 5th and 42nd is paved twice over, flags and pavers coplanar at WALK_Y, and the pair fights for
   // every fragment, which is what turns the 1.52 m flag grid into a patchwork of half-joints. The
   // sidewalk layer is what the frontage photographs as (refs/_sheets/fifth-42nd 3, 4), so it owns the
   // overlap and the plaza keeps only the ground no sidewalk already claims.
   const paved = indexPolygons(tile.sidewalks);
-  const addOver = (list: Ring[][], kind: number) => {
+  const addOver = (list: Ring[][], kind: number, trim?: Carriageway) => {
     for (const poly of list) {
-      const st = prepare(env, poly, kind, hash2(env.seed + 7, k++), false, paved.length ? paved : undefined);
+      const st = prepare(env, poly, kind, hash2(env.seed + 7, k++), false, paved.length ? paved : undefined, trim);
       if (st) polys.push(st);
     }
   };
-  addOver(tile.medians, KIND.flags);
-  addOver(tile.plazas, KIND.pavers);
+  addOver(tile.medians, KIND.flags, road);
+  addOver(tile.plazas, KIND.pavers, road);
   if (!polys.length) return;
   yield;
   const ramps = insertRamps(env, polys);

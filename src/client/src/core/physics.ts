@@ -1,3 +1,4 @@
+import { cutGround } from '../streets/tunnels.js';
 /** Rapier fixed-step world. Streamed ground exists only on decoded land, with water polygons
  * subtracted. groundHeight uses the same water classification, so character safety clamps cannot
  * put an invisible floor back over rivers. Independent elevated decks still support bridges.
@@ -74,15 +75,17 @@ export class PhysicsWorldImpl implements PhysicsWorld {
     this.landIndex = index ? new Set(index.tiles) : null;
   }
 
-  loadLand(tile: Tile): void {
+  loadLand(tile: Tile, holes: number[][][] = []): void {
     this.unloadLand(tile.key);
     this.landTiles.set(tile.key, tile);
     this.buildingRevision++;
     let desc: RAPIER.ColliderDesc;
-    if (!tile.water.length) desc = RAPIER.ColliderDesc.cuboid(TILE_SIZE / 2, 1, TILE_SIZE / 2)
+    if (!tile.water.length && !holes.length) desc = RAPIER.ColliderDesc.cuboid(TILE_SIZE / 2, 1, TILE_SIZE / 2)
       .setTranslation((tile.tx + 0.5) * TILE_SIZE, -1, (tile.tz + 0.5) * TILE_SIZE);
     else {
-      const mesh = landMesh(tile);
+      let mesh = landMesh(tile);
+      const cut = cutGround({ position: { array: mesh.vertices, itemSize: 3 } }, mesh.indices, holes);
+      if (cut) mesh = { vertices: cut.attributes.position.array, indices: cut.index };
       if (!mesh.indices.length) return; // all water, no invisible support
       desc = RAPIER.ColliderDesc.trimesh(mesh.vertices, mesh.indices);
     }

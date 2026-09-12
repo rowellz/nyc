@@ -1,3 +1,4 @@
+import { streetLampPlacement } from '../streets/fixtures.js';
 /** Tile-owned instance records; geometry and materials are shared by the city-wide renderers. */
 import type { GameContext } from '@/core/context';
 import type { Building, Prop, RoadSegment, Tile } from '@shared/world';
@@ -210,8 +211,10 @@ export function* placeTileSteps(ctx: GameContext, tile: Tile, store: PropTile, a
     if (seen.has(key)) continue;
     seen.add(key);
     const seed = hash01(Math.round(p.x * 100), Math.round(p.z * 100));
-    let yaw = p.yaw, originX = p.x, originZ = p.z;
-    const ground = ctx.physics.groundHeight(p.x, p.z);
+    const placed = streetLampPlacement(ctx.world, tile, p);
+    if (!placed) continue;
+    let yaw = placed.yaw, originX = placed.x, originZ = placed.z;
+    const ground = ctx.physics.groundHeight(originX, originZ);
     const y = Number.isFinite(ground) ? ground : 0;
     const point = (x: number, z: number) => ({ x: originX + x * Math.cos(yaw) + z * Math.sin(yaw), z: originZ - x * Math.sin(yaw) + z * Math.cos(yaw) });
     const add = (kind: string, x = 0, h = 0, z = 0, rotation = yaw, data: Rect = [0, 0, 0, 0], scale = 1) => {
@@ -230,10 +233,10 @@ export function* placeTileSteps(ctx: GameContext, tile: Tile, store: PropTile, a
         add(seed < 0.5 ? 'lampLED' : 'lamp', 0, 0, 0, yaw, [seed < 0.5 ? 1 : 0, 0, 0, 0]);
         light(LAMP_HEAD_LOCAL.x, LAMP_HEAD_LOCAL.y, LAMP_HEAD_LOCAL.z, seed < 0.5 ? 1 : 0, 7, 9);
         if (seed < 0.3) add('regSign', 0, 2.2, 0.12, yaw, atlas.fixed(seed < 0.15 ? 'no-standing' : 'alt-side'));
-        if (seed > 0.9) add('muni', 2, 0, 0, yaw, atlas.fixed('muni'));
+        if (placed === p && seed > 0.9) add('muni', 2, 0, 0, yaw, atlas.fixed('muni'));
         // Parking regulation posts stand between the lamps on every block face (west-village 1, 3):
         // a third of the lamps get one 6 m down the curb on its own post, facing the roadway like the lamp.
-        if (seed >= 0.3 && seed < 0.62) {
+        if (placed === p && seed >= 0.3 && seed < 0.62) {
           const road = roadNear(tile.roads, p);
           if (road) {
             const c = Math.cos(yaw), s = Math.sin(yaw), ox = road.dx * 6, oz = road.dz * 6;

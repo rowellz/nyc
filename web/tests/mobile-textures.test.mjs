@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import { assets } from './sveltekit-assets.mjs';
+import { mobileTextureSize, streetTextureUrl } from '../static/world/assets/mobile-build-policy.js';
+
+const worker = fs.readFileSync(new URL('texture.worker-CaHoFbYF.js', assets), 'utf8').replace(/^import .*\n/gm, '');
+const transfer = fs.readFileSync(new URL('transfer-CN3_6JL-.js', assets), 'utf8');
+const quality = fs.readFileSync(new URL('quality-BuEwAkMy.js', assets), 'utf8');
+
+for (const [mobile, width, height, expected, street = false] of [
+  [true, 512, 512, [256, 256]],
+  [true, 512, 256, [256, 128]],
+  [true, 256, 512, [128, 256]],
+  [true, 128, 64, [128, 64]],
+  [false, 2048, 1024, [2048, 1024]],
+  [true, 512, 512, [128, 128], true],
+  [true, 512, 256, [128, 64], true],
+  [true, 64, 32, [64, 32], true],
+]) {
+  const url = `https://example.test/world/assets/${mobile ? 'textures-mobile' : 'textures'}/brick/color.jpg${street ? '?streetMobile=1' : ''}`;
+  let result, closed = 0;
+  const draws = [];
+  const bitmap = { width, height, close() { closed++; } };
+  class Canvas {
+    constructor(w, h) { this.width = w; this.height = h; }
+    getContext() {
+      return {
+        drawImage(...args) { draws.push(args.slice(1)); },
+        getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+      };
+    }
+  }
+  const context = vm.createContext({
+    URL, OffscreenCanvas: Canvas, $mobileTextureSize: mobileTextureSize,
+    fetch: async () => ({ ok: true, blob: async () => ({}) }),
+    createImageBitmap: async () => bitmap,
+    self: { postMessage: message => { result = message; } },
+  });
+  vm.runInContext(worker, context);
+  await context.self.onmessage({ data: { id: 1, url } });
+  assert.equal(result.error, undefined);
+  assert.deepEqual([result.width, result.height], expected);
+  assert.equal(result.data.byteLength, expected[0] * expected[1] * 4);
+  assert.deepEqual(draws[0], [0, 0, ...expected]);
+  assert.equal(closed, 1, 'worker releases the decoded bitmap');
+
+  // Exercise the shipped loader without Worker support, including mobile URL routing.
+  closed = 0;
+  let loadedUrl, resizeOptions;
+  const fallback = vm.createContext({
+    navigator: { userAgent: mobile ? 'Android' : 'Desktop', maxTouchPoints: 0 },
+    o: class {
+      setOptions() { return this; }
+      async loadAsync(value) { loadedUrl = value; return bitmap; }
+    },
+    a: class {
+      constructor(image) { this.image = image; }
+      addEventListener(type, callback) { this.dispose = callback; }
+    },
+    createImageBitmap: async (image, options) => {
+      resizeOptions = options;
+      return { width: options.resizeWidth, height: options.resizeHeight, close() { closed++; } };
+    },
+  });
+  const device = vm.createContext({ navigator: fallback.navigator });
+  vm.runInContext(quality.replace(/export\{[^}]+\};/, '') + '\nglobalThis.mobileUrl = r;', device);
+  // Use a separate context to avoid minified local names colliding between modules.
+  const loader = vm.createContext({ ...fallback, e: device.mobileUrl, $mobileTextureSize: mobileTextureSize });
+  vm.runInContext(transfer.replace(/^import .*\n/gm, '').replace(/import\{[^}]+\}from"[^"]+";/g, '').replace(/export\{[^}]+\};/, '').replaceAll('import.meta.url', JSON.stringify(assets.href)), loader);
+  const texture = await loader.f(url.replace('/textures-mobile/', '/textures/'));
+  assert.equal(loadedUrl, url);
+  assert.deepEqual([texture.image.width, texture.image.height], expected);
+  assert.equal(texture.flipY, false);
+  if (resizeOptions) assert.equal(resizeOptions.imageOrientation, 'none', 'do not flip twice');
+  texture.dispose();
+  assert.equal(closed, resizeOptions ? 2 : 1, 'fallback releases both bitmap allocations');
+}
+const roadUrl = '/world/assets/textures/asphalt/color.jpg?version=2#image';
+assert.equal(streetTextureUrl(roadUrl, false), roadUrl);
+assert.equal(streetTextureUrl(roadUrl, true), '/world/assets/textures-mobile/asphalt/color.jpg?version=2&streetMobile=1#image');
+console.log('Mobile texture worker and fallback checks passed.');

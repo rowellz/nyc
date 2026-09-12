@@ -1,3 +1,4 @@
+import { fixtureTiles } from '../streets/fixtures.js';
 import { basePath as __launchBasePath, mountedFetch as __launchFetch } from '@/core/basePath';
 import * as THREE from 'three';
 import type { GameContext, GameModule } from '@/core/context';
@@ -187,7 +188,7 @@ export async function createProps(ctx: GameContext): Promise<PropsModule> {
       finally { if (placementJobs.get(tile.key) === job) placementJobs.delete(tile.key); }
     })());
   }
-  const off = [ctx.events.on('tileLoaded', load), ctx.events.on('tileUnloaded', unload)];
+  const off = [ctx.events.on('tileLoaded', tile => { for (const affected of fixtureTiles(ctx.world, tile)) load(affected); }), ctx.events.on('tileUnloaded', unload)];
   for (const tile of ctx.world.tiles.values()) load(tile);
 
   // Optional CC0 surface detail; procedural color maps remain available if the manifest is absent.

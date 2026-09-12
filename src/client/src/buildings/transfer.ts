@@ -67,7 +67,18 @@ export function transfers(value: unknown, out = new Set<Transferable>()): Transf
 export async function bitmapTexture(url: string): Promise<THREE.Texture> {
   url = mobileTextureUrl(url);
   if (typeof Worker !== 'undefined') return decodePixels(url);
-  const bitmap = await new THREE.ImageBitmapLoader().setOptions({ imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' }).loadAsync(url);
+  let bitmap = await new THREE.ImageBitmapLoader().setOptions({ imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' }).loadAsync(url);
+  const scale = url.includes('/assets/textures-mobile/') ? Math.min(1, 256 / Math.max(bitmap.width, bitmap.height)) : 1;
+  if (scale < 1) {
+    const original = bitmap;
+    try {
+      bitmap = await createImageBitmap(original, {
+        resizeWidth: Math.max(1, Math.round(original.width * scale)),
+        resizeHeight: Math.max(1, Math.round(original.height * scale)),
+        resizeQuality: 'high', imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none',
+      });
+    } finally { original.close(); }
+  }
   const t = new THREE.Texture(bitmap);
   t.flipY = false;
   t.needsUpdate = true;

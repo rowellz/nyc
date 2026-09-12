@@ -344,6 +344,13 @@ export class PedManager {
 
   // ---- spawning ------------------------------------------------------------------------------------
 
+  private walkingHeight(x: number, z: number): number {
+    // buildLanes excludes bridges and tunnels. A road above this ground-level
+    // route is not its support, regardless of the pedestrian's cached height.
+    const streets = this.ctx.modules.get('streets') as { walkingHeight(x: number, z: number): number } | undefined;
+    return streets?.walkingHeight(x, z) ?? this.ctx.physics.groundHeight(x, z);
+  }
+
   private buildEgresses(t: Tile): Egress[] {
     // Subway geometry's open threshold is local -X, not the centre of its stairwell.
     const result: Egress[] = t.props.filter(p => p.kind === 'subway_entrance')
@@ -389,7 +396,7 @@ export class PedManager {
       if ((e.gate === undefined || e.gate > gate) && (e.x - x) ** 2 + (e.z - z) ** 2 < 0.65 ** 2) return true;
     }
     // Both torso and head must be hidden; neither a curb nor an overhead sign suffices.
-    const ground = this.ctx.physics.groundHeight(x, z);
+    const ground = this.walkingHeight(x, z);
     for (const height of [0.6, 1.9]) {
       this.spawnRay.set(x, ground + height, z).sub(this.camPos);
       const distance = this.spawnRay.length();
@@ -469,6 +476,8 @@ export class PedManager {
 
   private walkable(x: number, z: number, lane: Lane): boolean {
     if (this.isInsideBuilding(x, z)) return false;
+    const streets = this.ctx.modules.get('streets') as { walkableAt?(x: number, z: number): boolean | null } | undefined;
+    if (streets?.walkableAt) return streets.walkableAt(x, z) === true;
     const sw = this.onSidewalk(x, z);
     if (sw === false && !lane.path) return false;
     // Planimetric sidewalk polygons already exclude the road. SurfaceAt is the
@@ -517,7 +526,7 @@ export class PedManager {
       else if (hi > -Infinity) break; // never bridge a road/building hole in the corridor
     }
     const result = lo <= hi ? { lo, hi } : { lo: -1.4, hi: -1.4 };
-    lane.widths.set(key, result);
+    if (lo < hi) lane.widths.set(key, result);
     return result;
   }
 
@@ -538,6 +547,23 @@ export class PedManager {
     const local = this.ctx.state.local;
     return this.ctx.state.screenshotMode || local.vehicleKey !== null
       || Math.hypot(x - local.state.x, z - local.state.z) >= 0.9;
+  }
+
+  /** Reject little surviving islands, without joining across a road or unbuilt tile. */
+  private hasWalkingRoom(lane: Lane, s: number, lat: number): boolean {
+    const o = { x: 0, z: 0, dx: 0, dz: 0 };
+    let length = 0;
+    for (const dir of [-1, 1]) {
+      for (let distance = 1; distance <= 12; distance++) {
+        const at = s + dir * distance;
+        if (at < 0 || at > lane.len) break;
+        this.sample(lane, at, lat, o);
+        if (!this.walkable(o.x, o.z, lane)) break;
+        length++;
+        if (length >= 12) return true;
+      }
+    }
+    return false;
   }
 
   private trySpawn(): boolean {
@@ -566,6 +592,7 @@ export class PedManager {
       if (Math.hypot(o.x - this.focus.x, o.z - this.focus.z) < NEAR_SPAWN_R) continue;
       if (this.ctx.world.isWater?.(o.x, o.z) || !this.walkable(o.x, o.z, lane) || !this.freeAt(o.x, o.z, null, 0.8)) continue;
       if (!this.canSpawn(o.x, o.z)) continue;
+      if (!this.hasWalkingRoom(lane, s, lat)) continue;
       // Do not initially place someone half-way through a crossing.
       if (lane.crossings.some(c => s > c.s0 - 0.6 && s < c.s1 + 0.6)) continue;
       this.spawnAt(lane, s, lat, o, dir, preference);
@@ -586,7 +613,7 @@ export class PedManager {
       inst, lane, dir, s, lat, latCur: lat, speed: baseSpeed, baseSpeed, state: 'walk', timer: 0,
       phone, jaywalker: this.rnd() < 0.16, x: o.x, z: o.z, yaw: Math.atan2(-o.dx * dir, -o.dz * dir),
       crossing: null, visible: true, fleeFrom: null, seed, follow: leader, followOff: leader ? lat - leader.lat : 0,
-      mannerism, gy: this.ctx.physics.groundHeight(o.x, o.z), preference, phase: leader ? (leader.phase + 0.31 + this.rnd() * 0.25) % 1 : this.rnd(),
+      mannerism, gy: this.walkingHeight(o.x, o.z), preference, phase: leader ? (leader.phase + 0.31 + this.rnd() * 0.25) % 1 : this.rnd(),
       // Mean 6.5 s dwell / (75 s walk + 6.5 s dwell) ≈ 8% stopping at eligible storefronts.
       stopIn: -Math.log(Math.max(0.001, this.rnd())) * 75, stopKind: null, seat: null, route: null, entry: null,
       lastCrossing: null, crossingCooldown: 0, blocked: 0, talkIn: 4 + this.rnd() * 10, talkFor: 0,
@@ -607,7 +634,8 @@ export class PedManager {
         if (lat2 < b.lo || lat2 > b.hi) continue;
         const o2 = { x: 0, z: 0, dx: 0, dz: 0 };
         this.sample(lane, s, lat2, o2);
-        if (!this.walkable(o2.x, o2.z, lane) || !this.freeAt(o2.x, o2.z, null, 0.8) || !this.canSpawn(o2.x, o2.z)) continue;
+        if (!this.walkable(o2.x, o2.z, lane) || !this.freeAt(o2.x, o2.z, null, 0.8) || !this.canSpawn(o2.x, o2.z)
+          || !this.hasWalkingRoom(lane, s, lat2)) continue;
         this.spawnAt(lane, s, lat2, o2, dir, preference, ped);
       }
     } else if (!seated && !leader && this.rnd() < 0.13) {
@@ -694,7 +722,7 @@ export class PedManager {
       const route = this.seatRoute(seat); if (!route) continue;
       const p = this.spawnAt(route.lane, route.s, route.lat, { x: seat.x, z: seat.z, dx: -Math.sin(seat.yaw), dz: -Math.cos(seat.yaw) }, route.dir, this.rnd(), null, true);
       this.seatOwners.set(seat, p); this.parkReserved++; p.seat = seat;
-      p.gy = seat.groundY ?? this.ctx.physics.groundHeight(this.seatFront(seat).x, this.seatFront(seat).z);
+      p.gy = seat.groundY ?? this.walkingHeight(this.seatFront(seat).x, this.seatFront(seat).z);
       this.sit(p, true); this.seatEvents.spawned++;
     }
   }
@@ -1076,7 +1104,9 @@ export class PedManager {
       }
     }
     const moved = Math.hypot(nx - p.x, nz - p.z);
-    if (moved < p.speed * dt * 0.2) {
+    // Sideways yielding is not progress along the route and must not reset the blocked timer.
+    const progress = (nx - p.x) * dx + (nz - p.z) * dz;
+    if (progress < p.speed * dt * 0.2) {
       p.blocked += dt; p.s = oldS;
       // A blocked lane handoff must restore the old coordinate frame as well as
       // its distance. An old 300 m distance is meaningless on a new 40 m lane.
@@ -1161,7 +1191,7 @@ export class PedManager {
     this.crowdBatch.begin();
     for (let i = 0; i < this.peds.length; i++) {
       const p = this.peds[i], inst = p.inst;
-      if (!p.seat && (i + this.slot) % 12 === 0) p.gy = ctx.physics.groundHeight(p.x, p.z);
+      if (!p.seat && (i + this.slot) % 12 === 0) p.gy = this.walkingHeight(p.x, p.z);
       const seated = p.seat && (p.state === 'sit' || p.state === 'sitDown' || p.state === 'standUp');
       const seatY = seated ? (p.seat!.y ?? p.gy + p.seat!.height) - p.gy : 0;
       inst.seating = seated ? { height: seatY / inst.root.scale.y, weight: p.seatWeight, lean: -9 + (p.seed % 17) } : null;

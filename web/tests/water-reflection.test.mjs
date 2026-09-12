@@ -22,7 +22,7 @@ const check = (ok, label, extra = '') => {
 const near = (a, b) => Math.abs(a - b) < 1e-9;
 
 /** Enough of three.js and the client for the addon to find the water. */
-function boot({ search = '', envMapIntensity = 0.8, specularIntensity = 1, water = true } = {}) {
+function boot({ search = '', envMapIntensity = 0.8, specularIntensity = 1, water = true, cameraY = 10 } = {}) {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'http://localhost:3000/world/' + search,
     runScripts: 'outside-only',
@@ -42,8 +42,9 @@ function boot({ search = '', envMapIntensity = 0.8, specularIntensity = 1, water
     set onBeforeCompile(fn) { compileHook = fn; this.needsUpdate = true; },
     get onBeforeCompile() { return compileHook; },
   };
-  const mesh = { name: 'env-water', material };
-  w.__game = { ctx: { scene: { getObjectByName: (n) => (water && n === 'env-water' ? mesh : null) } } };
+  const mesh = { name: 'env-water', material, position: { y: -1.6 }, visible: true };
+  w.__game = { ctx: { camera: { position: { y: cameraY } },
+    scene: { getObjectByName: (n) => (water && n === 'env-water' ? mesh : null) } } };
 
   const timers = [];
   w.setInterval = (fn) => { timers.push(fn); return timers.length; };
@@ -56,7 +57,7 @@ function boot({ search = '', envMapIntensity = 0.8, specularIntensity = 1, water
     if (compileHook) compileHook.call(material, shader);
     return shader;
   };
-  return { w, material, compile, warnings, poll: () => timers.forEach((fn) => fn()), hooked: () => !!compileHook };
+  return { w, material, mesh, compile, warnings, poll: () => timers.forEach((fn) => fn()), hooked: () => !!compileHook };
 }
 
 console.log('=== the shader anchors still match the shipped client ===');
@@ -167,6 +168,23 @@ console.log('\n=== waiting for the environment module ===');
   const late = boot();
   poll();
   check(late.hooked(), 'the poll picks it up once the module lands');
+}
+
+console.log('\n=== camera can inspect below the water plane ===');
+{
+  const { w, mesh, poll } = boot({ search: '?spot=cross-bronx', cameraY: 2 });
+  check(mesh.visible, 'water remains visible while the camera is above it');
+  w.__game.ctx.camera.position.y = -2;
+  poll();
+  check(!mesh.visible, 'water hides after the camera descends below its plane');
+  w.__game.ctx.camera.position.y = 1;
+  poll();
+  check(mesh.visible, 'water returns after the camera rises above it');
+}
+{
+  const { w, mesh, poll } = boot({ cameraY: -3 });
+  poll();
+  check(mesh.visible, 'ordinary play never hides the water');
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nALL CHECKS PASSED');

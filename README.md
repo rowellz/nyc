@@ -181,7 +181,131 @@ and the scripts live in `web/static/`. They
 reach the running game through `window.__game`, the handle `main.ts` already
 exposes for playtesting. Every other file goes out untransformed.
 
-Four addons ship today.
+Five addons ship today.
+
+**`mobile-map.js` makes the play-mode minimap collapsible on touch devices.**
+It keeps the map itself at the upper-left edge, ahead of the HUD status chips,
+and adds a small in-map control. The map starts expanded; tapping the control
+collapses it to a `MAP +` pill without hiding health, location, or status, and
+tapping again restores it. The whole map, vitals, and location stack is pinned
+to the safe upper-left corner on desktop and mobile; the desktop notification
+feed sits in the lower-left corner. A `HUD −` button on desktop and mobile
+collapses the whole stack to a `HUD +` button; expanding restores its contents.
+Everyone gets a live traffic-density slider beside the map, from zero to their
+device's native budget. Admins can explicitly raise it to 400 cars (or the native
+budget when higher). Showing the control preserves the selected count, including
+the iPhone default of six cars. `?mobilemap=1`
+exposes the map control on desktop for testing, while `?mobilemap=0` disables
+the addon.
+
+The SvelteKit vehicle transform in `traffic-assets.js` loads
+`traffic-distribution.js` to distribute traffic by available lane length and
+occupancy across highways, ramps, arterials, and side streets. It includes short
+OSM segments and follows curved lane paths when choosing spawn points. Camera
+views favor roads ahead without excluding the surrounding network. Vehicle mixes
+vary by road type, with fewer taxis and more passenger and delivery vehicles on
+highways. The rendering pools allow more simultaneous cars, including distant
+models on iOS. Run `cd web && npm run test:traffic` for the Cross Bronx replay.
+
+The SvelteKit streaming transform in `streaming-assets.js` installs
+`predictive-streaming.js` before the first tile request. Mobile loads tiles within
+a **512 m radius** of the player/free camera; desktop presets use **1,500 m**.
+Distance is measured to tile edges, so tiles intersecting the radius are included.
+Mobile's far distance is also 512 m, avoiding an additional far-building layer.
+The mobile atmosphere uses its original fog fade from 180 to 700 m.
+Mobile keeps the simplified roads and existing device-specific effects budgets.
+Mobile landmarks also use the 512 m range, measured from their approximate edge
+so nearby bridge spans remain visible. Distant landmarks release after an extra
+tile of hysteresis once their owning tiles unload. Desktop retains the separate
+6 km skyline range. Landmark cleanup releases instanced furniture buffers as well
+as geometry; shared materials live until the landmark module is disposed.
+
+iOS allows up to **32 resident tiles** to accommodate the 512 m neighborhood, one
+additional route tile and three recently used tiles. `IOS_STREAMING` in
+`predictive-streaming.js` holds its resident and request limits. The immediate
+surrounding nine tiles take priority over farther work; startup waits for only
+those nine before expanding.
+iOS looks up to 256 m beyond the radius in the travel direction; Android retains
+three forward slots and its longer search window. Desktop looks up to 512 m beyond
+the draw distance. Camera facing supplies the direction when stationary. These
+windows are search limits, not promises to build every tile within them.
+
+Street workers, queued mobile building workers and terrain/building commits use
+the shared tile priority, with regular FIFO turns to finish older background work.
+Recent tiles survive brief turns for up to six seconds. Mobile retires at most
+one tile per frame, separately from publishing new tiles. iOS overlaps four tile
+requests on its existing decoder; Android retains two. Decoded replies waiting
+for scene publication count against those request limits. Mobile still commits
+at most one tile per frame. Obsolete replies release their slots even while
+scene building is backed up. On iOS, an already-decoded missing occupied tile can
+pass the busy-job gate; neighboring tiles still wait for builders to catch up.
+When memory permits, that occupied tile also precedes further scene retirement.
+
+Run `cd web && npm run test:streaming` for the served quality/fog settings, mobile
+512 m and desktop 1.5 km coverage, actual GWB upper-level road data, nearby
+priority, blocked builders, turns, teleports, retries and memory bounds. These simulations check scheduling
+and data availability; they do not measure Safari frame rates or real device
+scene-construction latency.
+Run `cd web && npm run test:memory` for repeated landmark travel and resource
+disposal checks against the served client.
+
+Mobile roads use plain gray shades in
+`web/static/world/assets/mobile-road-material.js`: darker asphalt, lighter
+concrete, and medium-gray cobblestone, with subtle variation between roads.
+This material removes surface texture sampling, cracks, tire wear, normal maps
+and animated puddles; ordinary lighting, fog, lane markings and geometry remain.
+Mobile skips downloading, generating and uploading the unused asphalt and
+cobblestone maps. Desktop retains its detailed road material.
+
+Other mobile street performance settings are tuned in
+`web/static/world/assets/mobile-build-policy.js` (`MOBILE_STREET_BUDGET`). Surface
+maps are capped at 128 px, procedural noise at 64 px, and the lane-paint/decal
+atlas at 512 px, with 2× anisotropy and mipmaps retained. The worker and no-worker
+texture paths share this limit; building textures keep their existing budget.
+The procedural generator now recognizes `mobile`, which previously selected
+1024 px maps. Mobile also uses the drawn manhole decal without fetching its two
+photographs. Maps load once per street module, so this reduces startup work,
+uploads and resident texture memory, rather than per-tile network traffic.
+`mobile-performance-assets.js` applies these hooks to the served chunks.
+
+The shared scene commit queue gives mobile road jobs three generator steps per
+background step, choosing road tiles with the streamer's travel priority. Its
+3 ms deadline, one-texture-upload limit, cancellation and shader-compilation
+waits remain in force. Buildings still receive a share while roads are busy.
+Street worker dispatch also combines invalidations within 100 ms (waiting at
+most 400 ms during continuous arrivals) and prevents two workers from rebuilding
+different revisions of the same tile concurrently. Existing geometry stays in
+place until its replacement is ready. These timings live beside the texture
+settings in `MOBILE_STREET_BUDGET`.
+The mobile pedestrian startup grace period uses four seconds of wall time;
+slow frames no longer stretch that wait and delay the HUD. Crowd spawning keeps
+running after the startup gate is released.
+Mobile parking refreshes keep lane references and highway paths intact, update
+only parking inside the 80 m window, and reuse cars that remain in that window.
+`mobile-props.js` moves lamp-clearance geometry to `mobile-props.worker.js`,
+caches placements across camera movement, and stages terrain queries and buffer
+updates through the shared scene queue. Rounded instance capacity avoids
+reallocating meshes when a kind gains or loses a single prop. Run
+`cd web && npm run test:movement` for parking identity, worker placement,
+per-frame work, cancellation and instance reuse checks.
+Run `cd web && npm run test:textures` for texture dimensions, a dense-building
+queue replay, cancellation, upload limits and static-serving checks.
+
+For remaining iPhone stalls, record an actual device through
+[Safari remote Web Inspector](https://webkit.org/web-inspector/enabling-web-inspector/)
+and inspect the [Timelines tab](https://webkit.org/web-inspector/timelines-tab/):
+compare network completion with JavaScript/worker work and long rendering frames.
+The iOS preset already disables shadows, SSAO, bloom and reflections. Texture
+dimensions, shader cost, geometry generation and scene commits are the next
+useful areas to measure; a desktop replay does not establish iPhone frame time.
+
+Port 3000 serves the production image, so changes require
+`docker compose up -d --build web`. Port 5173 uses the source bind mounts.
+The regular traffic control works with `ADMIN=0`; enabling admin mode is not
+required to lower density, and the control never increases traffic on its own.
+The served HTML and module/worker imports carry the revision from
+`web/src/lib/server/client-cache.js`, bypassing older immutable copies of the
+mirror's unchanged hashed filenames. A normal page reload picks up this release.
 
 **`look-stick.js` gives touch devices a thumbstick for the camera**, in both of
 the client's modes.
@@ -387,7 +511,12 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
   Type-only files (`context.ts`, `world.ts`) were erased at compile time and are
   absent, and there is no `vite.config`, `package.json`, or `index.html` for it.
   The container serves the original compiled bundle, not a rebuild of `src/`.
-- Two deliberate modifications to the mirrored bundle:
+- Deliberate modifications to the mirrored bundle:
+  - The scene texture decoder caps mobile building and street maps at 256 px
+    on the longest edge, preserving aspect ratio and leaving desktop maps at
+    their original resolution. The worker and its main-thread fallback both
+    apply the cap before upload. Run `cd web && npm run test:textures` to check
+    both paths against the shipped client.
   - `tools/patch-offline.js` repoints the web-font `<link>` from Google Fonts to
     the vendored copy. Upstream already ships system-font fallbacks, so this only
     removes a network round-trip.
@@ -411,6 +540,66 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
     `src/client/src/streets/bridges.ts`, using the bundle's own minified helper
     names. Because `src/` does not build, the two have to be kept in step by
     hand.
+
+  - `tools/patch-tunnels.mjs` replaces blocked tunnel mouths with continuous
+    underground roads, walls, ceilings, lane markings, and colliders. Traffic
+    uses the same elevation profiles, connects through tunnel portals across
+    OSM layer changes, and ignores surface traffic lights while underground.
+    Approach openings are cut out of the ground, paving, and ground collider;
+    the water and distant ground planes no longer fill those openings.
+
+    Elevations are synthetic: a 10% grade descends to at most 8 m below ground.
+    Short tunnels use shallower profiles to keep their entrances connected.
+    This is not surveyed NYC tunnel geometry. The shared implementation is
+    `src/client/src/streets/tunnels.js`; run `node tools/patch-tunnels.mjs` after
+    editing it to update the served copy. The guarded patch also reapplies the
+    client hooks after re-mirroring the same upstream chunks. Run
+    `npm --prefix web run test:tunnels` for geometry and traffic regressions.
+
+  - `tools/patch-foundations.mjs` raises buildings whose footprints overlap a
+    vehicular tunnel to the entrance roof height (6.025 m). The complete building,
+    rooftop props, collision mesh, and distant model move together. A thin
+    foundation slab closes the underside while preserving tunnel clearance.
+    Overlap tests include road width and respect courtyards. A small city-wide
+    tunnel index keeps results independent of tile loading order; regenerate
+    it with `node tools/index-tunnels.mjs` after changing the map tiles, then run
+    `node tools/patch-foundations.mjs`. The shared rules live in
+    `src/client/src/buildings/foundations.js`.
+
+  - `tools/patch-road-layers.mjs` keeps road markings attached to their own
+    sampled decks, including at tile borders, and keeps surface paint and
+    asphalt wear below overpasses. Bridge columns move outside lower roadways
+    with wider support beams, or skip stations that cannot provide clearance.
+    Run this patch after `patch-tunnels.mjs` when re-mirroring; it transplants
+    the recovered markings builder and copies `streets/supports.js` into the
+    served worker. Run `npm --prefix web run test:roads` for stacked-road,
+    support-collider, and actual Highbridge tile regressions.
+
+  - `tools/patch-lane-continuity.mjs` publishes `streets/lane-layout.js`, the
+    one lane plan that asphalt, paint and traffic share on one-way motorways,
+    trunks and primary bridges. Where OSM splits a carriageway into ways, the
+    lane lines of consecutive ways meet, dash phase carries across, a lane
+    that opens or closes tapers the wider deck instead of stepping it, and at a
+    merge or split each branch's lanes are assigned to the trunk's lane slots.
+    Two branches leaving (or joining) a trunk used to be built to their own
+    tagged widths from the shared node outward — the Trans-Manhattan levels are
+    each tagged 14.7 m wide for two lanes — so the decks lay across each other
+    for a hundred metres and each painted its edge line through the other's
+    lanes. Sibling branches now partition the roadway: from the node until
+    their lane envelopes have parted, each deck stops at the gore, halfway
+    between its outer lane line and its sibling's, and the shared boundary is
+    painted once. A lane both branches keep (a trunk with fewer lanes than its
+    branches) stays on the trunk's slot at the node and is split down its
+    middle until it has widened into two. Where the ways' centrelines are
+    closer than their lanes are wide, the lanes move aside by half the
+    overlap so traffic on the two ways never shares a surface. The bridge
+    builder's neighbour test (`bridges.ts` `facingDeck`, kept in step by hand
+    in the served worker) measures the gap to the edge a neighbour is actually
+    built to rather than its nominal half-width, so fascias and jersey
+    barriers follow the same edges. `npm --prefix web run test:roads` checks
+    synthetic fans, an option lane, a lane addition, every seam and fan in
+    the Highbridge tiles, and that the two Trans-Manhattan approaches keep
+    their inner traffic lanes a lane apart.
 
 ## Developing on the client
 

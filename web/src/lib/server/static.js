@@ -11,6 +11,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
+import { tunnelAssetPaths, tunnelAssetTransform } from './tunnel-assets.js';
+import { trafficAssetPaths, trafficAssetTransform } from './traffic-assets.js';
+import { streamingAssetPaths, streamingAssetTransform } from './streaming-assets.js';
+import { mobilePerformanceAssetPaths, mobilePerformanceAssetTransform } from './mobile-performance-assets.js';
+import { versionClientImports } from './client-cache.js';
+import { createStreetTileService } from './street-context.js';
+import { streetContextAssetPaths, streetContextAssetTransform } from './street-context-assets.js';
 
 /**
  * In development nothing is cached. The mirrored client is patched in place (see
@@ -36,6 +43,7 @@ const MIME = {
  * `/app/public` in the image, `../public` when running from web/ in the repo.
  */
 export const PUBLIC_DIR = resolvePublicDir();
+const streetTile = createStreetTileService(path.join(PUBLIC_DIR, 'world/world/tiles'));
 
 function resolvePublicDir() {
   if (process.env.PUBLIC_DIR) return path.resolve(process.env.PUBLIC_DIR);
@@ -83,8 +91,41 @@ export async function serveStatic(relPath, options = {}) {
       : 'public, max-age=14400',
   };
 
-  if (options.transform) {
-    const body = options.transform(await fs.promises.readFile(file, 'utf8'));
+  const tileMatch = /^world\/world\/tiles\/(-?\d+_-?\d+)\.json\.gz$/.exec(rel);
+  if (tileMatch) {
+    const body = await streetTile(tileMatch[1]);
+    headers['content-length'] = String(body.byteLength);
+    return new Response(options.method?.toUpperCase() === 'HEAD' ? null : body, { status: 200, headers });
+  }
+
+  if (options.transform || ext === '.js' || ext === '.html') {
+    let body = await fs.promises.readFile(file, 'utf8');
+    if (tunnelAssetPaths.has(rel)) {
+      body = tunnelAssetTransform(rel, body);
+      headers['cache-control'] = 'no-store';
+    }
+    if (trafficAssetPaths.has(rel)) {
+      body = trafficAssetTransform(rel, body);
+      headers['cache-control'] = 'no-store';
+    }
+    if (streamingAssetPaths.has(rel)) {
+      body = streamingAssetTransform(rel, body);
+      headers['cache-control'] = 'no-store';
+    }
+    if (mobilePerformanceAssetPaths.has(rel)) {
+      body = mobilePerformanceAssetTransform(rel, body);
+      headers['cache-control'] = 'no-store';
+    }
+    if (streetContextAssetPaths.has(rel)) {
+      body = streetContextAssetTransform(rel, body);
+      headers['cache-control'] = 'no-store';
+    }
+    if (options.transform) body = options.transform(body);
+    const versioned = versionClientImports(body);
+    if (versioned !== body) {
+      body = versioned;
+      headers['cache-control'] = 'no-store';
+    }
     headers['content-length'] = String(Buffer.byteLength(body));
     if ((options.method || 'GET').toUpperCase() === 'HEAD') {
       return new Response(null, { status: 200, headers });

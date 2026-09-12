@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { GameContext } from '@/core/context';
+import type { RoadSegment } from '@shared/world';
 import type { RigidBody } from '@dimforge/rapier3d-compat';
 import { KINDS, hash01, pickColor, type VehicleSpec } from './kinds';
 
@@ -26,9 +27,10 @@ export function poseMatrix(car: Car): void {
   car.matrix.makeRotationY(car.yaw).setPosition(car.x, car.y, car.z);
 }
 
-export function ground(ctx: GameContext, x: number, z: number): number {
+export function ground(ctx: GameContext, x: number, z: number, road?: RoadSegment): number {
   // Streets is optional (its entry point may not have been built yet).
-  const streets = ctx.modules.get('streets') as { deckHeight?: (x: number, z: number) => number } | undefined;
+  const streets = ctx.modules.get('streets') as { deckHeight?: (x: number, z: number) => number; roadHeight?: (road: RoadSegment, x: number, z: number) => number } | undefined;
+  if (road) return streets?.roadHeight?.(road, x, z) ?? 0;
   return streets?.deckHeight?.(x, z) ?? ctx.physics.groundHeight(x, z);
 }
 
