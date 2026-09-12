@@ -10,6 +10,11 @@ export function tunnelAssetTransform(rel, source) {
     replace('Rr(p,c,d,s),Hr(p,d,s),f.rasterize(c.pos,c.idx.slice(_),c.aA,1/0);',
       'Rr(p,c,d,s),$tunnelFinish(c,d,s,m,$profiles),Hr(p,d,s),f.rasterize(c.pos,c.idx,c.aA,1/0);');
     replace('-Sr)),{meshes:[pi(c.build())', '-Sr)),$tunnelCut(u,$profiles),{meshes:[pi(c.build())');
+  } else if (rel === 'world/assets/lane-layout.js') {
+    // A fan shifts the whole lane envelope sideways. Carry the outside shoulder
+    // with it too; shifting only the shared edge can invert a narrow ramp's deck.
+    replace('let v=sign*hw,own=sign*hw;',
+      'const lateral=offset(s,0)-base(s,0);let v=sign*hw+lateral,own=v;');
   } else if (rel === 'world/assets/ramps.js') {
     source = "import { approachProfile } from './tunnels.js';\n" + source;
     replace('return profiles.get(road.id) ?? baseProfile(env, road);',
@@ -29,6 +34,6 @@ export function tunnelAssetTransform(rel, source) {
 }
 
 export const tunnelAssetPaths = new Set([
-  'world/assets/tile.worker-Ai2ZdmRL.js', 'world/assets/ramps.js',
+  'world/assets/tile.worker-Ai2ZdmRL.js', 'world/assets/ramps.js', 'world/assets/lane-layout.js',
   'world/assets/foundations.js', 'world/assets/environment-WQwLg8tn.js',
 ]);
