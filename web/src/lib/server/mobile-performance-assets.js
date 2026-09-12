@@ -7,6 +7,8 @@ export const mobilePerformanceAssetPaths = new Set([
   'world/assets/vehicles-_zJz3z3J.js',
   'world/assets/mobile-SBC7KRMu.js',
   'world/assets/buildings-BDmduZ8y.js',
+  'world/assets/landmarks-KpQKy0CX.js',
+  'world/assets/geom-8zUJB5A-.js',
 ]);
 
 export function mobilePerformanceAssetTransform(rel, source) {
@@ -15,7 +17,22 @@ export function mobilePerformanceAssetTransform(rel, source) {
     if (source.split(before).length !== 2) throw new Error(`Mobile performance override anchor changed in ${rel}: ${before}`);
     source = source.replace(before, after);
   };
-  if (rel.endsWith('/loading-DS_gLujL.js')) {
+  if (rel.endsWith('/geom-8zUJB5A-.js')) {
+    // Geometry disposal does not release an InstancedMesh's instance buffers.
+    // Landmark furniture owns both and is rebuilt as tiles/footprints change.
+    replace('t.geometry&&t.geometry.dispose()',
+      't.isInstancedMesh&&t.dispose(),t.geometry&&t.geometry.dispose()');
+  } else if (rel.endsWith('/landmarks-KpQKy0CX.js')) {
+    // The skyline used a separate 6 km radius even on the 512 m mobile tier.
+    replace('let me=ve,ke=me**2,je=(me+256)**2;',
+      'let me=e.quality.level===`mobile`?Math.min(ve,e.quality.drawDistance):ve,ke=me**2,je=(me+256)**2;');
+    // Large landmarks (bridges) can have a nearby edge and a distant center.
+    // Use the distance to that edge on mobile, for building and releasing alike.
+    replace('function de(t){return(e.camera.position.x-t.center[0])**2+(e.camera.position.z-t.center[1])**2}',
+      'function de(t){const d=(e.camera.position.x-t.center[0])**2+(e.camera.position.z-t.center[1])**2;return e.quality.level===`mobile`?Math.max(0,Math.sqrt(d)-t.radius)**2:d}');
+    replace('n<(e.quality.drawDistance+t.radius)**2',
+      'n<(e.quality.drawDistance+(e.quality.level===`mobile`?0:t.radius))**2');
+  } else if (rel.endsWith('/loading-DS_gLujL.js')) {
     source = "import { nextSceneBuild as $nextSceneBuild } from './mobile-build-policy.js';\n" + source;
     replace('ctx;ready=[];frame=0;', 'ctx;ready=[];frame=0;turn=0;');
     replace('this.ready.push({job:s,steps:t})', 'this.ready.push({job:s,steps:t,label:e})');

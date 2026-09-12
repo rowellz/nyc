@@ -1,9 +1,9 @@
 // The recovered streamer owns fetching, decoding, indexing and tile events.
 // Replace its scheduling policy without changing those lifetime contracts.
 const TILE = 256;
-// Keep the resident and request budgets together: expanding the neighborhood
-// to a 1.5 km radius needs headroom for edge tiles and recently used scenes.
-const IOS_STREAMING = Object.freeze({ maxTiles: 192, requests: 4 });
+// The 512 m neighborhood spans at most 5x5 tiles, with room for one route
+// tile, three recently used tiles and an urgent arrival during retirement.
+const IOS_STREAMING = Object.freeze({ maxTiles: 32, requests: 4 });
 const keyOf = (tx, tz) => `${tx}_${tz}`;
 const distance = (tx, tz, x, z) => Math.hypot(
   Math.max(tx * TILE - x, 0, x - (tx + 1) * TILE),

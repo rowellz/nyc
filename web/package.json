@@ -12,6 +12,7 @@
     "test": "PORT=${PORT:-3000} NODE_PATH=./node_modules node ../server/test-protocol.js",
     "test:traffic": "node tests/traffic-distribution.test.mjs",
     "test:streaming": "node tests/predictive-streaming.test.mjs",
+    "test:memory": "node tests/mobile-memory.test.mjs",
     "test:movement": "node tests/mobile-movement.test.mjs",
     "test:textures": "node tests/mobile-textures.test.mjs && node tests/mobile-builds.test.mjs && node tests/mobile-roads.test.mjs",
     "test:ui": "node tests/mobile-map.test.mjs && node tests/look-stick.test.mjs && node tests/touch-zoom.test.mjs && node tests/camera-boot.test.mjs && node tests/water-reflection.test.mjs",

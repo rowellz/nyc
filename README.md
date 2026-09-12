@@ -208,18 +208,23 @@ highways. The rendering pools allow more simultaneous cars, including distant
 models on iOS. Run `cd web && npm run test:traffic` for the Cross Bronx replay.
 
 The SvelteKit streaming transform in `streaming-assets.js` installs
-`predictive-streaming.js` before the first tile request. All quality presets now load tiles
-within a **1,500 m radius** of the player/free camera. Distance is measured to tile
-edges, so tiles intersecting the radius are included. The iOS quality override
-also uses 1,500 m; its fog now fades from 1,200 to 2,100 m instead of disappearing
-completely at 700 m. The existing camera far plane already exceeds these ranges.
+`predictive-streaming.js` before the first tile request. Mobile loads tiles within
+a **512 m radius** of the player/free camera; desktop presets use **1,500 m**.
+Distance is measured to tile edges, so tiles intersecting the radius are included.
+Mobile's far distance is also 512 m, avoiding an additional far-building layer.
+The mobile atmosphere uses its original fog fade from 180 to 700 m.
 Mobile keeps the simplified roads and existing device-specific effects budgets.
+Mobile landmarks also use the 512 m range, measured from their approximate edge
+so nearby bridge spans remain visible. Distant landmarks release after an extra
+tile of hysteresis once their owning tiles unload. Desktop retains the separate
+6 km skyline range. Landmark cleanup releases instanced furniture buffers as well
+as geometry; shared materials live until the landmark module is disposed.
 
-iOS allows up to **192 resident tiles** to accommodate the 1.5 km circle, one
+iOS allows up to **32 resident tiles** to accommodate the 512 m neighborhood, one
 additional route tile and three recently used tiles. `IOS_STREAMING` in
-`predictive-streaming.js` holds its resident and request limits. The larger area
-requires more memory and scene work. The immediate surrounding nine tiles take
-priority over farther work; startup waits for only those nine before expanding.
+`predictive-streaming.js` holds its resident and request limits. The immediate
+surrounding nine tiles take priority over farther work; startup waits for only
+those nine before expanding.
 iOS looks up to 256 m beyond the radius in the travel direction; Android retains
 three forward slots and its longer search window. Desktop looks up to 512 m beyond
 the draw distance. Camera facing supplies the direction when stationary. These
@@ -236,11 +241,13 @@ scene building is backed up. On iOS, an already-decoded missing occupied tile ca
 pass the busy-job gate; neighboring tiles still wait for builders to catch up.
 When memory permits, that occupied tile also precedes further scene retirement.
 
-Run `cd web && npm run test:streaming` for the served quality/fog settings, 1.5 km
-coverage, actual GWB upper-level road data, nearby priority, blocked builders,
-turns, teleports, retries and memory bounds. These simulations check scheduling
+Run `cd web && npm run test:streaming` for the served quality/fog settings, mobile
+512 m and desktop 1.5 km coverage, actual GWB upper-level road data, nearby
+priority, blocked builders, turns, teleports, retries and memory bounds. These simulations check scheduling
 and data availability; they do not measure Safari frame rates or real device
 scene-construction latency.
+Run `cd web && npm run test:memory` for repeated landmark travel and resource
+disposal checks against the served client.
 
 Mobile roads use plain gray shades in
 `web/static/world/assets/mobile-road-material.js`: darker asphalt, lighter

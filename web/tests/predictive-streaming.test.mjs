@@ -21,8 +21,8 @@ assert(readFileSync(new URL('streets-CfYSUqyW.js', assets), 'utf8').includes('e.
 // and desktop's explicit q=mobile (the profile shown in the report).
 const qualitySource = readFileSync(new URL('quality-BuEwAkMy.js', assets), 'utf8');
 for (const [ua, override, expected] of [
-  ['iPhone', undefined, 1500], ['iPhone', 'low', 1500], ['Android', undefined, 1500],
-  ['Desktop', 'mobile', 1500], ['Desktop', 'low', 1500], ['Desktop', 'medium', 1500],
+  ['iPhone', undefined, 512], ['iPhone', 'low', 512], ['Android', undefined, 512],
+  ['Desktop', 'mobile', 512], ['Desktop', 'low', 1500], ['Desktop', 'medium', 1500],
   ['Desktop', 'high', 1500], ['Desktop', 'ultra', 1500],
 ]) {
   const scope = vm.createContext({ navigator: { userAgent: ua, platform: ua, maxTouchPoints: ua === 'Desktop' ? 0 : 5, hardwareConcurrency: 4 },
@@ -30,8 +30,9 @@ for (const [ua, override, expected] of [
     document: { createElement() { throw new Error('no GPU in unit test'); } } });
   vm.runInContext(qualitySource.replace(/export\{[^}]+\};/, ''), scope);
   const { quality } = scope.l(override);
-  assert.equal(quality.drawDistance, expected, `${ua} / ${override} uses at least 1.5 km`);
+  assert.equal(quality.drawDistance, expected, `${ua} / ${override} uses its device budget`);
   assert(quality.farDistance >= expected);
+  if (quality.level === 'mobile') assert.equal(quality.farDistance, 512, 'mobile avoids an additional far-building layer');
   if (ua === 'iPhone') {
     assert.equal(quality.maxTraffic, 6);
     assert.equal(quality.shadows, false);
@@ -43,10 +44,10 @@ for (const [ua, override, expected] of [
   const ctx = { scene: { add() {}, remove() {} }, renderer: { shadowMap: {} },
     time: { daylight: 1 }, state: { weather: {} } };
   const atmosphere = createAtmosphere(ctx);
-  assert.equal(ctx.scene.fog.near, 1200);
-  assert.equal(ctx.scene.fog.far, 2100, 'fog no longer hides everything before 1.5 km');
+  assert.equal(ctx.scene.fog.near, 180);
+  assert.equal(ctx.scene.fog.far, 700, 'mobile restores the original fog range');
   atmosphere.update(1 / 60, 1);
-  assert.equal(ctx.scene.fog.far, 2100, 'day/night updates preserve the wider visibility');
+  assert.equal(ctx.scene.fog.far, 700, 'day/night updates preserve mobile fog');
   atmosphere.dispose();
 }
 
@@ -64,7 +65,7 @@ function fixture({ ios = true, mobile = true, predictive = true, latency = 0.6, 
   const events = [], requests = [], pending = [];
   const camera = { x: 1, z: 0, getWorldDirection(v) { return v.copy({ x: this.x, y: 0, z: this.z }); } };
   const world = new sandbox.Pl({ emit: (...args) => events.push(args) },
-    { level: mobile ? 'mobile' : 'high', drawDistance: 1500, farDistance: mobile ? 1500 : 5000 });
+    { level: mobile ? 'mobile' : 'high', drawDistance: mobile || ios ? 512 : 1500, farDistance: mobile || ios ? 512 : 5000 });
   for (let x = -20; x <= 20; x++) for (let z = -10; z <= 10; z++) world.tileSet.add(`${x}_${z}`);
   if (tileData) world.tileSet = new Set(tileData.keys());
   world.index = { tiles: [...world.tileSet] };
@@ -95,7 +96,7 @@ function fixture({ ios = true, mobile = true, predictive = true, latency = 0.6, 
     assert(events.filter(e => e[0] === 'tileLoaded').length - before <= 1, 'at most one commit per frame');
     if (mobile && predictive) assert(events.filter(e => e[0] === 'tileUnloaded').length - unloaded <= 1, 'mobile disposes at most one tile per frame');
     if (mobile || ios) assert(world.inFlight.size <= (predictive ? ios ? 4 : 2 : 1), 'bounded in-flight memory');
-    if (ios && predictive) assert(world.tiles.size <= 192, 'nearby, ahead and retained tiles share the 192-tile iOS limit');
+    if (ios && predictive) assert(world.tiles.size <= 32, 'nearby, ahead and retained tiles share the 32-tile iOS limit');
   }
   return { world, camera, events, requests, pending, frame, point, get time() { return time; } };
 }
@@ -107,25 +108,25 @@ function tileDistance(tx, tz, x, z) {
 function assertCoverage(f) {
   for (const key of f.world.tileSet) {
     const [tx, tz] = key.split('_').map(Number);
-    if (tileDistance(tx, tz, f.point.x, f.point.z) <= 1500) {
-      assert(f.world.tiles.has(key), `tile ${key} within 1.5 km must load`);
+    if (tileDistance(tx, tz, f.point.x, f.point.z) <= f.world.drawDistance) {
+      assert(f.world.tiles.has(key), `tile ${key} within ${f.world.drawDistance} m must load`);
     }
   }
 }
 
-// iOS fills a 1.5 km radius, plus at most one route tile beyond it.
+// iOS fills a 512 m radius, plus at most one route tile beyond it.
 // The immediate 3x3 must still outrank the additional scene work.
 for (const [dx, dz] of [[1, 0], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]]) {
   const f = fixture({ latency: 0.05 });
   f.camera.x = dx; f.camera.z = dz;
   for (let i = 0; i < 150; i++) await f.frame();
-  const ahead = [...f.world.tiles.values()].filter(t => tileDistance(t.tx, t.tz, 128, 128) > 1500);
-  assert(ahead.length <= 1, 'at most one extra scene beyond the expanded neighborhood');
+  const ahead = [...f.world.tiles.values()].filter(t => tileDistance(t.tx, t.tz, 128, 128) > 512);
+  assert(ahead.length <= 1, 'at most one extra scene beyond the mobile neighborhood');
   assertCoverage(f);
-  assert(f.world.tiles.size > 96, 'a real 1.5 km neighborhood exceeds the previous cap');
-  const tx = dx === 0 ? 0 : 2, tz = dz === 0 ? 0 : dz < 0 ? -2 : 2;
+  assert(f.world.tiles.size <= 26, '512 m needs at most 25 nearby tiles plus one route tile');
+  const tx = dx === 0 ? 0 : 2, tz = dz === 0 ? 0 : (dz < 0 ? -1 : 1) * (dx === 0 ? 2 : 1);
   assert(f.world.tiles.has(`${tx}_${tz}`));
-  assert.equal(f.world.stats.lookAheadMeters, 1500);
+  assert.equal(f.world.stats.lookAheadMeters, 512);
   for (let x = -1; x <= 1; x++) for (let z = -1; z <= 1; z++) {
     assert(f.world.tilePriority(x, z) < f.world.tilePriority(tx, tz), 'all local tiles precede speculation');
   }
@@ -133,8 +134,8 @@ for (const [dx, dz] of [[1, 0], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]]) {
     'downloads fill the surrounding neighborhood before distant route tiles');
 }
 
-// A 1.5 km circle must remain covered at tile edges, including negative
-// coordinates. Exercise retirement across several rows with the larger cap.
+// A 512 m circle must remain covered at tile edges, including negative
+// coordinates. Exercise retirement across several rows with the smaller cap.
 {
   const f = fixture({ latency: 0.05 });
   let peak = 0;
@@ -145,7 +146,7 @@ for (const [dx, dz] of [[1, 0], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]]) {
     }
     assertCoverage(f);
   }
-  assert(peak > 96 && peak <= 192, 'extra resident capacity supports recent/ahead tiles during travel');
+  assert(peak > 9 && peak <= 32, 'mobile residency stays bounded during travel');
 }
 
 // Dense scene jobs keep the real main-loop gate closed. A decoded occupied
@@ -272,8 +273,8 @@ for (const [dx, dz] of [[1, 0], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]]) {
   assert(f.world.ready);
 }
 
-// The NYC-side upper approach must include the owner of the bridge geometry,
-// which is outside the former 5x5 neighborhood but within the 1.5 km radius.
+// Desktop includes the distant GWB owner from the NYC approach. Mobile loads
+// that geometry when within its smaller radius instead of retaining distant tiles.
 {
   const tiles = new Map();
   for (let tx = 10; tx <= 19; tx++) for (let tz = -45; tz <= -37; tz++) {
@@ -289,7 +290,12 @@ for (const [dx, dz] of [[1, 0], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]]) {
     const f = fixture({ ...options, latency: 0.05, tileData: tiles });
     for (let i = 0; i < 350; i++) await f.frame({ x: 4009.11, z: -10444.47 });
     assertCoverage(f);
-    assert(f.world.tiles.has('11_-43'), 'GWB upper-level owner loads from the NYC approach');
+    if (options.mobile !== false) {
+      assert(!f.world.tiles.has('11_-43'), 'mobile excludes the bridge owner beyond 512 m');
+      for (let i = 0; i < 150; i++) await f.frame({ x: 11.5 * 256, z: -42.5 * 256 });
+      assertCoverage(f);
+    }
+    assert(f.world.tiles.has('11_-43'), 'GWB upper-level owner loads within the device radius');
     assert(f.world.roadsNear(...bridge.pts[0], 2).some(r => r.id === bridge.id), 'bridge road is in the live overlap index');
   }
   console.log('PASS actual GWB upper-level tile coverage on iPhone, mobile preset and desktop');
