@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { tunnelAssetPaths, tunnelAssetTransform } from './tunnel-assets.js';
+import { trafficAssetPaths, trafficAssetTransform } from './traffic-assets.js';
 
 /**
  * In development nothing is cached. The mirrored client is patched in place (see
@@ -84,10 +85,14 @@ export async function serveStatic(relPath, options = {}) {
       : 'public, max-age=14400',
   };
 
-  if (options.transform || tunnelAssetPaths.has(rel)) {
+  if (options.transform || tunnelAssetPaths.has(rel) || trafficAssetPaths.has(rel)) {
     let body = await fs.promises.readFile(file, 'utf8');
     if (tunnelAssetPaths.has(rel)) {
       body = tunnelAssetTransform(rel, body);
+      headers['cache-control'] = 'no-store';
+    }
+    if (trafficAssetPaths.has(rel)) {
+      body = trafficAssetTransform(rel, body);
       headers['cache-control'] = 'no-store';
     }
     if (options.transform) body = options.transform(body);

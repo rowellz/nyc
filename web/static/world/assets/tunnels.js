@@ -65,9 +65,27 @@ export function approachCeiling(profile, along) {
 }
 
 export function tunnelHeight(profile, along) {
+  if (profile.approach && profile.elevation) {
+    const points = profile.elevation;
+    let lo = 0, hi = points.length - 1;
+    while (lo + 1 < hi) { const mid = (lo + hi) >> 1; if (points[mid].s < along) lo = mid; else hi = mid; }
+    const a = points[lo], b = points[hi], t = Math.max(0, Math.min(1, (along-a.s)/(b.s-a.s || 1)));
+    return a.h + (b.h-a.h)*t;
+  }
   if (profile.approach) return Math.min(0, approachCeiling(profile, along));
   return -Math.min(TUNNEL_DEPTH, PORTAL_DEPTH + Math.max(0, Math.min(profile.a.distance + along,
     profile.b.distance + profile.length - along)) * GRADE);
+}
+
+/** Share the final clearance plan with tunnel paving and the main thread.
+ * Replacing a worker tile must replace its old elevations as well. */
+export function setApproachElevations(profiles, elevations) {
+  for (const { id, points } of elevations) {
+    const p = profiles.get(id);
+    if (!p?.approach) continue;
+    p.elevation = points; p.samples = null; p.surface = null;
+  }
+  passageCache.delete(profiles);
 }
 
 /** Cap the existing bridge plan too, allowing elevated motorway connections to
@@ -100,8 +118,29 @@ export function worldTunnels(world) {
   // Tile identities change on replacement as well as loading/unloading.
   const tiles = [...world.tiles.values()];
   let cached = worldCache.get(world);
-  if (!cached || tiles.length !== cached.tiles.length || tiles.some((t, i) => t !== cached.tiles[i])) {
+  if (!cached || tiles.length !== cached.tiles.length || tiles.some((t, i) => t !== cached.tiles[i]
+    || t.approachProfiles !== cached.elevations[i])) {
     cached = { tiles, profiles: tunnelNetwork(tiles.flatMap(t => t.roads)) };
+    cached.elevations = tiles.map(t => t.approachProfiles);
+    // A worker profiles the whole way for stable interpolation, but owns only
+    // its tile. Prefer the owner at each station instead of letting whichever
+    // neighbouring job finishes last overwrite the entire motorway's height.
+    const byRoad = new Map();
+    for (const tile of tiles) for (const row of tile.approachProfiles ?? []) {
+      const stations = byRoad.get(row.id) ?? new Map(); byRoad.set(row.id, stations);
+      for (const point of row.points) {
+        const dx = Math.max(tile.tx*256-point.x, 0, point.x-(tile.tx+1)*256);
+        const dz = Math.max(tile.tz*256-point.z, 0, point.z-(tile.tz+1)*256);
+        const distance = dx*dx+dz*dz, previous = stations.get(point.s);
+        const owner = Math.floor(point.x/256)===tile.tx && Math.floor(point.z/256)===tile.tz;
+        const rank = owner ? -1 : distance;
+        const key = `${tile.tx}_${tile.tz}`;
+        if (!previous || rank<previous.rank || rank===previous.rank && key<previous.key)
+          stations.set(point.s, {point,rank,key});
+      }
+    }
+    setApproachElevations(cached.profiles, [...byRoad].map(([id, stations]) => ({ id,
+      points: [...stations.values()].map(v=>v.point).sort((a,b)=>a.s-b.s) })));
     worldCache.set(world, cached);
   }
   return cached.profiles;
@@ -110,6 +149,10 @@ export function worldTunnels(world) {
 export function trafficHeight(world, road, x, z, fallback = 0) {
   const p = worldTunnels(world).get(road.id), q = p && project(road, x, z);
   if (!p || !q) return road.tunnel ? -TUNNEL_DEPTH + 0.025 : fallback;
+  if (p.approach && p.elevation) {
+    const h = approachSurfaceHeight(p, x, z) ?? tunnelHeight(p, q.along) + 0.025;
+    return h < 0.025 ? h : fallback;
+  }
   return p.approach ? Math.min(fallback, approachCeiling(p, q.along) + 0.025) : tunnelHeight(p, q.along) + 0.025;
 }
 
@@ -155,6 +198,29 @@ function samples(profile) {
   }
   profile.samples = result;
   return result;
+}
+
+// Sideways lane shifts and mitered bends change the distance along the ramp.
+// Sample its actual ribbon plane so player support stays on the paving too.
+function approachSurfaceHeight(profile, x, z) {
+  if (!profile.surface) {
+    const pts = samples(profile); profile.surface = [];
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i-1], b = pts[i];
+      const corners = [[...a.left,a.y],[...a.right,a.y],[...b.right,b.y],[...b.left,b.y]];
+      for (const indices of [[0,2,3],[0,1,2]]) {
+        const [u,v,w] = indices.map(i=>corners[i]);
+        const dx=v[0]-u[0],dz=v[1]-u[1],ex=w[0]-u[0],ez=w[1]-u[1],det=dx*ez-dz*ex;
+        if (Math.abs(det)<1e-8) continue;
+        profile.surface.push({u,v,w,dx,dz,ex,ez,det});
+      }
+    }
+  }
+  for (const {u,v,w,dx,dz,ex,ez,det} of profile.surface) {
+    const px=x-u[0],pz=z-u[1],a=(px*ez-pz*ex)/det,b=(dx*pz-dz*px)/det;
+    if (a>=-1e-6&&b>=-1e-6&&a+b<=1+1e-6) return u[2]+a*(v[2]-u[2])+b*(w[2]-u[2]);
+  }
+  return null;
 }
 
 function edgePoint(a, side, margin = 0) {
@@ -316,21 +382,26 @@ export function finishTunnelApproaches(roadbed, structure, out, walks, profiles)
 
 export function tunnelSupport(world, x, z, referenceY, fallback) {
   if (!Number.isFinite(referenceY)) return fallback;
-  let best = fallback;
+  let best = fallback, nearest = Infinity;
   for (const p of worldTunnels(world).values()) {
     const q = project(p.road, x, z);
     if (!q) continue;
-    if (p.edges) {
+    const surface = p.elevation ? approachSurfaceHeight(p, x, z) : null;
+    if (p.elevation && surface === null) continue;
+    if (!p.elevation && p.edges) {
       const [left, right] = p.edges(q.along), dx = right[0]-left[0], dz = right[1]-left[1];
       const width = Math.hypot(dx,dz), across = ((x-left[0])*dx+(z-left[1])*dz)/(width || 1);
       const reach = Math.max(Math.hypot(left[0]-q.x,left[1]-q.z), Math.hypot(right[0]-q.x,right[1]-q.z));
       if (q.distance > reach || across < 0.2 || across > width-0.2) continue;
-    } else if (q.distance > Math.max(2, p.road.width / 2) - 0.2) continue;
+    } else if (!p.elevation && q.distance > Math.max(2, p.road.width / 2) - 0.2) continue;
     // Continue support through zero onto the rising bridge. The zero-capped
     // tunnel construction profile would otherwise drop a low ramp to ground.
-    const h = p.approach ? Math.min(fallback, approachCeiling(p, q.along) + 0.025)
-      : tunnelHeight(p, q.along) + 0.025;
-    if (referenceY < h + TUNNEL_CLEARANCE - 1 && referenceY >= h - 2) best = h;
+    const h = p.elevation ? surface
+      : p.approach ? Math.min(fallback, approachCeiling(p, q.along) + 0.025) : tunnelHeight(p, q.along) + 0.025;
+    const distance = Math.abs(referenceY-h);
+    if (referenceY < h + TUNNEL_CLEARANCE - 1 && referenceY >= h - 2 && distance < nearest) {
+      best = h; nearest = distance;
+    }
   }
   return best;
 }
@@ -451,6 +522,9 @@ function clearPassages(points, profile, nearby) {
 /** Open-ended, collidable floor/walls/roof. No portal blocker or cross-way caps. */
 export function buildTunnels(env, structure, out) {
   const profiles = tunnelNetwork(env.tile.roads), rect = env.rect;
+  out.approachProfiles = [...profiles.values()].filter(p => p.elevation && samples(p).some(q =>
+    q.x >= rect.minX && q.x <= rect.maxX && q.z >= rect.minZ && q.z <= rect.maxZ))
+    .map(p => ({ id: p.road.id, points: p.elevation }));
   const nearby = passages(profiles);
   const concrete = [0.42, 0.43, 0.42], asphalt = [0.12, 0.13, 0.14], paint = [0.85, 0.8, 0.57];
   function face(points, color, collide = true) {
@@ -478,7 +552,7 @@ export function buildTunnels(env, structure, out) {
       const corners = [a.left, a.right, b.left, b.right];
       if (corners.every(q => q[0] < rect.minX) || corners.every(q => q[0] > rect.maxX)
         || corners.every(q => q[1] < rect.minZ) || corners.every(q => q[1] > rect.maxZ)) continue;
-      if (p.approach && Math.min(a.y, b.y) >= 0.024) continue;
+      if (p.approach && Math.min(a.y, b.y) > 0.025 + 1e-6) continue;
       // Clip ownership by the centre of each global sample span. Whole spans
       // meet at identical vertices; tile boundaries never add internal walls.
       const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;

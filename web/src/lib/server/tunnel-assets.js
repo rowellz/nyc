@@ -10,6 +10,12 @@ export function tunnelAssetTransform(rel, source) {
     replace('Rr(p,c,d,s),Hr(p,d,s),f.rasterize(c.pos,c.idx.slice(_),c.aA,1/0);',
       'Rr(p,c,d,s),$tunnelFinish(c,d,s,m,$profiles),Hr(p,d,s),f.rasterize(c.pos,c.idx,c.aA,1/0);');
     replace('-Sr)),{meshes:[pi(c.build())', '-Sr)),$tunnelCut(u,$profiles),{meshes:[pi(c.build())');
+    replace('const $profiles=$tunnelNetwork(r);',
+      'const $profileRoad=r.find(r=>!r.tunnel&&dr.has(r.cls)&&r.pts.length>1);if($profileRoad)$clearanceProfile(p,$profileRoad,$baseDeckProfile);const $profiles=$tunnelNetwork(r);');
+    replace('decks:s.decks,colliders:', 'decks:s.decks,approachProfiles:s.approachProfiles,colliders:');
+  } else if (rel === 'world/assets/streets-CfYSUqyW.js') {
+    replace('n.decks=i.decks,$tunnelTerrain(e,n.tile)',
+      'n.decks=i.decks,n.tile.approachProfiles=i.approachProfiles,$tunnelTerrain(e,n.tile)');
   } else if (rel === 'world/assets/lane-layout.js') {
     source = "import { taperGore } from './lane-transitions.js';\n" + source;
     // A fan shifts the whole lane envelope sideways. Carry the outside shoulder
@@ -24,12 +30,6 @@ export function tunnelAssetTransform(rel, source) {
       'record.gores[side].push({gaps,paints,end:link?-1:end});taper.push({gaps,from,end,length:record.length,laneSpan:l.count*l.width});');
     replace('from+=record.length;\n    }\n  };\n  for(const [left,right] of fans)',
       'from+=record.length;\n    }\n    taperGore(taper,GORE_STEP,GORE_NEAR,Math.max(...other.map(p=>p.laneSpan)));\n  };\n  for(const [left,right] of fans)');
-  } else if (rel === 'world/assets/ramps.js') {
-    source = "import { approachProfile, APPROACH_REACH } from './tunnels.js';\n" + source;
-    replace('Math.ceil((MAX_ROAD_HEIGHT / MAX_ROAD_GRADE + STEP * 2) / 256) * 256',
-      'Math.ceil(Math.max(MAX_ROAD_HEIGHT / MAX_ROAD_GRADE + STEP * 2, APPROACH_REACH) / 256) * 256');
-    replace('return profiles.get(road.id) ?? baseProfile(env, road);',
-      'return approachProfile(env, road, profiles.get(road.id) ?? baseProfile(env, road));');
   } else if (rel === 'world/assets/foundations.js') {
     // The highest roof is now below ground, so buildings stay on their lots.
     replace('0.025 + TUNNEL_CLEARANCE + 0.4', '0');
@@ -45,6 +45,6 @@ export function tunnelAssetTransform(rel, source) {
 }
 
 export const tunnelAssetPaths = new Set([
-  'world/assets/tile.worker-Ai2ZdmRL.js', 'world/assets/ramps.js', 'world/assets/lane-layout.js',
+  'world/assets/tile.worker-Ai2ZdmRL.js', 'world/assets/streets-CfYSUqyW.js', 'world/assets/lane-layout.js',
   'world/assets/foundations.js', 'world/assets/environment-WQwLg8tn.js',
 ]);

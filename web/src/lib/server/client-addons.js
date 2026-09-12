@@ -24,6 +24,9 @@ export const ADDONS = {
     // Stops rapid thumbstick touches from becoming Safari double-tap or pinch
     // zoom gestures. The game controls use Pointer Events for their actions.
     '/world-addons/touch-zoom.js',
+    // Keeps a collapsible HUD in the upper-left, lets the touch map collapse to a small
+    // button, and gives admins a live traffic-density control beside it.
+    '/world-addons/mobile-map.js',
     // A right-hand camera stick for touch devices, in both of the client's
     // modes; upstream ships only a movement stick and a drag-to-look zone.
     '/world-addons/look-stick.js',

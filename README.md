@@ -181,7 +181,30 @@ and the scripts live in `web/static/`. They
 reach the running game through `window.__game`, the handle `main.ts` already
 exposes for playtesting. Every other file goes out untransformed.
 
-Four addons ship today.
+Five addons ship today.
+
+**`mobile-map.js` makes the play-mode minimap collapsible on touch devices.**
+It keeps the map itself at the upper-left edge, ahead of the HUD status chips,
+and adds a small in-map control. The map starts expanded; tapping the control
+collapses it to a `MAP +` pill without hiding health, location, or status, and
+tapping again restores it. The whole map, vitals, and location stack is pinned
+to the safe upper-left corner on desktop and mobile; the desktop notification
+feed sits in the lower-left corner. A `HUD −` button on desktop and mobile
+collapses the whole stack to a `HUD +` button; expanding restores its contents.
+Admins also get a live traffic-density slider
+beside the map, scaled from zero to a 400-car ceiling (or the device's native
+budget when that is higher); it is hidden from everyone else. `?mobilemap=1`
+exposes the map control on desktop for testing, while `?mobilemap=0` disables
+the addon.
+
+The SvelteKit vehicle transform in `traffic-assets.js` loads
+`traffic-distribution.js` to distribute traffic by available lane length and
+occupancy across highways, ramps, arterials, and side streets. It includes short
+OSM segments and follows curved lane paths when choosing spawn points. Camera
+views favor roads ahead without excluding the surrounding network. Vehicle mixes
+vary by road type, with fewer taxis and more passenger and delivery vehicles on
+highways. The rendering pools allow more simultaneous cars, including distant
+models on iOS. Run `cd web && npm run test:traffic` for the Cross Bronx replay.
 
 **`look-stick.js` gives touch devices a thumbstick for the camera**, in both of
 the client's modes.
