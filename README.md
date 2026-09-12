@@ -411,6 +411,11 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
   absent, and there is no `vite.config`, `package.json`, or `index.html` for it.
   The container serves the original compiled bundle, not a rebuild of `src/`.
 - Deliberate modifications to the mirrored bundle:
+  - The scene texture decoder caps mobile building and street maps at 256 px
+    on the longest edge, preserving aspect ratio and leaving desktop maps at
+    their original resolution. The worker and its main-thread fallback both
+    apply the cap before upload. Run `cd web && npm run test:textures` to check
+    both paths against the shipped client.
   - `tools/patch-offline.js` repoints the web-font `<link>` from Google Fonts to
     the vendored copy. Upstream already ships system-font fallbacks, so this only
     removes a network round-trip.

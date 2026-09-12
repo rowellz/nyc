@@ -7,16 +7,20 @@ self.onmessage = async (event: MessageEvent<{ id: number; url: string }>) => {
     const response = await __launchFetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${url}`);
     bitmap = await createImageBitmap(await response.blob(), { imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    // Mobile maps use a quarter of the pixels of the existing 512px variants.
+    const scale = url.includes('/assets/textures-mobile/') ? Math.min(1, 256 / Math.max(bitmap.width, bitmap.height)) : 1;
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = new OffscreenCanvas(width, height);
     const g = canvas.getContext('2d', { willReadFrequently: true })!;
-    g.drawImage(bitmap, 0, 0);
-    const image = g.getImageData(0, 0, bitmap.width, bitmap.height);
+    g.drawImage(bitmap, 0, 0, width, height);
+    const image = g.getImageData(0, 0, width, height);
     const sample = new OffscreenCanvas(32, 32).getContext('2d')!;
     sample.drawImage(bitmap, 0, 0, 32, 32);
     const pixels = sample.getImageData(0, 0, 32, 32).data, mean = [0, 0, 0];
     const linear = (v: number) => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
     for (let i = 0; i < pixels.length; i += 4) for (let c = 0; c < 3; c++) mean[c] += linear(pixels[i + c] / 255) / 1024;
-    self.postMessage({ id, width: bitmap.width, height: bitmap.height, data: image.data, mean }, { transfer: [image.data.buffer] });
+    self.postMessage({ id, width, height, data: image.data, mean }, { transfer: [image.data.buffer] });
   } catch (error) { self.postMessage({ id, error: String(error) }); }
   finally { bitmap?.close(); }
 };
