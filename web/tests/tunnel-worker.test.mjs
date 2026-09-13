@@ -17,7 +17,7 @@ const sandbox = { console, performance, self: { postMessage: value => { response
   $roadFootprints: roadFootprints, $deckEdges: deckEdges, $barrierRuns: barrierRuns,
   $clearanceProfile: clearanceProfile, $roadDeckTriangles: roadDeckTriangles,
   $triangleHeight: triangleHeight, $roadDeckHeight: roadDeckHeight, $supportPlanner: supportPlanner,
-  $tunnelFinish: tunnels.finishTunnelApproaches, $tunnelBuild: tunnels.buildTunnels,
+  $tunnelFinish: tunnels.finishTunnelApproaches, $tunnelSurfaceMarking: tunnels.surfaceMarkingAllowed, $tunnelBuild: tunnels.buildTunnels,
   $tunnelNetwork: tunnels.tunnelNetwork, $tunnelCut: tunnels.cutBuilder,
   $carriagewayIndex: carriagewayIndex, $pathHalfWidth: pathHalfWidth,
   $pathPieceClear: pathPieceClear, $resolveRoadOverlaps: resolveRoadOverlaps,

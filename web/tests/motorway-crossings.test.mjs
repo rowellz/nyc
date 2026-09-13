@@ -216,6 +216,38 @@ for(const [a,b,s,t]of gwbCrossings)for(const [id,at]of[[a,s],[b,t]]) {
 }
 assert(laneSamples>1000);
 console.log(`PASS ${laneSamples} GWB passenger-lane floor, body-clearance, and support samples`);
+
+// These shallow overlaps have no centreline intersection. The loop ramp and
+// its short bridge connector used to pass through the upper-level deck, whose
+// nearby tunnel mouth prevented the raise-only planner from finding clearance.
+const shallowPairs = [[16586045000,8119592001], [16586045000,1303147022000], [44763891000,46618200000]];
+const gwbTile = built.get('13_-42');
+let shallowSamples = 0;
+for (const pair of shallowPairs) {
+  let checked = 0;
+  for (const id of pair) {
+    const r = roads.find(r => r.id === id), edges = deckEdges(r, roads, Math.max(3.2,r.width/2));
+    const count = edges.layout.count, width = edges.layout.width;
+    const other = pair.find(other => other !== id), faces = roadDeckTriangles(gwbTile.decks,other);
+    for (let s = 0; s < length(r); s += 2) for (let lane = 0; lane < count; lane++) for (const offset of [-.9,0,.9]) {
+      const [x,z] = edges.line(s,(lane+.5-count/2)*width+offset);
+      const own = roadDeckTriangles(gwbTile.decks,id).map(tri => triangleHeight(tri,x,z)).find(h => h?.inside);
+      const above = faces.map(tri => triangleHeight(tri,x,z)).find(h => h?.inside);
+      if (!own || !above) continue;
+      assert(Math.abs(own.height-above.height)-1 >= 4.8, `GWB shallow overlap ${pair} at ${x},${z}: ${own.height}/${above.height}`);
+      assert(Math.abs(tunnels.trafficHeight(world,r,x,z,own.height)-own.height)<.03, `GWB shallow traffic support on ${id}`);
+      const physical = (colliders.get('13_-42').get(`${Math.floor(x/16)},${Math.floor(z/16)}`) ?? [])
+        .map(tri => triangleHeight(tri,x,z)).filter(h => h?.inside).map(h => h.height);
+      assert(physical.some(h => Math.abs(h-own.height)<.04), `GWB shallow driving floor on ${id}`);
+      assert(!physical.some(h => h>own.height+.3 && h<own.height+2.1), `GWB shallow passenger clearance on ${id}`);
+      checked++;
+    }
+  }
+  assert(checked > 10, `exercise both lane edges at shallow overlap ${pair}`);
+  shallowSamples += checked;
+}
+console.log(`PASS ${shallowSamples} GWB shallow-overlap pavement, collider, and traffic samples`);
+
 // Each tile owns its portion of a way. A neighboring job may carry a different
 // height estimate outside its tile, and must not overwrite the owner's section.
 const approach=road(90,[[-100,128],[600,128]],{bridge:false,layer:0});

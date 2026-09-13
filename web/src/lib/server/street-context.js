@@ -85,9 +85,23 @@ export function streetContext(tile, index, neighbors) {
   };
 }
 
+/** Build once per release, keeping only roads rather than every tile's geometry. */
+export async function buildStreetCatalog(directory) {
+  const names = (await readdir(directory)).filter(name => /^-?\d+_-?\d+\.json\.gz$/.test(name)).sort();
+  const roads = new Map();
+  for (let i = 0; i < names.length; i += 8) {
+    const tiles = await Promise.all(names.slice(i, i + 8).map(async name =>
+      JSON.parse(await inflate(await readFile(path.join(directory, name))))));
+    for (const tile of tiles) for (const road of tile.roads) {
+      if (!roads.has(road.id) && road.pts.length >= 2) roads.set(road.id, road);
+    }
+  }
+  return { version: 1, keys: names.map(name => name.slice(0, -8)), roads: [...roads.values()] };
+}
+
 /** Keep planning data separate from scene residency. The road index is shared
  * across requests; decoded neighborhoods and compressed responses are bounded. */
-export function createStreetTileService(directory) {
+export function createStreetTileService(directory, { catalogPath } = {}) {
   let catalog;
   const decoded = new Map(), encoded = new Map();
   const cached = (cache, key, limit, build) => {
@@ -101,14 +115,10 @@ export function createStreetTileService(directory) {
   };
   const read = async key => JSON.parse(await inflate(await readFile(path.join(directory, `${key}.json.gz`))));
   const initialize = async () => {
-    const names = (await readdir(directory)).filter(name => /^-?\d+_-?\d+\.json\.gz$/.test(name)).sort();
-    const keys = new Set(names.map(name => name.slice(0, -8))), index = createRoadIndex();
-    // Yield during disk reads/inflation instead of blocking the game socket on
-    // a synchronous scan. Retain roads only, not city-wide building/polygon data.
-    for (let i = 0; i < names.length; i += 8) {
-      const tiles = await Promise.all(names.slice(i, i + 8).map(name => read(name.slice(0, -8))));
-      for (const tile of tiles) for (const road of tile.roads) index.add(road);
-    }
+    const data = catalogPath ? JSON.parse(await readFile(catalogPath, 'utf8')) : await buildStreetCatalog(directory);
+    if (data.version !== 1) throw new Error('Unsupported street catalog version');
+    const keys = new Set(data.keys), index = createRoadIndex();
+    for (const road of data.roads) index.add(road);
     return { keys, index };
   };
   return key => cached(encoded, key, 64, async () => {

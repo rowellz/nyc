@@ -27,7 +27,7 @@ export async function GET({ params, url, request }) {
   // /world/ -> public/world/index.html. Pages this service extends get its
   // addon tags appended; everything else goes out exactly as mirrored.
   const rel = file ? `world/${file}` : 'world/index.html';
-  return serveStatic(rel, { method: request.method, transform: addonsFor(rel) });
+  return serveStatic(rel, { method: request.method, acceptEncoding: request.headers.get('accept-encoding'), transform: addonsFor(rel) });
 }
 
 export const HEAD = GET;

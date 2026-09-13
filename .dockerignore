@@ -4,6 +4,7 @@ server/node_modules
 web/node_modules
 web/.svelte-kit
 web/build
+web/generated
 src/maps
 *.md
 .DS_Store

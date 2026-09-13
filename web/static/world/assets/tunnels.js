@@ -114,13 +114,28 @@ function project(road, x, z) {
 }
 
 const worldCache = new WeakMap();
+/** The tunnel builder owns paint on below-ground approaches. Surface marking
+ * generation has no negative deck for wholly buried pieces and falls back to
+ * street height. Check the owning road, so real streets above a bore survive. */
+export function surfaceMarkingAllowed(roads, road, x, z) {
+  if (!road) return true;
+  const profile = tunnelNetwork(roads).get(road.id);
+  if (!profile?.approach) return true;
+  const point = project(road, x, z);
+  return !point || tunnelHeight(profile, point.along) >= 0;
+}
+
 export function worldTunnels(world) {
   // Tile identities change on replacement as well as loading/unloading.
   const tiles = [...world.tiles.values()];
   let cached = worldCache.get(world);
   if (!cached || tiles.length !== cached.tiles.length || tiles.some((t, i) => t !== cached.tiles[i]
-    || t.approachProfiles !== cached.elevations[i])) {
-    cached = { tiles, profiles: tunnelNetwork(tiles.flatMap(t => t.roads)) };
+    || t.approachProfiles !== cached.elevations[i] || t.streetContext !== cached.contexts[i])) {
+    // Streets build with complete nearby ways, including tunnels whose owner
+    // tiles are not resident. Terrain and support must use that same network.
+    const roads = [...new Map(tiles.flatMap(t => [...(t.streetContext?.roads ?? []), ...t.roads])
+      .map(road => [road.id, road])).values()];
+    cached = { tiles, profiles: tunnelNetwork(roads), contexts: tiles.map(t => t.streetContext) };
     cached.elevations = tiles.map(t => t.approachProfiles);
     // A worker profiles the whole way for stable interpolation, but owns only
     // its tile. Prefer the owner at each station instead of letting whichever
@@ -422,21 +437,34 @@ function recut(mesh, holes) {
 }
 
 const waterProfiles = new WeakMap();
-const cutLandTiles = new WeakMap();
+const terrainStates = new WeakMap();
 /** Rebuild from original surfaces, so streamed neighbours can reveal or remove
  * portals without accumulating holes. The collider gets the very same cuts. */
-export function syncTunnelTerrain(ctx, tile) {
-  const profiles = worldTunnels(ctx.world), holes = tunnelHoles(profiles);
-  const local = holes.filter(r => Math.max(...r.map(p => p[0])) >= tile.tx * 256 && Math.min(...r.map(p => p[0])) <= (tile.tx + 1) * 256
-    && Math.max(...r.map(p => p[1])) >= tile.tz * 256 && Math.min(...r.map(p => p[1])) <= (tile.tz + 1) * 256);
-  const ground = ctx.scene.getObjectByName(`env-ground-${tile.key}`);
-  if (ground) recut(ground, local);
-  // Keep tile water classification intact; only the collider geometry is cut.
-  let cutTiles = cutLandTiles.get(ctx.physics);
-  if (!cutTiles) { cutTiles = new Set(); cutLandTiles.set(ctx.physics, cutTiles); }
-  if (ctx.physics.ready !== false && (local.length || cutTiles.has(tile.key))) {
-    ctx.physics.loadLand(tile, local);
-    if (local.length) cutTiles.add(tile.key); else cutTiles.delete(tile.key);
+export function syncTunnelTerrain(ctx, tile = null) {
+  const profiles = worldTunnels(ctx.world);
+  let state = terrainStates.get(ctx);
+  if (!state) { state = { profiles: null, holes: [], tiles: new Map() }; terrainStates.set(ctx, state); }
+  const changed = state.profiles !== profiles;
+  if (changed) {
+    state.profiles = profiles; state.holes = tunnelHoles(profiles);
+    for (const key of state.tiles.keys()) if (!ctx.world.tiles.has(key)) state.tiles.delete(key);
+  }
+  // A tunnel or its worker elevation can change an approach in another tile.
+  // Refresh resident neighbors too, but only rebuild surfaces whose cuts differ.
+  for (const current of changed ? ctx.world.tiles.values() : tile ? [tile] : []) {
+    if (ctx.world.tiles.get(current.key) !== current) continue;
+    const local = state.holes.filter(r => Math.max(...r.map(p => p[0])) >= current.tx * 256 && Math.min(...r.map(p => p[0])) <= (current.tx + 1) * 256
+      && Math.max(...r.map(p => p[1])) >= current.tz * 256 && Math.min(...r.map(p => p[1])) <= (current.tz + 1) * 256);
+    const signature = JSON.stringify(local), previous = state.tiles.get(current.key);
+    const ground = ctx.scene.getObjectByName(`env-ground-${current.key}`);
+    if (ground && (ground !== previous?.ground || signature !== previous?.signature)) recut(ground, local);
+    const colliderReady = ctx.physics.ready !== false;
+    // Keep water classification intact; only collider geometry gets the cuts.
+    if (colliderReady && (local.length || previous?.cut)
+      && (previous?.tile !== current || signature !== previous?.signature || !previous?.colliderReady)) {
+      ctx.physics.loadLand(current, local);
+    }
+    state.tiles.set(current.key, { tile: current, ground, signature, cut: local.length > 0, colliderReady });
   }
   const water = ctx.scene.getObjectByName('env-water');
   if (water && waterProfiles.get(water) !== profiles) {

@@ -34,10 +34,10 @@ function plan(env, baseProfile) {
     layers.add(r.layer); ends.set(key, layers);
   }
   const nodes = [], byKey = new Map();
-  const node = (key, base, maximum) => {
-    if (!byKey.has(key)) { byKey.set(key, nodes.length); nodes.push({ base: -Infinity, maximum: MAX_ROAD_HEIGHT, links: [], crossings: [] }); }
+  const node = (key, base, maximum, floor) => {
+    if (!byKey.has(key)) { byKey.set(key, nodes.length); nodes.push({ base: -Infinity, floor: -Infinity, maximum: MAX_ROAD_HEIGHT, links: [], crossings: [] }); }
     const index = byKey.get(key), n = nodes[index];
-    n.base = Math.max(n.base, base); n.maximum = Math.min(n.maximum, maximum); return index;
+    n.base = Math.max(n.base, base); n.floor = Math.max(n.floor, floor); n.maximum = Math.min(n.maximum, maximum); return index;
   };
   const entries = roads.map(r => {
     const base = approachProfile(env, r, baseProfile(env, r)), points = [], approach = tunnels.get(r.id);
@@ -54,7 +54,7 @@ function plan(env, baseProfile) {
         const key = j === 0 ? `${xy}:${ends.get(xy)?.has(r.layer) ? 'end' : r.layer}` : `${r.id}:${i}:${j}`;
         const ceiling = approach ? approachCeiling(approach, s) : MAX_ROAD_HEIGHT;
         const maximum = approach ? (ceiling + PORTAL_DEPTH) * MAX_ROAD_GRADE / APPROACH_GRADE - PORTAL_DEPTH : MAX_ROAD_HEIGHT;
-        const id = node(key, base.hAt(s), maximum); points.push({ x, z, s, id, edges: edges(s) });
+        const id = node(key, base.hAt(s), maximum, approach ? -PORTAL_DEPTH : 0); points.push({ x, z, s, id, edges: edges(s) });
       }
       along += length;
     }
@@ -62,7 +62,10 @@ function plan(env, baseProfile) {
       const a = points[i - 1], b = points[i], distance = b.s - a.s;
       nodes[a.id].links.push([b.id, distance]); nodes[b.id].links.push([a.id, distance]);
     }
-    return { road: r, base, points, length: along, hw: base.hw };
+    const count = edges.layout?.count ?? r.lanes ?? 1, width = edges.layout?.width ?? r.width / count;
+    const bodyWidth = (count - 1) * width / 2 + .9;
+    return { road: r, base, points, length: along, hw: base.hw,
+      vehicleEdges: s => [-bodyWidth, bodyWidth].map(offset => edges.line(s, offset)) };
   });
   // Hold the whole ramp segment above a walking corridor. These are fixed ground
   // constraints, not graph connections that could pull pedestrians up with the road.
@@ -155,7 +158,12 @@ function plan(env, baseProfile) {
         const x = b.a.x - a.a.x, z = b.a.z - a.a.z, t = (x * ez - z * ex) / det, u = (x * dz - z * dx) / det;
         return t >= -1e-6 && t <= 1 + 1e-6 && u >= -1e-6 && u <= 1 + 1e-6;
       });
-      crossings.push({ ...pair, transverse, contacts: region, key: `${pair.key}:${first[0].i}:${first[1].i}` });
+      const vehicleRing = segment => segment.vehicleRing ??= [
+        ...segment.entry.vehicleEdges(segment.a.s), ...segment.entry.vehicleEdges(segment.b.s).reverse()
+      ];
+      const vehicleOverlap = motorway(pair.a.road) && motorway(pair.b.road)
+        && region.some(([a, b]) => overlap(vehicleRing(a), vehicleRing(b)));
+      crossings.push({ ...pair, transverse, vehicleOverlap, contacts: region, key: `${pair.key}:${first[0].i}:${first[1].i}` });
     }
   }
   const required = separateCrossings(nodes, crossings);
@@ -179,7 +187,7 @@ function plan(env, baseProfile) {
 function separateCrossings(nodes, crossings) {
   const maximum = Float64Array.from(nodes, n => Math.min(MAX_ROAD_HEIGHT, n.maximum));
   let conflict = [];
-  const spread = (values, initial, upper, extra = false) => {
+  const spread = (values, initial, upper, extra = false, ceiling = maximum) => {
     const queue = [...initial], queued = new Uint8Array(nodes.length);
     const previous = extra ? new Int32Array(nodes.length).fill(-1) : null;
     const cause = extra ? new Array(nodes.length) : null, visits = new Uint32Array(nodes.length);
@@ -207,7 +215,7 @@ function separateCrossings(nodes, crossings) {
         if (upper ? value >= values[j] - 1e-7 : value <= values[j] + 1e-7) continue;
         values[j] = value;
         if (extra) { previous[j] = i; cause[j] = key; }
-        if (!upper && value > maximum[j] + 1e-7) {
+        if (!upper && value > ceiling[j] + 1e-7) {
           if (extra) trace(j);
           return false;
         }
@@ -254,7 +262,34 @@ function separateCrossings(nodes, crossings) {
     for (const n of nodes) n.crossings = [];
     for (const { crossing, side } of choices.values()) add(crossing, side);
   };
-  const repair = pending => {
+  const fit = () => {
+    // Propagate the upper bounds backwards through the selected stack before
+    // treating native bridge crowns as preferred (rather than fixed) heights.
+    const ceiling = maximum.slice(), reverse = nodes.map(() => []);
+    for (let i = 0; i < nodes.length; i++) for (const [j, delta, key] of nodes[i].crossings)
+      reverse[j].push([i, delta, key]);
+    const queue = [...all], queued = new Uint8Array(nodes.length).fill(1);
+    const previous = new Int32Array(nodes.length).fill(-1), cause = new Array(nodes.length);
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+      const i = queue[cursor]; queued[i] = 0;
+      for (const [j, delta, key] of [...nodes[i].links.map(([j,d])=>[j,-MAX_ROAD_GRADE*d]), ...reverse[i]]) {
+        const value = ceiling[i] - delta;
+        if (value >= ceiling[j] - 1e-7) continue;
+        ceiling[j] = value; previous[j] = i; cause[j] = key;
+        if (value < Math.max(nodes[j].floor, nodes[j].minimum ?? -Infinity) - 1e-7) {
+          const seen = new Set(), keys = new Set();
+          for (let p = j; p >= 0 && !seen.has(p); p = previous[p]) {
+            seen.add(p); if (cause[p]) keys.add(cause[p]);
+          }
+          conflict = [...keys]; return null;
+        }
+        if (!queued[j]) { queued[j] = 1; queue.push(j); }
+      }
+    }
+    const trial = Float64Array.from(nodes, (n,i)=>Math.min(ceiling[i],baseline[i]));
+    return spread(trial, all, false, true, ceiling) ? trial : null;
+  };
+  const repair = (pending, lower = false) => {
     const stack = [1 - pending.side, pending.side].map(side => new Map([...accepted, [pending.key, { crossing: pending, side }]]));
     const seen = new Set();
     // Search only decisions on a conflicting constraint path. A bounded local
@@ -265,8 +300,8 @@ function separateCrossings(nodes, crossings) {
       if (seen.has(signature)) continue;
       seen.add(signature); tries++;
       install(choices);
-      const trial = baseline.slice();
-      if (spread(trial, all, false, true)) return { choices, trial };
+      const trial = lower ? fit() : baseline.slice();
+      if (trial && (lower || spread(trial, all, false, true))) return { choices, trial };
       const alternatives = conflict.filter(key => key !== pending.key && choices.has(key)).sort();
       for (const key of alternatives.reverse()) {
         const choice = choices.get(key), next = new Map(choices);
@@ -290,6 +325,11 @@ function separateCrossings(nodes, crossings) {
       const result = repair(crossing);
       if (result) { heights = result.trial; accepted = result.choices; }
     }
+  }
+  for (const crossing of ordered) {
+    if (accepted.has(crossing.key) || !crossing.vehicleOverlap) continue;
+    const result = repair(crossing, true);
+    if (result) { heights = result.trial; accepted = result.choices; }
   }
   return heights;
 }

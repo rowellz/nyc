@@ -16,6 +16,11 @@ COPY web/src ./src
 COPY web/static ./static
 RUN npm run build && npm prune --omit=dev
 
+# Prepare the exact transformed client and road catalog once per image.
+COPY public/ ./public/
+COPY web/scripts ./scripts
+RUN node scripts/prepare-world.mjs /app/public /app/generated
+
 FROM node:22-alpine
 
 WORKDIR /app
@@ -24,12 +29,14 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOST=0.0.0.0 \
     BASE_PATH=/world \
-    PUBLIC_DIR=/app/public
+    PUBLIC_DIR=/app/public \
+    PREPARED_ASSET_DIR=/app/generated
 
 # adapter-node's output, plus the game modules server.js loads outside the
 # SvelteKit bundle (it owns the http server so it can accept the WS upgrade).
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/build ./build
+COPY --from=build /app/generated ./generated
 COPY web/package.json web/server.js ./
 COPY web/src/lib/server ./src/lib/server
 COPY web/src/lib/shared ./src/lib/shared
