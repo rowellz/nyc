@@ -33,6 +33,8 @@ export const ADDONS = {
     // Keeps camera mode from tripping the iOS crash guard, and remembers the
     // viewpoint for safe-return.js below.
     '/world-addons/camera-boot.js',
+    // Keep the current coordinates and camera angles in a shareable URL.
+    '/world-addons/camera-url.js',
     // Turns the river's sky and skyline reflections down.
     '/world-addons/water-reflection.js',
   ],

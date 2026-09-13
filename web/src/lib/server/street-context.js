@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
+import { correctStreetTile, keepStreetRoad } from './street-corrections.js';
 
 const inflate = promisify(gunzip), deflate = promisify(gzip);
 const TILE = 256, REACH = 512;
@@ -20,7 +21,7 @@ export function createRoadIndex() {
   const roads = new Map(), buckets = new Map();
   return {
     add(road) {
-      if (roads.has(road.id) || road.pts.length < 2) return;
+      if (!keepStreetRoad(road) || roads.has(road.id) || road.pts.length < 2) return;
       const item = { road, ...bounds(road) }; roads.set(road.id, item);
       for (let x = Math.floor(item.minX / TILE); x <= Math.floor(item.maxX / TILE); x++) {
         for (let z = Math.floor(item.minZ / TILE); z <= Math.floor(item.maxZ / TILE); z++) {
@@ -47,7 +48,7 @@ export function createRoadIndex() {
 export function streetContext(tile, index, neighbors) {
   const roads = new Map(index.near((tile.tx + .5) * TILE, (tile.tz + .5) * TILE, TILE / 2 + REACH)
     .map(road => [road.id, road]));
-  for (const road of tile.roads) roads.set(road.id, road);
+  for (const road of tile.roads) if (keepStreetRoad(road)) roads.set(road.id, road);
   // A complete way can end outside the planning halo. Include its endpoint
   // connections before assigning lanes or deciding where a bridge descends.
   for (const road of [...roads.values()]) if (road.bridge || road.tunnel || ['motorway', 'trunk'].includes(road.cls)) {
@@ -93,7 +94,7 @@ export async function buildStreetCatalog(directory) {
     const tiles = await Promise.all(names.slice(i, i + 8).map(async name =>
       JSON.parse(await inflate(await readFile(path.join(directory, name))))));
     for (const tile of tiles) for (const road of tile.roads) {
-      if (!roads.has(road.id) && road.pts.length >= 2) roads.set(road.id, road);
+      if (keepStreetRoad(road) && !roads.has(road.id) && road.pts.length >= 2) roads.set(road.id, road);
     }
   }
   return { version: 1, keys: names.map(name => name.slice(0, -8)), roads: [...roads.values()] };
@@ -113,7 +114,7 @@ export function createStreetTileService(directory, { catalogPath } = {}) {
     if (cache.size > limit) cache.delete(cache.keys().next().value);
     return value;
   };
-  const read = async key => JSON.parse(await inflate(await readFile(path.join(directory, `${key}.json.gz`))));
+  const read = async key => correctStreetTile(JSON.parse(await inflate(await readFile(path.join(directory, `${key}.json.gz`)))));
   const initialize = async () => {
     const data = catalogPath ? JSON.parse(await readFile(catalogPath, 'utf8')) : await buildStreetCatalog(directory);
     if (data.version !== 1) throw new Error('Unsupported street catalog version');
