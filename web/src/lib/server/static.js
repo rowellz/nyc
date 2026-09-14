@@ -18,6 +18,7 @@ import { mobilePerformanceAssetPaths, mobilePerformanceAssetTransform } from './
 import { versionClientImports } from './client-cache.js';
 import { createStreetTileService } from './street-context.js';
 import { streetContextAssetPaths, streetContextAssetTransform } from './street-context-assets.js';
+import { precompressedResponse } from './precompressed.js';
 
 /**
  * In development nothing is cached. The mirrored client is patched in place (see
@@ -43,7 +44,10 @@ const MIME = {
  * `/app/public` in the image, `../public` when running from web/ in the repo.
  */
 export const PUBLIC_DIR = resolvePublicDir();
-const streetTile = createStreetTileService(path.join(PUBLIC_DIR, 'world/world/tiles'));
+const PREPARED_DIR = !DEV && process.env.PREPARED_ASSET_DIR;
+const streetTile = createStreetTileService(path.join(PUBLIC_DIR, 'world/world/tiles'), {
+  catalogPath: PREPARED_DIR ? path.join(PREPARED_DIR, 'road-index.json') : undefined,
+});
 
 function resolvePublicDir() {
   if (process.env.PUBLIC_DIR) return path.resolve(process.env.PUBLIC_DIR);
@@ -57,7 +61,7 @@ function resolvePublicDir() {
 /**
  * Serve one file out of PUBLIC_DIR.
  * @param {string} relPath path relative to PUBLIC_DIR, e.g. "world/assets/main.js"
- * @param {{ method?: string, transform?: (text: string) => string }} [options]
+ * @param {{ method?: string, acceptEncoding?: string | null, transform?: (text: string) => string }} [options]
  *   `transform` rewrites the file as UTF-8 text before it goes out, which is how
  *   the client's index.html picks up this service's addons. It reads the whole
  *   file instead of streaming it, so keep it for small ones.
@@ -127,12 +131,20 @@ export async function serveStatic(relPath, options = {}) {
       headers['cache-control'] = 'no-store';
     }
     headers['content-length'] = String(Buffer.byteLength(body));
+    if (PREPARED_DIR && ext === '.js' && !options.transform) {
+      const compressed = await precompressedResponse(PREPARED_DIR, rel, headers, options);
+      if (compressed) return compressed;
+    }
     if ((options.method || 'GET').toUpperCase() === 'HEAD') {
       return new Response(null, { status: 200, headers });
     }
     return new Response(body, { status: 200, headers });
   }
 
+  if (PREPARED_DIR && ext === '.css') {
+    const compressed = await precompressedResponse(PREPARED_DIR, rel, headers, options);
+    if (compressed) return compressed;
+  }
   if ((options.method || 'GET').toUpperCase() === 'HEAD') {
     return new Response(null, { status: 200, headers });
   }

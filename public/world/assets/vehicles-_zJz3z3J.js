@@ -546,7 +546,7 @@ class Traffic {
       c.turn = c.next ? heading.dx * c.next.dz - heading.dz * c.next.dx : 0;
       let desired = lane.speed * (Math.abs(c.turn) > 0.3 && remain < 16 ? 0.45 : 1);
       let gap = Infinity;
-      const signal = lane.road.tunnel || lane.road.bridge || c.y > 0.3 ? null : signals?.signalFor?.(c.x, c.z, heading.dx, heading.dz);
+      const signal = lane.road.tunnel ? null : signals?.signalFor?.(c.x, c.z, heading.dx, heading.dz, lane.road.layer ?? 0);
       if (signal && signal.state !== 'green' && (signal.state === 'red' || signal.dist > c.speed * 0.8 + spec.front)) {
         const ahead = (signal.stopX - c.x) * heading.dx + (signal.stopZ - c.z) * heading.dz;
         if (ahead > 0) gap = Math.max(0, ahead - spec.front - 1);

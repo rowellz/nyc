@@ -1,16 +1,15 @@
-import type { Prop, RoadSegment } from '@shared/world';
 
-export interface SignalArm { fx: number; fz: number; width: number; incoming: boolean }
-export interface SignalApproach {
-  x: number; z: number; fx: number; fz: number; incoming: boolean;
-  layer: number; width: number; setback: number; arms: SignalArm[];
-}
+
+
+
+
+
 
 /** Generated poles include every segment end, including exits of one-way roads.
  * Recover their common intersection node, not the corner/pole position. */
-export function signalApproach(p: Prop, roads: readonly RoadSegment[]): SignalApproach | null {
+export function signalApproach(p      , roads                        )                        {
   const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
-  let best: SignalApproach | null = null, distance = 35 ** 2;
+  let best                        = null, distance = 35 ** 2;
   for (const r of roads) {
     if (r.tunnel || r.lanes < 1 || r.pts.length < 2) continue;
     for (const atStart of [true, false]) {
@@ -22,7 +21,7 @@ export function signalApproach(p: Prop, roads: readonly RoadSegment[]): SignalAp
       const d = (p.x - node[0]) ** 2 + (p.z - node[1]) ** 2;
       if (d > distance) continue;
       // Do not treat a shape/continuation vertex as a separate intersection.
-      const arms: SignalArm[] = [];
+      const arms              = [];
       for (const other of roads) {
         if (other.tunnel || other.lanes < 1 || other.pts.length < 2 || (other.layer ?? 0) !== (r.layer ?? 0)) continue;
         for (const start of [true, false]) {

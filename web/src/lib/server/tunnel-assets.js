@@ -6,7 +6,11 @@ export function tunnelAssetTransform(rel, source) {
     source = source.replace(before, after);
   };
   if (rel === 'world/assets/tile.worker-Ai2ZdmRL.js') {
-    source = "import { finishTunnelApproaches as $tunnelFinish } from './tunnels.js';\n" + source;
+    source = "import { finishTunnelApproaches as $tunnelFinish, surfaceMarkingAllowed as $tunnelSurfaceMarking } from './tunnels.js';\n" + source;
+    replace('const paving = Math.max(0, baseAt(x, z) - deckAt(x, z));',
+      'if(!$tunnelSurfaceMarking(env.tile.roads,currentRoad,x,z))return;const paving = Math.max(0, baseAt(x, z) - deckAt(x, z));');
+    replace('const h = hash2(seed, x + z);',
+      'if(!$tunnelSurfaceMarking(env.tile.roads,currentRoad,x,z))return;const h = hash2(seed, x + z);');
     replace('Rr(p,c,d,s),Hr(p,d,s),f.rasterize(c.pos,c.idx.slice(_),c.aA,1/0);',
       'Rr(p,c,d,s),$tunnelFinish(c,d,s,m,$profiles),Hr(p,d,s),f.rasterize(c.pos,c.idx,c.aA,1/0);');
     replace('-Sr)),{meshes:[pi(c.build())', '-Sr)),$tunnelCut(u,$profiles),{meshes:[pi(c.build())');
@@ -16,6 +20,8 @@ export function tunnelAssetTransform(rel, source) {
   } else if (rel === 'world/assets/streets-CfYSUqyW.js') {
     replace('n.decks=i.decks,$tunnelTerrain(e,n.tile)',
       'n.decks=i.decks,n.tile.approachProfiles=i.approachProfiles,$tunnelTerrain(e,n.tile)');
+    replace('e.events.on(`tileUnloaded`,ee)',
+      'e.events.on(`tileUnloaded`,t=>{ee(t);$tunnelTerrain(e)})');
   } else if (rel === 'world/assets/lane-layout.js') {
     source = "import { taperGore } from './lane-transitions.js';\n" + source;
     // A fan shifts the whole lane envelope sideways. Carry the outside shoulder

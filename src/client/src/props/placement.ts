@@ -247,12 +247,12 @@ export function* placeTileSteps(ctx: GameContext, tile: Tile, store: PropTile, a
         }
         break;
       case 'traffic_signal': {
-        const roads = ctx.world.roadsNear?.(p.x, p.z, 45) ?? tile.roads;
+        const roads = tile.streetContext?.roads ?? ctx.world.roadsNear?.(p.x, p.z, 45) ?? tile.roads;
         const approach = signalApproach(p, roads);
         if (approach && !network.claimApproach(approach, tile.key)) break;
         // Coordinate duplicates without a resolved junction still need only one pole.
         if (network.poles.some(s => Math.hypot(s.x - p.x, s.z - p.z) < 0.5 && s.fx * -Math.sin(yaw) + s.fz * -Math.cos(yaw) > 0.95)) break;
-        const pole = network.addPole(p.x, p.z, yaw, tile.key), id = nextId();
+        const pole = network.addPole(p.x, p.z, yaw, tile.key, approach), id = nextId();
         poles.set(id, pole); store.signals.push(id);
         add('signal', 0, 0, 0, yaw, [0, 0, 0, id]);
         // pedestrian heads: bottom at ~2.1 m (7 ft), one per crosswalk, clear of the sign plates above

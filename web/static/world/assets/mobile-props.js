@@ -1,4 +1,5 @@
 /** Mobile street furniture: cached placement, worker clearance and staged GPU updates. */
+import { signalApproach } from './signal-placement.js';
 export function createMobileProps(ctx, deps) {
   const { Group, Material, InstancedMesh, Matrix4, Quaternion, Vector3, SignalNetwork,
     nearestProps, geometryFor, streetLampPlacement, tileKey, tileIndex, buildScope } = deps;
@@ -51,7 +52,12 @@ export function createMobileProps(ctx, deps) {
           const matrix = new Matrix4().compose(position, quaternion, scale);
           if (!kinds.has(prop.kind)) kinds.set(prop.kind, []);
           kinds.get(prop.kind).push(matrix);
-          if (prop.kind === 'traffic_signal') signals.addPole(prop.x, prop.z, prop.yaw, tileKey(tileIndex(prop.x), tileIndex(prop.z)));
+          if (prop.kind === 'traffic_signal') {
+            const key = tileKey(tileIndex(prop.x), tileIndex(prop.z));
+            const roads = ctx.world.tiles.get(key)?.streetContext?.roads ?? ctx.world.roadsNear?.(prop.x, prop.z, 45) ?? [];
+            const approach = signalApproach(prop, roads);
+            if (approach?.incoming !== false) signals.addPole(prop.x, prop.z, prop.yaw, key, approach);
+          }
         }
         // Ground queries, signals and matrix preparation share the scene budget.
         yield;
@@ -106,7 +112,7 @@ export function createMobileProps(ctx, deps) {
   }
   refresh();
   return { name: 'props', stats,
-    signalFor: (x, z, dx, dz) => network.signalFor(x, z, dx, dz, ctx.state.serverTime()),
+    signalFor: (x, z, dx, dz, layer) => network.signalFor(x, z, dx, dz, ctx.state.serverTime(), layer),
     update(_dt, t) {
       if (disposed || t < next) return;
       next = t + 0.5;

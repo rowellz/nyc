@@ -96,6 +96,40 @@ const gwbCrossings=[
 ];
 const cases=[...crossings,...gwbCrossings];
 for(const [a,b,s,t] of cases) assert(Math.abs(profiles.get(a).hAt(s)-profiles.get(b).hAt(t)) >= 5.9, `intersecting profiles ${a}/${b}`);
+// Absolute separation alone accepted the reported bug: the surface corridor
+// was 24–27 m high, above both bridge levels. Assert the physical order too.
+const groundIds=[8119481000,160061999000,165423253000,1086766006000,165422866000,
+  959102718000,1087556933000,995482529000,997454372000,997454373000,
+  1087557588000,1087557589000,8119579000,1087630770000];
+for(const id of groundIds) {
+  const r=roads.find(r=>r.id===id),p=clearanceProfile(env,r,scope.nativeProfile);
+  for(let s=0;s<=length(r);s++) assert(Math.abs(p.hAt(s))<1e-6,`surface corridor ${id} floats at ${s}`);
+}
+for(const [a,b,s,t] of gwbCrossings) {
+  if(groundIds.includes(a)) assert(profiles.get(b).hAt(t)-profiles.get(a).hAt(s)>=5.9,`bridge ${b} must pass above ${a}`);
+  if(groundIds.includes(b)) assert(profiles.get(a).hAt(s)-profiles.get(b).hAt(t)>=5.9,`bridge ${a} must pass above ${b}`);
+}
+const riverside=roads.find(r=>r.id===1086766006000);
+let riversideCrossings=0;
+for(const r of roads.filter(r=>r.bridge&&/George Washington Bridge/.test(r.name))) {
+  let along=0;
+  for(let i=1;i<r.pts.length;i++) {
+    const a=r.pts[i-1],b=r.pts[i],dx=b[0]-a[0],dz=b[1]-a[1];
+    for(let j=1;j<riverside.pts.length;j++) {
+      const c=riverside.pts[j-1],d=riverside.pts[j],ex=d[0]-c[0],ez=d[1]-c[1],det=dx*ez-dz*ex;
+      if(Math.abs(det)<1e-8)continue;
+      const x=c[0]-a[0],z=c[1]-a[1],t=(x*ez-z*ex)/det,u=(x*dz-z*dx)/det;
+      if(t<0||t>1||u<0||u>1)continue;
+      assert(profiles.get(r.id).hAt(along+t*Math.hypot(dx,dz))>=5.9,`GWB ${r.id} must clear Riverside Drive`);
+      riversideCrossings++;
+    }
+    along+=Math.hypot(dx,dz);
+  }
+}
+assert(riversideCrossings>=4,'exercise both carriageways of both GWB levels over Riverside');
+const parkwayBridge=roads.find(r=>r.id===278618232000);
+assert(clearanceProfile(env,parkwayBridge,scope.nativeProfile).H>0,'retain the parkway bridge north of the underpass');
+console.log('PASS Riverside Drive and both parkway carriageways stay on the ground beneath both GWB levels');
 let grades=0;const joins=new Map();
 for(const r of roads.filter(r=>profiles.has(r.id))) {
   const p=profiles.get(r.id),size=length(r);
@@ -141,7 +175,14 @@ for(const key of ['13_-42','17_-40','17_-41','19_-40']) {
   const tile={...original,buildings:[],roadbeds:[],sidewalks:[],medians:[],parks:[],water:[],parking:[],plazas:[],crossings:[],trees:[],props:[]};
   await scope.self.onmessage({data:{id:1,input:{tile,roads:near,pedestrianTiles:[tile],quality:{level:'mobile',shadows:false}}}});
   assert(!scope.response.error,scope.response.error); built.set(key,scope.response.built);
-  const cells=new Map(),{colliderPos:positions,colliderIdx:indices}=scope.response.built;
+  // Surface roads now use the land collider. Include the actual tunnel cuts
+  // instead of assuming every driven road owns an elevated deck collider.
+  const x=tile.tx*256,z=tile.tz*256;
+  const terrain=tunnels.cutGround({position:{array:new Float32Array([
+    x,0,z,x+256,0,z,x+256,0,z+256,x,0,z+256]),itemSize:3}},[0,2,1,0,3,2],
+    tunnels.tunnelHoles(tunnels.tunnelNetwork(near)));
+  const cells=new Map(),positions=[...scope.response.built.colliderPos,...terrain.attributes.position.array];
+  const indices=[...scope.response.built.colliderIdx,...terrain.index.map(i=>i+scope.response.built.colliderPos.length/3)];
   for(let i=0;i<indices.length;i+=3) {
     const tri=[0,1,2].map(j=>Array.from(positions.slice(indices[i+j]*3,indices[i+j]*3+3)));
     for(let x=Math.floor(Math.min(...tri.map(p=>p[0]))/16);x<=Math.floor(Math.max(...tri.map(p=>p[0]))/16);x++)
@@ -216,6 +257,38 @@ for(const [a,b,s,t]of gwbCrossings)for(const [id,at]of[[a,s],[b,t]]) {
 }
 assert(laneSamples>1000);
 console.log(`PASS ${laneSamples} GWB passenger-lane floor, body-clearance, and support samples`);
+
+// These shallow overlaps have no centreline intersection. The loop ramp and
+// its short bridge connector used to pass through the upper-level deck, whose
+// nearby tunnel mouth prevented the raise-only planner from finding clearance.
+const shallowPairs = [[16586045000,8119592001], [16586045000,1303147022000], [44763891000,46618200000]];
+const gwbTile = built.get('13_-42');
+let shallowSamples = 0;
+for (const pair of shallowPairs) {
+  let checked = 0;
+  for (const id of pair) {
+    const r = roads.find(r => r.id === id), edges = deckEdges(r, roads, Math.max(3.2,r.width/2));
+    const count = edges.layout.count, width = edges.layout.width;
+    const other = pair.find(other => other !== id), faces = roadDeckTriangles(gwbTile.decks,other);
+    for (let s = 0; s < length(r); s += 2) for (let lane = 0; lane < count; lane++) for (const offset of [-.9,0,.9]) {
+      const [x,z] = edges.line(s,(lane+.5-count/2)*width+offset);
+      const own = roadDeckTriangles(gwbTile.decks,id).map(tri => triangleHeight(tri,x,z)).find(h => h?.inside);
+      const above = faces.map(tri => triangleHeight(tri,x,z)).find(h => h?.inside);
+      if (!own || !above) continue;
+      assert(Math.abs(own.height-above.height)-1 >= 4.8, `GWB shallow overlap ${pair} at ${x},${z}: ${own.height}/${above.height}`);
+      assert(Math.abs(tunnels.trafficHeight(world,r,x,z,own.height)-own.height)<.03, `GWB shallow traffic support on ${id}`);
+      const physical = (colliders.get('13_-42').get(`${Math.floor(x/16)},${Math.floor(z/16)}`) ?? [])
+        .map(tri => triangleHeight(tri,x,z)).filter(h => h?.inside).map(h => h.height);
+      assert(physical.some(h => Math.abs(h-own.height)<.04), `GWB shallow driving floor on ${id}`);
+      assert(!physical.some(h => h>own.height+.3 && h<own.height+2.1), `GWB shallow passenger clearance on ${id}`);
+      checked++;
+    }
+  }
+  assert(checked > 10, `exercise both lane edges at shallow overlap ${pair}`);
+  shallowSamples += checked;
+}
+console.log(`PASS ${shallowSamples} GWB shallow-overlap pavement, collider, and traffic samples`);
+
 // Each tile owns its portion of a way. A neighboring job may carry a different
 // height estimate outside its tile, and must not overwrite the owner's section.
 const approach=road(90,[[-100,128],[600,128]],{bridge:false,layer:0});

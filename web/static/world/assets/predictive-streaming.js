@@ -1,5 +1,6 @@
 // The recovered streamer owns fetching, decoding, indexing and tile events.
 // Replace its scheduling policy without changing those lifetime contracts.
+import { installTileRequests } from './tile-requests.js';
 const TILE = 256;
 // The 512 m neighborhood spans at most 5x5 tiles, with room for one route
 // tile, three recently used tiles and an urgent arrival during retirement.
@@ -33,13 +34,13 @@ function routeEntry(tx, tz, x, z, dx, dz) {
 // enforces one publication per frame and its resident-tile limit.
 export function canCommitSceneTile(ctx, world) {
   if ((ctx.busy ?? 0) < 16) return true;
-  if (!world.ios) return false;
   const key = keyOf(Math.floor(world.focus.x / TILE), Math.floor(world.focus.z / TILE));
   return !world.tiles.has(key) && world.landed.some(({ p, id }) =>
     p.key === key && world.inFlight.get(key) === id);
 }
 
 export function configureStreaming(world, camera) {
+  const cancelObsoleteRequests = installTileRequests(world);
   const mobile = world.mobile || world.ios;
   const mobileRequestLimit = world.ios ? IOS_STREAMING.requests : 2;
   const originalUpdate = world.update;
@@ -106,8 +107,9 @@ export function configureStreaming(world, camera) {
     // All decoded slots can still belong to wanted neighbors after a move.
     // Make one available for a missing occupied tile even if scene jobs prevent
     // publishing those neighbors. Requeue the lower-priority reply for later.
-    if (this.ios && !this.tiles.has(key) && !this.inFlight.has(key)
-      && this.inFlight.size >= mobileRequestLimit && this.queue.some(p => p.key === key) && this.landed.length) {
+    const requestLimit = mobile ? mobileRequestLimit : this.initialBurst ? 6 : 2;
+    if (!this.tiles.has(key) && !this.inFlight.has(key)
+      && this.inFlight.size >= requestLimit && this.queue.some(p => p.key === key) && this.landed.length) {
       this.landed.sort((a, b) => this.tilePriority(a.p.tx, a.p.tz) - this.tilePriority(b.p.tx, b.p.tz));
       const { p, id } = this.landed.pop();
       if (this.inFlight.get(p.key) === id) {
@@ -188,6 +190,7 @@ export function configureStreaming(world, camera) {
   };
 
   function discardObsolete() {
+    cancelObsoleteRequests(wanted);
     // Releasing decoded data does not create scene jobs. It must work even
     // while publication is blocked, or stale replies monopolize the request slots.
     for (let i = world.landed.length - 1; i >= 0; i--) {

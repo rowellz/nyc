@@ -25,8 +25,8 @@ export interface PropsModule extends GameModule {
       zeroScale: number; invalid: number; minY: number; maxY: number;
     }>; unmapped: string[] }>;
   };
-  /** Nearest facing signal within 25 m; distance is along the approach to its stop line. */
-  signalFor(x: number, z: number, dirX: number, dirZ: number): {
+  /** Nearest stop line within 45 m on this road level. */
+  signalFor(x: number, z: number, dirX: number, dirZ: number, layer?: number): {
     state: 'red' | 'yellow' | 'green'; stopX: number; stopZ: number; dist: number;
   } | null;
 }
@@ -70,10 +70,9 @@ export async function createProps(ctx: GameContext): Promise<PropsModule> {
   const dynamic: KindOpts['dynamic'] = (rec, offset, out, oo, time) => {
     const pole = poles.get(rec[offset + 8]);
     if (!pole) return false;
-    const phase = rec[offset + 5] ? (1 - pole.phase) as 0 | 1 : pole.phase;
     const t = SignalNetwork.phaseTime(pole.cluster, time);
-    out[oo + 1] = SignalNetwork.vehicleState(phase, t);
-    out[oo + 2] = SignalNetwork.pedFrame(phase, t);
+    out[oo + 1] = SignalNetwork.vehicleState(pole.phase, t, pole.cluster);
+    out[oo + 2] = SignalNetwork.pedestrianFrame(pole, !!rec[offset + 5], t);
     return true;
   };
   const register = (name: string, geometry: THREE.BufferGeometry, material: THREE.Material = base,
@@ -148,11 +147,10 @@ export async function createProps(ctx: GameContext): Promise<PropsModule> {
   const frustum = new THREE.Frustum(), matrix = new THREE.Matrix4();
   const distance2 = (p: { x: number; y: number; z: number }) => (p.x - cameraPosition.x) ** 2 + (p.y - cameraPosition.y) ** 2 + (p.z - cameraPosition.z) ** 2;
   function rebuildSignals(): void {
-    // Worker completion order differs between clients. Give the existing clustering algorithm a
-    // stable spatial order so identical loaded intersections have identical phases/seeded offsets.
+    // Preserve road topology while rebuilding the spatial index after tile changes.
     const entries = Array.from(poles).sort((a, b) => a[1].x - b[1].x || a[1].z - b[1].z || a[1].fx - b[1].fx || a[1].fz - b[1].fz);
     network.resetPoles();
-    for (const [id, pole] of entries) poles.set(id, network.addPole(pole.x, pole.z, Math.atan2(-pole.fx, -pole.fz), pole.tileKey));
+    for (const [id, pole] of entries) poles.set(id, network.addPole(pole.x, pole.z, Math.atan2(-pole.fx, -pole.fz), pole.tileKey, pole.approach));
   }
   function unload(key: string): void {
     pools.removeTile(key);
@@ -246,7 +244,7 @@ export async function createProps(ctx: GameContext): Promise<PropsModule> {
       }
       return result;
     },
-    signalFor(x, z, dx, dz) { return disposed ? null : network.signalFor(x, z, dx, dz, ctx.state.serverTime()); },
+    signalFor(x, z, dx, dz, layer) { return disposed ? null : network.signalFor(x, z, dx, dz, ctx.state.serverTime(), layer); },
     update(dt, t) {
       if (disposed) return;
       now = t; delta = dt;

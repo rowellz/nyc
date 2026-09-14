@@ -207,6 +207,20 @@ vary by road type, with fewer taxis and more passenger and delivery vehicles on
 highways. The rendering pools allow more simultaneous cars, including distant
 models on iOS. Run `cd web && npm run test:traffic` for the Cross Bronx replay.
 
+Traffic signals group poles by road junction and level, so wide intersections
+share a controller and overpasses do not control the street below. Opposing
+approaches share a phase; diagonal branches receive separate greens with yellow
+and all-red clearance. Ordinary four-way intersections retain their 90-second
+cycle. Junctions with more than two approach axes add a 27-second vehicle-red
+pedestrian interval. Stop lines account for crossing road width and angle, and
+cars obey signals on elevated roads at the matching level. This is a synthetic
+signal plan, not surveyed NYC timing or protected turn-lane control.
+Run `npm --prefix web run test:signals` for four-way/multi-arm behavior, tile
+ordering, road levels, and the West 155th Street/Harlem River tile replay.
+`node tools/patch-signals.mjs` republishes the recovered controller and its
+placement/rendering/vehicle hooks after source edits or reapplying mirror patches.
+
+
 The SvelteKit streaming transform in `streaming-assets.js` installs
 `predictive-streaming.js` before the first tile request. Mobile loads tiles within
 a **512 m radius** of the player/free camera; desktop presets use **1,500 m**.
@@ -240,6 +254,21 @@ at most one tile per frame. Obsolete replies release their slots even while
 scene building is backed up. On iOS, an already-decoded missing occupied tile can
 pass the busy-job gate; neighboring tiles still wait for builders to catch up.
 When memory permits, that occupied tile also precedes further scene retirement.
+The occupied-tile exception also applies to desktop/admin camera and Android
+travel; neighboring tiles still wait for the ordinary scene build budget.
+Async shader compilation retains its original program references and tolerates
+their disposal when a tile unloads. The original renderer timer read a deleted
+material's current program, throwing without settling its promise; enough such
+unloads permanently filled the scene-job gate. Polling errors now reject so
+build jobs can release their busy counts. The regression test reproduces twenty
+simultaneous unload/compile races against the served renderer and build queue.
+Abandoned fetches are cancelled as soon as the focus moves away, and requests
+that fail to fetch/decode within 30 seconds release their slots and retry after
+the existing ten-second delay. An unresponsive decoder pool is restarted.
+Decoded tiles waiting for scene publication are exempt from the network timeout.
+The streaming tests include repeated city-length trips, callback/worker cleanup,
+late replies and recovery from a fully stalled request pool. Run
+`node tools/patch-streamer-worker.mjs` after changing the recovered tile decoder.
 
 Run `cd web && npm run test:streaming` for the served quality/fog settings, mobile
 512 m and desktop 1.5 km coverage, actual GWB upper-level road data, nearby
@@ -248,6 +277,44 @@ and data availability; they do not measure Safari frame rates or real device
 scene-construction latency.
 Run `cd web && npm run test:memory` for repeated landmark travel and resource
 disposal checks against the served client.
+
+Tunnel terrain uses the same complete nearby road context as street workers,
+including tunnel ways whose owner tiles are not resident. Profile/elevation
+changes refresh affected resident ground and collision surfaces; tile removal
+also triggers a refresh. Unchanged local cutouts reuse their geometry, and newly
+created ground meshes receive the existing cuts. This prevents ground sheets
+from remaining over entrances when the bore and approach stream separately.
+`web/tests/tunnel-terrain.test.mjs` covers these arrival/removal cases.
+
+Below-ground approaches use the tunnel builder's graded lane paint. The surface
+marking builder skips those portions of its owning road, preventing a second
+set of lane lines and oil decals at street height over buried approaches. Paint
+on separate streets crossing above a bore, and on portions that return to ground
+level, remains. `web/tests/tunnel-markings.test.mjs` checks both the synthetic
+failure and a real Trans-Manhattan approach stripe.
+
+The iOS startup policy in `web/static/world/assets/startup-policy.js` yields to
+the next frame between modules and waits for outstanding scene jobs and the
+nearby tiles, replacing the fixed 1.5-second slots. In play mode, terrain, roads,
+buildings, landmarks, character, combat and UI finish before entry; street
+furniture and traffic populate afterward, in that order. Screenshot mode still
+waits for every scene module. Physics, first-render and scene-job readiness
+checks remain in force. Audio waits for the post-entry factory/jobs to drain.
+The loading message names the current construction stage; nine decoded tiles
+no longer make the progress bar claim completion. Per-module timings, including
+worker/scene completion, are available at `__game.ctx.startup.timings` on iOS.
+
+The production Docker build also runs `web/scripts/prepare-world.mjs`. It writes
+a road catalog and gzip/Brotli copies of the **transformed and versioned** mirrored
+JS/CSS into `/app/generated`. The first tile request reads this road catalog
+instead of decompressing all 3,697 tiles. JS/CSS responses negotiate compression
+with `Accept-Encoding`; tiles retain their raw gzip body without
+`Content-Encoding`. HTML addons still run at request time. Regenerate these
+artifacts whenever the source assets or serving transforms change.
+Port 5173 keeps live transforms and disables these production artifacts. Use
+port 3000 after rebuilding to compare production download times on a phone.
+`cd web && npm run test:startup` checks the served startup policy, compressed
+response bytes/headers and road-context equivalence with the full tile scan.
 
 Mobile roads use plain gray shades in
 `web/static/world/assets/mobile-road-material.js`: darker asphalt, lighter
@@ -411,6 +478,7 @@ river glossy.
 | `BASE_PATH` | `/world` | prefix for the game, its API and the socket |
 | `ADMIN` | `0` | `1` grants every player admin (noclip fly, teleport) |
 | `VERBOSE` | `0` | `1` logs the client's telemetry beacons |
+| `PREPARED_ASSET_DIR` | unset locally; `/app/generated` in Docker | production road catalog and compressed mirrored JS/CSS, generated from the same release |
 
 ### Working on it
 
@@ -424,6 +492,10 @@ npm run test:ui        # the look stick, driven through jsdom (no server needed)
 
 `npm run dev` needs `public/` beside it, which it is in this repo; set
 `PUBLIC_DIR` to point elsewhere.
+
+For production optimizations outside Docker, run `npm run prepare:world` from
+`web/`, then start with `NODE_ENV=production PREPARED_ASSET_DIR=./generated npm start`.
+Re-run both `npm run build` and `npm run prepare:world` after changing the client.
 
 ---
 

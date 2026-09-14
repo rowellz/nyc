@@ -5,6 +5,10 @@ import { gunzip, gzip } from 'node:zlib';
 
 const inflate = promisify(gunzip), deflate = promisify(gzip);
 const TILE = 256, REACH = 512;
+// Omit the dead-end service spur inside the northern GWB interchange loop.
+// Filter the scene roads and planning catalog together so it has no deck,
+// supports, collisions or traffic, including when a neighbor owns the way.
+const visibleRoad = road => road.id !== 1492536225000;
 const keyOf = (x, z) => `${x}_${z}`;
 const bounds = road => {
   const b = { minX: Infinity, minZ: Infinity, maxX: -Infinity, maxZ: -Infinity };
@@ -20,7 +24,7 @@ export function createRoadIndex() {
   const roads = new Map(), buckets = new Map();
   return {
     add(road) {
-      if (roads.has(road.id) || road.pts.length < 2) return;
+      if (!visibleRoad(road) || roads.has(road.id) || road.pts.length < 2) return;
       const item = { road, ...bounds(road) }; roads.set(road.id, item);
       for (let x = Math.floor(item.minX / TILE); x <= Math.floor(item.maxX / TILE); x++) {
         for (let z = Math.floor(item.minZ / TILE); z <= Math.floor(item.maxZ / TILE); z++) {
@@ -47,7 +51,7 @@ export function createRoadIndex() {
 export function streetContext(tile, index, neighbors) {
   const roads = new Map(index.near((tile.tx + .5) * TILE, (tile.tz + .5) * TILE, TILE / 2 + REACH)
     .map(road => [road.id, road]));
-  for (const road of tile.roads) roads.set(road.id, road);
+  for (const road of tile.roads) if (visibleRoad(road)) roads.set(road.id, road);
   // A complete way can end outside the planning halo. Include its endpoint
   // connections before assigning lanes or deciding where a bridge descends.
   for (const road of [...roads.values()]) if (road.bridge || road.tunnel || ['motorway', 'trunk'].includes(road.cls)) {
@@ -85,9 +89,23 @@ export function streetContext(tile, index, neighbors) {
   };
 }
 
+/** Build once per release, keeping only roads rather than every tile's geometry. */
+export async function buildStreetCatalog(directory) {
+  const names = (await readdir(directory)).filter(name => /^-?\d+_-?\d+\.json\.gz$/.test(name)).sort();
+  const roads = new Map();
+  for (let i = 0; i < names.length; i += 8) {
+    const tiles = await Promise.all(names.slice(i, i + 8).map(async name =>
+      JSON.parse(await inflate(await readFile(path.join(directory, name))))));
+    for (const tile of tiles) for (const road of tile.roads) {
+      if (visibleRoad(road) && !roads.has(road.id) && road.pts.length >= 2) roads.set(road.id, road);
+    }
+  }
+  return { version: 1, keys: names.map(name => name.slice(0, -8)), roads: [...roads.values()] };
+}
+
 /** Keep planning data separate from scene residency. The road index is shared
  * across requests; decoded neighborhoods and compressed responses are bounded. */
-export function createStreetTileService(directory) {
+export function createStreetTileService(directory, { catalogPath } = {}) {
   let catalog;
   const decoded = new Map(), encoded = new Map();
   const cached = (cache, key, limit, build) => {
@@ -101,14 +119,10 @@ export function createStreetTileService(directory) {
   };
   const read = async key => JSON.parse(await inflate(await readFile(path.join(directory, `${key}.json.gz`))));
   const initialize = async () => {
-    const names = (await readdir(directory)).filter(name => /^-?\d+_-?\d+\.json\.gz$/.test(name)).sort();
-    const keys = new Set(names.map(name => name.slice(0, -8))), index = createRoadIndex();
-    // Yield during disk reads/inflation instead of blocking the game socket on
-    // a synchronous scan. Retain roads only, not city-wide building/polygon data.
-    for (let i = 0; i < names.length; i += 8) {
-      const tiles = await Promise.all(names.slice(i, i + 8).map(name => read(name.slice(0, -8))));
-      for (const tile of tiles) for (const road of tile.roads) index.add(road);
-    }
+    const data = catalogPath ? JSON.parse(await readFile(catalogPath, 'utf8')) : await buildStreetCatalog(directory);
+    if (data.version !== 1) throw new Error('Unsupported street catalog version');
+    const keys = new Set(data.keys), index = createRoadIndex();
+    for (const road of data.roads) index.add(road);
     return { keys, index };
   };
   return key => cached(encoded, key, 64, async () => {
@@ -122,6 +136,6 @@ export function createStreetTileService(directory) {
       if (keys.has(neighbor)) pending.push(cached(decoded, neighbor, 128, () => read(neighbor)));
     }
     const context = streetContext(tile, index, await Promise.all(pending));
-    return deflate(JSON.stringify({ ...tile, streetContext: context }));
+    return deflate(JSON.stringify({ ...tile, roads: tile.roads.filter(visibleRoad), streetContext: context }));
   });
 }

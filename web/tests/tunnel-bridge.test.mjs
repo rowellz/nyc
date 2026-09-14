@@ -81,6 +81,21 @@ for(const members of nodes.values()) {
   joins++;
 }
 assert(joins>20&&gradeSamples>2000);
+let mouths=0,raisedMouths=0;
+for(const p of profiles.values()) {
+  if(p.approach)continue;
+  for(const [xy,s] of [[p.road.pts[0],0],[p.road.pts.at(-1),p.length]]) {
+    const members=nodes.get(xy.map(v=>Math.round(v*2)).join(','));
+    if(!members?.length)continue;
+    const floor=tunnels.tunnelHeight(p,s);
+    for(const member of members)assert(Math.abs(member.height-floor)<1e-6,`portal step at ${p.road.id}/${member.id}`);
+    assert(floor+.025+tunnels.TUNNEL_CLEARANCE+.4<=0,'raised tunnel roof remains below the city');
+    if(floor>-tunnels.PORTAL_DEPTH+.01)raisedMouths++;
+    mouths++;
+  }
+}
+assert(mouths>20&&raisedMouths>0,'exercise adjusted GWB mouths and unchanged neighboring tunnels');
+console.log(`PASS ${mouths} tunnel mouths join their approaches without steps and retain buried roofs`);
 console.log(`PASS ${joins} real approach junctions and ${gradeSamples} grade samples on both sides of the Trans-Manhattan tunnels`);
 
 const {triangleHeight}=await import(new URL('supports.js',assets));
