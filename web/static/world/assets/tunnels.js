@@ -6,6 +6,7 @@ export const TUNNEL_DEPTH = 14;
 export const TUNNEL_CLEARANCE = 5.6;
 export const PORTAL_DEPTH = 8;
 export const APPROACH_GRADE = 0.06;
+export const MAX_APPROACH_GRADE = 0.08;
 const GRADE = 0.06;
 // Match ramps.js's maximum planned bridge height. Continue through short,
 // untagged connecting ways until the ceiling is above every possible deck;
@@ -25,7 +26,7 @@ export function tunnelNetwork(roads) {
   const nodes = new Map(), profiles = new Map();
   const node = p => {
     const k = key(p);
-    if (!nodes.has(k)) nodes.set(k, { distance: Infinity, approach: Infinity, edges: [], surface: [] });
+    if (!nodes.has(k)) nodes.set(k, { distance: Infinity, approach: Infinity, ramp: Infinity, edges: [], surface: [] });
     return nodes.get(k);
   };
   for (const road of unique) {
@@ -37,9 +38,17 @@ export function tunnelNetwork(roads) {
     }
   }
   const portals = [...nodes.values()].filter(n => n.edges.length && n.surface.length);
+  // The Manhattan GWB mouths need a shallower floor to leave room for the
+  // bridge approaches above Riverside Drive and the Henry Hudson Parkway.
+  // A 6.1 m depth keeps the 5.6 m bore, floor offset and roof below street level.
+  for (const [xy, n] of nodes) {
+    const [x, z] = xy.split(',').map(v => Number(v) / 2);
+    n.portalLift = x >= 3500 && x <= 3650 && z >= -10750 && z <= -10450 ? 1.9 : 0;
+  }
   const spread = (field, links, reach) => {
     const queue = [...portals];
-    for (const n of queue) n[field] = 0;
+    for (const n of queue) n[field] = field === 'distance' ? -n.portalLift / GRADE
+      : n.portalLift / (field === 'ramp' ? MAX_APPROACH_GRADE : APPROACH_GRADE);
     while (queue.length) {
       queue.sort((a, b) => b[field] - a[field]);
       const n = queue.pop();
@@ -51,6 +60,7 @@ export function tunnelNetwork(roads) {
   };
   spread('distance', 'edges', (TUNNEL_DEPTH - PORTAL_DEPTH) / GRADE);
   spread('approach', 'surface', APPROACH_REACH);
+  spread('ramp', 'surface', APPROACH_REACH);
   for (const [id, p] of profiles) if (p.approach && Math.min(p.a.approach, p.b.approach) >= APPROACH_REACH) profiles.delete(id);
   // Approaches share their lane envelope with the motorway renderer and traffic.
   // Raw constant-width ribbons overlap at fans and put walls through live lanes.
@@ -59,9 +69,10 @@ export function tunnelNetwork(roads) {
   return profiles;
 }
 
-export function approachCeiling(profile, along) {
-  const distance = Math.max(0, Math.min(profile.a.approach + along, profile.b.approach + profile.length - along));
-  return -PORTAL_DEPTH + distance * APPROACH_GRADE;
+export function approachCeiling(profile, along, grade = APPROACH_GRADE) {
+  const field = grade === MAX_APPROACH_GRADE ? 'ramp' : 'approach';
+  const distance = Math.max(0, Math.min(profile.a[field] + along, profile.b[field] + profile.length - along));
+  return -PORTAL_DEPTH + distance * grade;
 }
 
 export function tunnelHeight(profile, along) {
@@ -73,8 +84,8 @@ export function tunnelHeight(profile, along) {
     return a.h + (b.h-a.h)*t;
   }
   if (profile.approach) return Math.min(0, approachCeiling(profile, along));
-  return -Math.min(TUNNEL_DEPTH, PORTAL_DEPTH + Math.max(0, Math.min(profile.a.distance + along,
-    profile.b.distance + profile.length - along)) * GRADE);
+  return -Math.min(TUNNEL_DEPTH, PORTAL_DEPTH + Math.min(profile.a.distance + along,
+    profile.b.distance + profile.length - along) * GRADE);
 }
 
 /** Share the final clearance plan with tunnel paving and the main thread.

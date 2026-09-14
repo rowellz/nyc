@@ -207,6 +207,20 @@ vary by road type, with fewer taxis and more passenger and delivery vehicles on
 highways. The rendering pools allow more simultaneous cars, including distant
 models on iOS. Run `cd web && npm run test:traffic` for the Cross Bronx replay.
 
+Traffic signals group poles by road junction and level, so wide intersections
+share a controller and overpasses do not control the street below. Opposing
+approaches share a phase; diagonal branches receive separate greens with yellow
+and all-red clearance. Ordinary four-way intersections retain their 90-second
+cycle. Junctions with more than two approach axes add a 27-second vehicle-red
+pedestrian interval. Stop lines account for crossing road width and angle, and
+cars obey signals on elevated roads at the matching level. This is a synthetic
+signal plan, not surveyed NYC timing or protected turn-lane control.
+Run `npm --prefix web run test:signals` for four-way/multi-arm behavior, tile
+ordering, road levels, and the West 155th Street/Harlem River tile replay.
+`node tools/patch-signals.mjs` republishes the recovered controller and its
+placement/rendering/vehicle hooks after source edits or reapplying mirror patches.
+
+
 The SvelteKit streaming transform in `streaming-assets.js` installs
 `predictive-streaming.js` before the first tile request. Mobile loads tiles within
 a **512 m radius** of the player/free camera; desktop presets use **1,500 m**.
@@ -240,6 +254,21 @@ at most one tile per frame. Obsolete replies release their slots even while
 scene building is backed up. On iOS, an already-decoded missing occupied tile can
 pass the busy-job gate; neighboring tiles still wait for builders to catch up.
 When memory permits, that occupied tile also precedes further scene retirement.
+The occupied-tile exception also applies to desktop/admin camera and Android
+travel; neighboring tiles still wait for the ordinary scene build budget.
+Async shader compilation retains its original program references and tolerates
+their disposal when a tile unloads. The original renderer timer read a deleted
+material's current program, throwing without settling its promise; enough such
+unloads permanently filled the scene-job gate. Polling errors now reject so
+build jobs can release their busy counts. The regression test reproduces twenty
+simultaneous unload/compile races against the served renderer and build queue.
+Abandoned fetches are cancelled as soon as the focus moves away, and requests
+that fail to fetch/decode within 30 seconds release their slots and retry after
+the existing ten-second delay. An unresponsive decoder pool is restarted.
+Decoded tiles waiting for scene publication are exempt from the network timeout.
+The streaming tests include repeated city-length trips, callback/worker cleanup,
+late replies and recovery from a fully stalled request pool. Run
+`node tools/patch-streamer-worker.mjs` after changing the recovered tile decoder.
 
 Run `cd web && npm run test:streaming` for the served quality/fog settings, mobile
 512 m and desktop 1.5 km coverage, actual GWB upper-level road data, nearby

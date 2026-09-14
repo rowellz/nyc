@@ -52,6 +52,19 @@ const main = await (await serveStatic('world/assets/main-D_3aygO4.js')).text();
 assert(main.includes('${e.key}.json.gz?v=' + CLIENT_REVISION), 'cached legacy tiles cannot bypass planning context');
 console.log(`PASS real 3.3 m streaming regression and gzip/HEAD/cache integration (${Math.round(performance.now() - started)} ms cold index, ${Math.round(bytes.length / 1024)} KiB tile)`);
 
+const spur=1492536225000,owner=tiles.find(t=>t.roads.some(r=>r.id===spur));
+assert(owner,'exercise the removed service spur from the real northern GWB loop');
+assert(!index.near(3500,-10680,512).some(r=>r.id===spur),'neighbor road lookup cannot restore the spur');
+assert(!streetContext(owner,index,tiles).roads.some(r=>r.id===spur),'raw owner cannot reinsert the spur into planning');
+for(const key of new Set([owner.key,'13_-42','14_-42'])) {
+  const response=await serveStatic(`world/world/tiles/${key}.json.gz`);
+  const served=JSON.parse(gunzipSync(Buffer.from(await response.arrayBuffer())));
+  assert(!served.roads.some(r=>r.id===spur),'scene and traffic omit the spur');
+  assert(!served.streetContext.roads.some(r=>r.id===spur),'worker geometry and collision omit the spur');
+  if(key===owner.key)assert.deepEqual(served.roads,owner.roads.filter(r=>r.id!==spur),'keep the surrounding loop roads');
+}
+console.log('PASS the northern GWB service spur stays removed from its owner, neighboring context, and traffic input');
+
 world.tiles = new Map([[served.key, served]]); world.roadsNear = () => served.roads;
 const distant = client.te({ tile: served });
 world.tiles = new Map(tiles.map(t => [t.key, t])); world.roadsNear = index.near;

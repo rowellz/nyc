@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { gunzipSync } from 'node:zlib';
 import { assets } from './sveltekit-assets.mjs';
+import { installTileRequests } from '../static/world/assets/tile-requests.js';
 import { serveStatic } from '../src/lib/server/static.js';
 
 // Exercise the actual shipped streamer, including request IDs, promise replies,
@@ -12,7 +13,7 @@ const start = main.indexOf('Pl=class');
 const end = main.indexOf('var Il=', start);
 assert(start > 0 && end > start);
 const streamerSource = main.slice(start, end).replaceAll('import.meta.url', '"file:///streamer.js"');
-const policy = readFileSync(new URL('predictive-streaming.js', assets), 'utf8').replaceAll('export function', 'function');
+const policy = readFileSync(new URL('predictive-streaming.js', assets), 'utf8').replace(/^import .*\n/gm, '').replaceAll('export function', 'function');
 assert(main.includes('$canCommitSceneTile(t,o)'));
 assert(main.includes('O=$configureStreaming(new Pl(S,v,t.world),x.camera)'));
 assert(readFileSync(new URL('streets-CfYSUqyW.js', assets), 'utf8').includes('e.world.tilePriority?.(t.tile.tx,t.tile.tz)'));
@@ -60,7 +61,7 @@ function fixture({ ios = true, mobile = true, predictive = true, latency = 0.6, 
   let time = 0;
   const sandbox = vm.createContext({ console, performance: { now: () => time * 1000 },
     M: Vector, n: () => ios, s: x => x, Dt: x => Math.floor(x / 256), Et: (x, z) => `${x}_${z}`,
-    Nl: 2, Ml: 2, jl: 6, Al: 2 });
+    installTileRequests, Nl: 2, Ml: 2, jl: 6, Al: 2 });
   vm.runInContext(`${streamerSource}\n${policy}`, sandbox);
   const events = [], requests = [], pending = [];
   const camera = { x: 1, z: 0, getWorldDirection(v) { return v.copy({ x: this.x, y: 0, z: this.z }); } };
@@ -69,12 +70,12 @@ function fixture({ ios = true, mobile = true, predictive = true, latency = 0.6, 
   for (let x = -20; x <= 20; x++) for (let z = -10; z <= 10; z++) world.tileSet.add(`${x}_${z}`);
   if (tileData) world.tileSet = new Set(tileData.keys());
   world.index = { tiles: [...world.tileSet] };
+  if (predictive) sandbox.configureStreaming(world, camera);
   world.decode = key => new Promise((resolve, reject) => {
     const [tx, tz] = key.split('_').map(Number);
     requests.push({ key, time, x: world.focus.x, z: world.focus.z });
     pending.push({ time: time + latency, resolve, reject, tile: tileData?.get(key) ?? { key, tx, tz, buildings: [], roads: [] } });
   });
-  if (predictive) sandbox.configureStreaming(world, camera);
   const point = new Vector(128, 0, 128);
   async function frame({ dt = 1 / 30, x = point.x, z = point.z, near = false, commit = true, busy } = {}) {
     time += dt;
@@ -167,22 +168,27 @@ for (const [dx, dz] of [[1, 0], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]]) {
 
 // Even still-wanted neighbor replies must not monopolize all decoder slots
 // when movement puts the player in an unfetched tile and builders are blocked.
-{
-  const f = fixture({ latency: 0.1 });
+for (const options of [{}, { ios: false }, { ios: false, mobile: false }]) {
+  const f = fixture({ ...options, latency: 0.1 });
   for (let i = 0; i < 30; i++) await f.frame({ commit: false });
-  assert.equal(f.world.landed.length, 4);
-  assert(f.world.landed.every(({ p }) => Math.abs(p.tx) <= 1 && Math.abs(p.tz) <= 1 && p.key !== '1_1'));
-  for (let i = 0; i < 30; i++) await f.frame({ x: 300, z: 300, busy: 24 });
-  assert(f.world.tiles.has('1_1'), 'occupied tile gets a slot even when all replies remain in the wanted neighborhood');
+  assert.equal(f.world.landed.length, options.mobile === false ? 6 : options.ios === false ? 2 : 4);
+  const destination = f.world.queue.find(p => Math.abs(p.tx) <= 1 && Math.abs(p.tz) <= 1);
+  assert(destination);
+  for (let i = 0; i < 30; i++) await f.frame({ x: destination.tx * 256 + 128, z: destination.tz * 256 + 128, busy: 24 });
+  assert(f.world.tiles.has(destination.key), 'occupied tile gets a slot even when all replies remain in the wanted neighborhood');
   assert.equal(f.world.tiles.size, 1, 'only the occupied scene bypasses backpressure');
 }
 
-// The emergency exception is iOS-only; desktop keeps the existing job gate.
-{
-  const f = fixture({ ios: false, mobile: false, latency: 0.01 });
+// Desktop admin travel and Android also need their occupied tile when distant
+// scene jobs saturate the shared gate. Neighbors must still obey backpressure.
+for (const mobile of [false, true]) {
+  const f = fixture({ ios: false, mobile, latency: 0.01 });
   for (let i = 0; i < 30; i++) await f.frame({ busy: 24 });
-  assert.equal(f.world.tiles.size, 0);
+  assert.deepEqual([...f.world.tiles.keys()], ['0_0']);
   assert(f.world.landed.length > 0);
+  for (let i = 0; i < 30; i++) await f.frame({ x: 2688, busy: 24 });
+  assert(f.world.tiles.has('10_0'), 'camera destination bypasses unrelated scene jobs');
+  assert(!f.world.tiles.has('11_0'), 'exception remains limited to the occupied tile');
   for (let i = 0; i < 100; i++) await f.frame({ busy: 0 });
   assert(f.world.ready);
 }
@@ -345,6 +351,25 @@ for (const options of [{ ios: false }, { ios: false, mobile: false }]) {
   for (let i = 0; i < 150; i++) await f.frame({ x: 220 });
   const forward = `${f.world.loadRadius + 1}_0`;
   assert(f.requests.some(r => r.key === forward && r.x < 256), 'preload extends beyond the normal draw radius');
+}
+
+// Repeated city-length trips exceed the resident budget many times. Neither
+// fetched totals nor prior unloads may become an implicit lifetime tile cap.
+for (const options of [{ ios: true, mobile: true }, { ios: false, mobile: false }]) {
+  const f = fixture({ ...options, latency: 0.01 });
+  let peak = 0;
+  for (let trip = 0; trip < 2; trip++) for (const tx of [-15, -9, -3, 3, 9, 15, 9, 3, -3, -9, -15]) {
+    for (let i = 0; i < 220; i++) {
+      await f.frame({ x: tx * 256 + 128, busy: i < 12 ? 24 : 0 });
+      peak = Math.max(peak, f.world.tiles.size);
+    }
+    assertCoverage(f);
+    assert(f.world.ready);
+  }
+  assert(f.world.stats.fetched > peak * 5, 'many generations of tiles load in one session');
+  assert(peak <= (options.ios ? 32 : 260), 'retired tiles do not accumulate across city trips');
+  assert(f.events.some(e => e[0] === 'tileUnloaded'));
+  console.log(`PASS repeated ${options.ios ? 'mobile' : 'desktop camera'} travel: ${f.world.stats.fetched} tile loads, peak ${peak} resident`);
 }
 
 for (const file of ['main-D_3aygO4.js', 'streets-CfYSUqyW.js', 'quality-BuEwAkMy.js', 'mobile-D4ic5hjY.js']) {

@@ -6,7 +6,7 @@ import { createObstacle, distance2, ground, makeCar, poseMatrix, removeBody, typ
 import { Roads, isAvenue, type Lane } from './roads';
 
 interface TrafficCar extends Car { lane: Lane; along: number; next: Lane | null; wait: number; turn: number; age: number }
-interface Signals { signalFor?: (x: number, z: number, dx: number, dz: number) => { state: string; dist: number; stopX: number; stopZ: number } | null }
+interface Signals { signalFor?: (x: number, z: number, dx: number, dz: number, layer?: number) => { state: string; dist: number; stopX: number; stopZ: number } | null }
 
 const AVENUE_RADIUS = 150;
 const AVENUE_SHARE = 0.7;
@@ -182,7 +182,7 @@ export class Traffic {
       c.turn = c.next ? heading.dx * c.next.dz - heading.dz * c.next.dx : 0;
       let desired = lane.speed * (Math.abs(c.turn) > 0.3 && remain < 16 ? 0.45 : 1);
       let gap = Infinity;
-      const signal = lane.road.tunnel || lane.road.bridge || c.y > 0.3 ? null : signals?.signalFor?.(c.x, c.z, heading.dx, heading.dz);
+      const signal = lane.road.tunnel ? null : signals?.signalFor?.(c.x, c.z, heading.dx, heading.dz, lane.road.layer ?? 0);
       if (signal && signal.state !== 'green' && (signal.state === 'red' || signal.dist > c.speed * 0.8 + spec.front)) {
         const ahead = (signal.stopX - c.x) * heading.dx + (signal.stopZ - c.z) * heading.dz;
         if (ahead > 0) gap = Math.max(0, ahead - spec.front - 1);

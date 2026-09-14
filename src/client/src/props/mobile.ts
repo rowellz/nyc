@@ -9,6 +9,7 @@ import { buildLamp } from './kinds/lamp';
 import { buildSignal } from './kinds/signal';
 import { buildHydrant, buildBench, buildSteelBasket, buildBollard, buildBikeRack, buildMailbox, buildPlanter } from './kinds/small';
 import { SignalNetwork } from './signals';
+import { signalApproach } from './signalPlacement';
 import { nearestProps } from './nearest';
 
 function geometryFor(kind: PropKind): THREE.BufferGeometry {
@@ -36,7 +37,7 @@ function geometryFor(kind: PropKind): THREE.BufferGeometry {
 
 export function createProps(ctx: GameContext): GameModule & {
   stats: { instances: number; capacity: number };
-  signalFor(x: number, z: number, dx: number, dz: number): ReturnType<SignalNetwork['signalFor']>;
+  signalFor(x: number, z: number, dx: number, dz: number, layer?: number): ReturnType<SignalNetwork['signalFor']>;
 } {
   const group = new THREE.Group(); group.name = 'props'; ctx.worldGroup.add(group);
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
@@ -61,7 +62,12 @@ export function createProps(ctx: GameContext): GameModule & {
       const prop = streetLampPlacement(ctx.world, undefined, source);
       if (!prop) continue;
       let list = kinds.get(prop.kind); if (!list) kinds.set(prop.kind, list = []); list.push(prop);
-      if (prop.kind === 'traffic_signal') network.addPole(prop.x, prop.z, prop.yaw, tileKey(tileIndex(prop.x), tileIndex(prop.z)));
+      if (prop.kind === 'traffic_signal') {
+        const key = tileKey(tileIndex(prop.x), tileIndex(prop.z));
+        const roads = ctx.world.tiles.get(key)?.streetContext?.roads ?? ctx.world.roadsNear?.(prop.x, prop.z, 45) ?? [];
+        const approach = signalApproach(prop, roads);
+        if (approach?.incoming !== false) network.addPole(prop.x, prop.z, prop.yaw, key, approach);
+      }
     }
     // Free removed/shrinking buffers before replacements; never allocate a per-kind 200-slot pool.
     const geometry = new Map<PropKind, THREE.BufferGeometry>();
@@ -89,7 +95,7 @@ export function createProps(ctx: GameContext): GameModule & {
   }
   refresh();
   return { name: 'props', stats,
-    signalFor: (x, z, dx, dz) => network.signalFor(x, z, dx, dz, ctx.state.serverTime()),
+    signalFor: (x, z, dx, dz, layer) => network.signalFor(x, z, dx, dz, ctx.state.serverTime(), layer),
     update(_dt, t) {
       if (disposed || t < next) return;
       next = t + 0.5;

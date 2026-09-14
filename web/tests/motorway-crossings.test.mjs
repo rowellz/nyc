@@ -96,6 +96,40 @@ const gwbCrossings=[
 ];
 const cases=[...crossings,...gwbCrossings];
 for(const [a,b,s,t] of cases) assert(Math.abs(profiles.get(a).hAt(s)-profiles.get(b).hAt(t)) >= 5.9, `intersecting profiles ${a}/${b}`);
+// Absolute separation alone accepted the reported bug: the surface corridor
+// was 24–27 m high, above both bridge levels. Assert the physical order too.
+const groundIds=[8119481000,160061999000,165423253000,1086766006000,165422866000,
+  959102718000,1087556933000,995482529000,997454372000,997454373000,
+  1087557588000,1087557589000,8119579000,1087630770000];
+for(const id of groundIds) {
+  const r=roads.find(r=>r.id===id),p=clearanceProfile(env,r,scope.nativeProfile);
+  for(let s=0;s<=length(r);s++) assert(Math.abs(p.hAt(s))<1e-6,`surface corridor ${id} floats at ${s}`);
+}
+for(const [a,b,s,t] of gwbCrossings) {
+  if(groundIds.includes(a)) assert(profiles.get(b).hAt(t)-profiles.get(a).hAt(s)>=5.9,`bridge ${b} must pass above ${a}`);
+  if(groundIds.includes(b)) assert(profiles.get(a).hAt(s)-profiles.get(b).hAt(t)>=5.9,`bridge ${a} must pass above ${b}`);
+}
+const riverside=roads.find(r=>r.id===1086766006000);
+let riversideCrossings=0;
+for(const r of roads.filter(r=>r.bridge&&/George Washington Bridge/.test(r.name))) {
+  let along=0;
+  for(let i=1;i<r.pts.length;i++) {
+    const a=r.pts[i-1],b=r.pts[i],dx=b[0]-a[0],dz=b[1]-a[1];
+    for(let j=1;j<riverside.pts.length;j++) {
+      const c=riverside.pts[j-1],d=riverside.pts[j],ex=d[0]-c[0],ez=d[1]-c[1],det=dx*ez-dz*ex;
+      if(Math.abs(det)<1e-8)continue;
+      const x=c[0]-a[0],z=c[1]-a[1],t=(x*ez-z*ex)/det,u=(x*dz-z*dx)/det;
+      if(t<0||t>1||u<0||u>1)continue;
+      assert(profiles.get(r.id).hAt(along+t*Math.hypot(dx,dz))>=5.9,`GWB ${r.id} must clear Riverside Drive`);
+      riversideCrossings++;
+    }
+    along+=Math.hypot(dx,dz);
+  }
+}
+assert(riversideCrossings>=4,'exercise both carriageways of both GWB levels over Riverside');
+const parkwayBridge=roads.find(r=>r.id===278618232000);
+assert(clearanceProfile(env,parkwayBridge,scope.nativeProfile).H>0,'retain the parkway bridge north of the underpass');
+console.log('PASS Riverside Drive and both parkway carriageways stay on the ground beneath both GWB levels');
 let grades=0;const joins=new Map();
 for(const r of roads.filter(r=>profiles.has(r.id))) {
   const p=profiles.get(r.id),size=length(r);
@@ -141,7 +175,14 @@ for(const key of ['13_-42','17_-40','17_-41','19_-40']) {
   const tile={...original,buildings:[],roadbeds:[],sidewalks:[],medians:[],parks:[],water:[],parking:[],plazas:[],crossings:[],trees:[],props:[]};
   await scope.self.onmessage({data:{id:1,input:{tile,roads:near,pedestrianTiles:[tile],quality:{level:'mobile',shadows:false}}}});
   assert(!scope.response.error,scope.response.error); built.set(key,scope.response.built);
-  const cells=new Map(),{colliderPos:positions,colliderIdx:indices}=scope.response.built;
+  // Surface roads now use the land collider. Include the actual tunnel cuts
+  // instead of assuming every driven road owns an elevated deck collider.
+  const x=tile.tx*256,z=tile.tz*256;
+  const terrain=tunnels.cutGround({position:{array:new Float32Array([
+    x,0,z,x+256,0,z,x+256,0,z+256,x,0,z+256]),itemSize:3}},[0,2,1,0,3,2],
+    tunnels.tunnelHoles(tunnels.tunnelNetwork(near)));
+  const cells=new Map(),positions=[...scope.response.built.colliderPos,...terrain.attributes.position.array];
+  const indices=[...scope.response.built.colliderIdx,...terrain.index.map(i=>i+scope.response.built.colliderPos.length/3)];
   for(let i=0;i<indices.length;i+=3) {
     const tri=[0,1,2].map(j=>Array.from(positions.slice(indices[i+j]*3,indices[i+j]*3+3)));
     for(let x=Math.floor(Math.min(...tri.map(p=>p[0]))/16);x<=Math.floor(Math.max(...tri.map(p=>p[0]))/16);x++)
