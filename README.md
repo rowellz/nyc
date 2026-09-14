@@ -287,14 +287,6 @@ port 3000 after rebuilding to compare production download times on a phone.
 `cd web && npm run test:startup` checks the served startup policy, compressed
 response bytes/headers and road-context equivalence with the full tile scan.
 
-Local map edits live in `web/src/lib/server/street-corrections.js` and apply to
-both scene tiles and the shared road catalog. The Riverside Drive teardrop beside
-the GWB / Henry Hudson interchange is removed there, including its ground asphalt
-footprint. The other road segments retain their coordinates. This keeps the
-minimap, traffic, road geometry and colliders consistent without changing the
-mirrored tiles. `node web/tests/street-corrections.test.mjs` checks the served
-tiles, prepared-catalog path and actual road-worker output.
-
 Mobile roads use plain gray shades in
 `web/static/world/assets/mobile-road-material.js`: darker asphalt, lighter
 concrete, and medium-gray cobblestone, with subtle variation between roads.
@@ -508,17 +500,6 @@ Other parameters, from `src/client/src/core/params.ts`:
 
 In the browser console, `__game.teleport(x, z)` moves you anywhere in the city;
 `__stats()` reports renderer counters.
-
-The SvelteKit service keeps the address bar updated as you move or look around,
-up to twice a second. Copy the URL to share a debug viewpoint; opening or
-refreshing it restores that view in free-camera mode, including when the link
-was captured during play. `fly=x,z,h,heading,pitch` uses world meters (x east,
-z south from Bryant Park), height above ground, compass heading in degrees
-(0 north, 90 east), and pitch in degrees (positive up). `camy` records absolute
-camera elevation so restored views stay at the same height over bridges or
-water; `fov` preserves the field of view. Other query parameters and the hash
-are retained, and movement does not add browser history entries.
-Add `urlsync=0` to keep the URL fixed and disable absolute-height restoration.
 
 ## Verified
 
