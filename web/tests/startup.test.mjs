@@ -11,6 +11,50 @@ import { assets } from './sveltekit-assets.mjs';
 import { createStreetTileService } from '../src/lib/server/street-context.js';
 import { preferredEncoding } from '../src/lib/server/precompressed.js';
 
+// Execute the HTML's dev bootstrap with phone/desktop browser environments.
+// Mobile game pages must not open a Vite socket or reload on editor saves.
+{
+  const previous = process.env.NODE_ENV;
+  try {
+    for (const mode of ['development', 'production']) {
+      process.env.NODE_ENV = mode;
+      const { addonsFor } = await import(`../src/lib/server/client-addons.js?test=${mode}`);
+      for (const page of ['world/index.html', 'world/safe.html']) {
+        const html = addonsFor(page)('<html><body></body></html>');
+        const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(match => match[1]);
+        if (mode === 'production') {
+          assert(!html.includes('/@vite/client'), 'production has no dev runtime');
+          continue;
+        }
+        assert.equal(scripts.length, 1);
+        for (const [userAgent, platform, touch, coarse, search, enabled] of [
+          ['iPhone OS 17', 'iPhone', 5, true, '', false],
+          ['Macintosh', 'MacIntel', 5, false, '', false],
+          ['Android', 'Linux', 5, true, '', false],
+          ['Desktop', 'Linux', 0, true, '', false],
+          ['Desktop', 'Linux', 0, false, '', true],
+          ['Desktop', 'Linux', 0, false, '?live=0', false],
+          ['iPhone OS 17', 'iPhone', 5, true, '?spot=test&live=1', true],
+        ]) {
+          const added = [];
+          vm.runInNewContext(scripts[0], {
+            URLSearchParams, location: { search },
+            navigator: { userAgent, platform, maxTouchPoints: touch },
+            matchMedia: () => ({ matches: coarse }),
+            document: { createElement: () => ({}), head: { appendChild: node => added.push(node) } },
+          });
+          assert.equal(added.length, Number(enabled), `${page}: ${userAgent} ${search}`);
+          if (enabled) assert.deepEqual(added[0], { type: 'module', src: '/@vite/client' });
+        }
+      }
+    }
+  } finally {
+    if (previous === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previous;
+  }
+  console.log('PASS development game reload: mobile opt-in, desktop opt-out, production exclusion');
+}
+
 // Run the served iOS entry and its actual policy with controllable frames.
 const main = await readFile(new URL('main-D_3aygO4.js', assets), 'utf8');
 const start = main.indexOf('async function de(){await $startDeferredModules(');

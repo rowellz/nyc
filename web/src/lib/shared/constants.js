@@ -1,6 +1,6 @@
 /**
  * Ported from the recovered src/shared/geo.ts and src/shared/constants.ts.
- * ESM for the SvelteKit service; values are identical to server/constants.js.
+ * ESM for the SvelteKit service; values are identical to the recovered src/shared/constants.ts.
  */
 export const ORIGIN = { lat: 40.75362, lon: -73.98322 };
 export const R_LAT = 110574.0;

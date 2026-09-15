@@ -1,8 +1,19 @@
-/** Headless protocol conformance test: mimics client/src/core/net.ts. */
-const WebSocket = require('ws');
-const P = require('./protocol');
+/**
+ * Headless protocol conformance: 41 checks driving a client through the real
+ * binary codec, the way client/src/core/net.ts does — handshake, ping/pong,
+ * snapshot round-trip, the speed clamp, AOI culling, safe-zone immunity,
+ * damage/death/scoring, respawn, leaderboard, token reconnect.
+ *
+ * Needs the service running:
+ *
+ *   npm run dev            # or: npm run build && npm start
+ *   npm test               # against localhost:3000
+ *   PORT=5173 npm test     # against the dev server
+ */
+import WebSocket from 'ws';
+import * as P from '../src/lib/shared/protocol.js';
 
-const URL = `ws://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 8080}/world/ws`;
+const URL = `ws://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3000}/world/ws`;
 const clients = [];
 const log = (...a) => console.log(...a);
 let failures = 0;

@@ -1,7 +1,7 @@
 /**
  * The New York world simulation.
  *
- * This is the game half of the original server/index.js, lifted out of the HTTP
+ * This is the game half of the original reconstructed server, lifted out of the HTTP
  * server it used to be welded to. Nothing here knows about http, SvelteKit or
  * `ws` connection setup: it takes an object that can `send()` and `close()`, and
  * the transport is wired up in net.js. Behaviour — the handshake, the 70 m/s

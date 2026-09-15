@@ -4,7 +4,9 @@ import { installTileRequests } from './tile-requests.js';
 const TILE = 256;
 // The 512 m neighborhood spans at most 5x5 tiles, with room for one route
 // tile, three recently used tiles and an urgent arrival during retirement.
-const IOS_STREAMING = Object.freeze({ maxTiles: 32, requests: 4 });
+const IOS_STREAMING = Object.freeze({ maxTiles: 32, requests: 2 });
+const FAST_TRAVEL_SPEED = 24;
+const TRAVEL_SCENE_INTERVAL = 0.15;
 const keyOf = (tx, tz) => `${tx}_${tz}`;
 const distance = (tx, tz, x, z) => Math.hypot(
   Math.max(tx * TILE - x, 0, x - (tx + 1) * TILE),
@@ -33,7 +35,8 @@ function routeEntry(tx, tz, x, z, dx, dz) {
 // roads should not wait for unrelated buildings to finish. The streamer still
 // enforces one publication per frame and its resident-tile limit.
 export function canCommitSceneTile(ctx, world) {
-  if ((ctx.busy ?? 0) < 16) return true;
+  const limit = (world.mobile || world.ios) && world.stats?.fastTravel ? 6 : 16;
+  if ((ctx.busy ?? 0) < limit) return true;
   const key = keyOf(Math.floor(world.focus.x / TILE), Math.floor(world.focus.z / TILE));
   return !world.tiles.has(key) && world.landed.some(({ p, id }) =>
     p.key === key && world.inFlight.get(key) === id);
@@ -50,6 +53,7 @@ export function configureStreaming(world, camera) {
   let wanted = new Map();
   const lastWanted = new Map();
   let retiring = [];
+  let nextSceneChange = 0;
 
   // Keep the occupied tile and its immediate boundary neighbors first. Beyond
   // that, favor the route ahead over equally distant work behind the player.
@@ -87,6 +91,7 @@ export function configureStreaming(world, camera) {
     } else { vx = vz = 0; }
     sample = { x: focus.x, z: focus.z, time: wall };
     const speed = Math.hypot(vx, vz);
+    this.stats.fastTravel = mobile && !nearOnly && speed > FAST_TRAVEL_SPEED;
     camera.getWorldDirection(direction);
     const facing = Math.hypot(direction.x, direction.z);
     const nearReach = this.ios ? TILE : this.drawDistance;
@@ -119,11 +124,16 @@ export function configureStreaming(world, camera) {
       }
     }
     const urgent = commitAllowed && !this.tiles.has(key) && this.landed.some(reply => reply.p.key === key);
+    const sceneDue = !this.stats.fastTravel || wall >= nextSceneChange;
     // Once there is room, do not drain a whole retirement queue before showing
     // the occupied tile. Cleanup resumes on subsequent frames.
-    const retire = mobile && !(urgent && (!this.ios || this.tiles.size < IOS_STREAMING.maxTiles)) ? retiring.shift() : undefined;
+    const retire = mobile && (sceneDue || urgent)
+      && !(urgent && (!this.ios || this.tiles.size < IOS_STREAMING.maxTiles)) ? retiring.shift() : undefined;
+    const before = this.tiles.size;
     if (retire !== undefined) this.unload(retire);
-    else if (commitAllowed && (!this.ios || this.tiles.size < IOS_STREAMING.maxTiles)) this.commitLanded();
+    else if (commitAllowed && (sceneDue || urgent)
+      && (!this.ios || this.tiles.size < IOS_STREAMING.maxTiles)) this.commitLanded();
+    if (this.tiles.size !== before) nextSceneChange = wall + TRAVEL_SCENE_INTERVAL;
     this.pump(wall);
     this.stats.inFlight = this.inFlight.size;
     this.stats.queued = this.queue.length;
@@ -232,6 +242,8 @@ export function configureStreaming(world, camera) {
     wanted.clear();
     lastWanted.clear();
     retiring = [];
+    nextSceneChange = 0;
+    this.stats.fastTravel = false;
     originalUnloadAll.call(this);
   };
   return world;

@@ -5,6 +5,7 @@ import { gunzipSync } from 'node:zlib';
 import { assets } from './sveltekit-assets.mjs';
 import { installTileRequests } from '../static/world/assets/tile-requests.js';
 import { serveStatic } from '../src/lib/server/static.js';
+import { canCommitSceneTile } from '../static/world/assets/predictive-streaming.js';
 
 // Exercise the actual shipped streamer, including request IDs, promise replies,
 // overlap indexes and events. Only time, camera and network latency are faked.
@@ -63,9 +64,15 @@ function fixture({ ios = true, mobile = true, predictive = true, latency = 0.6, 
     M: Vector, n: () => ios, s: x => x, Dt: x => Math.floor(x / 256), Et: (x, z) => `${x}_${z}`,
     installTileRequests, Nl: 2, Ml: 2, jl: 6, Al: 2 });
   vm.runInContext(`${streamerSource}\n${policy}`, sandbox);
-  const events = [], requests = [], pending = [];
+  const events = [], requests = [], pending = [], changes = [];
   const camera = { x: 1, z: 0, getWorldDirection(v) { return v.copy({ x: this.x, y: 0, z: this.z }); } };
-  const world = new sandbox.Pl({ emit: (...args) => events.push(args) },
+  const world = new sandbox.Pl({ emit: (...args) => {
+    events.push(args);
+    if (args[0] === 'tileLoaded' || args[0] === 'tileUnloaded') changes.push({ time,
+      fast: world.stats.fastTravel,
+      occupied: args[0] === 'tileLoaded' && args[1].key === `${Math.floor(world.focus.x / 256)}_${Math.floor(world.focus.z / 256)}`,
+    });
+  } },
     { level: mobile ? 'mobile' : 'high', drawDistance: mobile || ios ? 512 : 1500, farDistance: mobile || ios ? 512 : 5000 });
   for (let x = -20; x <= 20; x++) for (let z = -10; z <= 10; z++) world.tileSet.add(`${x}_${z}`);
   if (tileData) world.tileSet = new Set(tileData.keys());
@@ -96,10 +103,39 @@ function fixture({ ios = true, mobile = true, predictive = true, latency = 0.6, 
     world.update(point, time, near, commit);
     assert(events.filter(e => e[0] === 'tileLoaded').length - before <= 1, 'at most one commit per frame');
     if (mobile && predictive) assert(events.filter(e => e[0] === 'tileUnloaded').length - unloaded <= 1, 'mobile disposes at most one tile per frame');
-    if (mobile || ios) assert(world.inFlight.size <= (predictive ? ios ? 4 : 2 : 1), 'bounded in-flight memory');
+    if (mobile || ios) assert(world.inFlight.size <= (predictive ? 2 : 1), 'bounded in-flight memory');
     if (ios && predictive) assert(world.tiles.size <= 32, 'nearby, ahead and retained tiles share the 32-tile iOS limit');
   }
-  return { world, camera, events, requests, pending, frame, point, get time() { return time; } };
+  return { world, camera, events, requests, pending, changes, frame, point, get time() { return time; } };
+}
+
+{
+  const f = fixture({ latency: .01 });
+  for (let i = 0; i < 100; i++) await f.frame({ dt: 1 / 60 });
+  f.changes.length = 0;
+  for (let i = 0; i < 360; i++) await f.frame({ dt: 1 / 60, x: f.point.x + 2 });
+  assert(f.world.stats.fastTravel, '120 m/s movement selects the fast-travel budget');
+  assert(f.changes.filter(c => c.fast).length > 6, 'continuous travel still loads and retires tiles');
+  for (let i = 1; i < f.changes.length; i++) {
+    const previous = f.changes[i - 1], current = f.changes[i];
+    if (current.fast && !current.occupied) assert(current.time - previous.time >= .15 - 1e-6,
+      'background tile lifecycle changes are spaced apart during fast travel');
+  }
+  for (let i = 0; i < 200; i++) await f.frame();
+  assert(!f.world.stats.fastTravel, 'stopping restores the normal scene budget');
+  assertCoverage(f);
+}
+{
+  const world = { mobile: true, stats: { fastTravel: true }, focus: { x: 0, z: 0 },
+    tiles: new Map([['0_0', {}]]), landed: [], inFlight: new Map() };
+  assert(canCommitSceneTile({ busy: 5 }, world));
+  assert(!canCommitSceneTile({ busy: 6 }, world), 'fast travel limits concurrent tile fan-out');
+  world.tiles.clear(); world.landed.push({ p: { key: '0_0' }, id: 1 }); world.inFlight.set('0_0', 1);
+  assert(canCommitSceneTile({ busy: 50 }, world), 'occupied terrain bypasses builder backpressure');
+  world.inFlight.set('0_0', 2);
+  assert(!canCommitSceneTile({ busy: 50 }, world), 'stale replies do not bypass the gate');
+  world.mobile = false;
+  assert(canCommitSceneTile({ busy: 6 }, world), 'desktop retains its existing job budget');
 }
 
 function tileDistance(tx, tz, x, z) {
@@ -158,7 +194,7 @@ for (const [dx, dz] of [[1, 0], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]]) {
   const f = fixture({ latency: 0.2 });
   for (let i = 0; i < 60; i++) await f.frame({ busy: 24 });
   assert.deepEqual([...f.world.tiles.keys()], ['0_0']);
-  assert.equal(f.world.landed.length, 4);
+  assert.equal(f.world.landed.length, 2);
   for (let i = 0; i < 60; i++) await f.frame({ x: 2688, busy: 24 });
   assert(f.world.tiles.has('10_0'), 'occupied destination bypasses unrelated scene backlog');
   assert(!f.world.tiles.has('11_0'), 'urgent exception does not admit neighboring work');
@@ -171,7 +207,7 @@ for (const [dx, dz] of [[1, 0], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]]) {
 for (const options of [{}, { ios: false }, { ios: false, mobile: false }]) {
   const f = fixture({ ...options, latency: 0.1 });
   for (let i = 0; i < 30; i++) await f.frame({ commit: false });
-  assert.equal(f.world.landed.length, options.mobile === false ? 6 : options.ios === false ? 2 : 4);
+  assert.equal(f.world.landed.length, options.mobile === false ? 6 : 2);
   const destination = f.world.queue.find(p => Math.abs(p.tx) <= 1 && Math.abs(p.tz) <= 1);
   assert(destination);
   for (let i = 0; i < 30; i++) await f.frame({ x: destination.tx * 256 + 128, z: destination.tz * 256 + 128, busy: 24 });
@@ -260,13 +296,13 @@ for (const mobile of [false, true]) {
   assert([...counts.values()].every(n => n === 1), 'brief camera reversals reuse resident tiles instead of fetching and rebuilding them');
 }
 
-// Backpressure holds all four decoded slots; teleporting drops old replies and
+// Backpressure holds both decoded slots; teleporting drops old replies and
 // frees those slots without emitting tiles from the abandoned scene.
 {
   const f = fixture({ latency: 0.1 });
   for (let i = 0; i < 30; i++) await f.frame({ commit: false });
-  assert.equal(f.requests.length, 4);
-  assert.equal(f.world.landed.length, 4);
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.world.landed.length, 2);
   await f.frame({ x: 2688, commit: false });
   assert(f.requests.some(r => r.key === '10_0'), 'stale slots are recycled even with scene publication blocked');
   assert.equal(f.world.tiles.size, 0);
