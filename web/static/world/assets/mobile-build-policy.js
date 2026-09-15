@@ -11,6 +11,8 @@ export const MOBILE_STREET_BUDGET = Object.freeze({
   streetMaxWaitMs: 400,
 });
 
+export const MOBILE_BUILDING_BUDGET = Object.freeze({ mapSize: 128, anisotropy: 2 });
+
 const streetChanges = new WeakMap();
 
 /** Adjacent tile arrivals can invalidate the same motorway several frames in
@@ -37,7 +39,7 @@ export function beginStreetBuild(rec) {
   streetChanges.delete(rec);
 }
 
-/** Only street maps opt into the smaller mobile budget; facade maps keep theirs. */
+/** Tag street maps so the shared decoder can apply their mobile budget. */
 export function streetTextureUrl(url, mobile) {
   if (!mobile) return url;
   const parsed = new URL(url, 'https://textures.invalid');
@@ -47,7 +49,17 @@ export function streetTextureUrl(url, mobile) {
 }
 
 export function mobileTextureSize(url) {
-  return new URL(url, 'https://textures.invalid').searchParams.get('streetMobile') === '1' ? MOBILE_STREET_BUDGET.mapSize : 256;
+  const params = new URL(url, 'https://textures.invalid').searchParams;
+  if (params.get('buildingMobile') === '1') return MOBILE_BUILDING_BUDGET.mapSize;
+  return params.get('streetMobile') === '1' ? MOBILE_STREET_BUDGET.mapSize : 256;
+}
+
+/** Facade color and normal maps share the cap; unrelated scene maps keep theirs. */
+export function buildingTextureUrl(url) {
+  const parsed = new URL(url, 'https://textures.invalid');
+  if (!parsed.pathname.includes('/assets/textures-mobile/')) return url;
+  parsed.searchParams.set('buildingMobile', '1');
+  return /^(https?:)?\/\//.test(url) ? parsed.href : parsed.pathname + parsed.search + parsed.hash;
 }
 
 /** Three road steps per background step on mobile, within the existing frame

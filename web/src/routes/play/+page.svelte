@@ -19,7 +19,7 @@
     ['Left click', 'fire'],
     ['R', 'reload'],
     ['1–4', 'switch weapon'],
-    ['F', 'enter or leave a vehicle'],
+    ['F', 'enter or leave a vehicle; board a train or request the next stop'],
     ['Touch', 'left stick walks, right stick looks, buttons on the right'],
   ];
 </script>
@@ -81,6 +81,43 @@
     <div class="go">
       <a class="btn btn-primary" {href}>Enter the city</a>
       <code class="target mono faint">{href}</code>
+    </div>
+  </div>
+
+  <div class="card keys">
+    <h2>Railways across the city</h2>
+    <p class="dim note">Explore tracks and platforms generated from the city's railway map,
+      including underground lines, elevated structures, and their connecting approaches.</p>
+    <div class="go">
+      <a class="btn" href={worldUrl({ fly: '5484.55,-1801.36,14.80,41.95,0', q, time: time || '13:30', weather })}>Astoria Boulevard · elevated</a>
+      <a class="btn" href={worldUrl({ fly: '1225.84,-3624.94,-16.20,-150.91,0', q, time: time || '13:30', weather })}>86th Street · Eighth Avenue</a>
+    </div>
+    <p class="faint note">Railway map © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>.</p>
+  </div>
+
+  <div class="card keys">
+    <h2>Broadway subway</h2>
+    <p class="dim note">Watch five-car trains call at 13 stations from Times Square to 137th Street.
+      Follow the tracks underground, through open portals, and onto the elevated platforms at 125th Street.
+      Walk down street entrances to the platforms alongside NPCs. In play mode,
+      press F at an open train door to board, then F again to get off at the next station.
+      The links below open camera previews.</p>
+    <div class="go">
+      <a class="btn" href={worldUrl({ fly: '-366.99,-143.77,-9.20,16.35,0', q, time: time || '13:30', weather })}>Times Square · underground</a>
+      <a class="btn" href={worldUrl({ fly: '2077.88,-6813.74,10.80,29.04,0', q, time: time || '13:30', weather })}>125th Street · Broadway</a>
+    </div>
+  </div>
+
+  <div class="card keys">
+    <h2>Metro-North</h2>
+    <p class="dim note">Follow the four-track Park Avenue line from Grand Central's underground
+      platforms to Harlem–125th Street, across the Harlem River, and onto the Hudson and
+      Harlem/New Haven branches. Nine stations include Yankees–East 153rd Street, Melrose,
+      Tremont, and the Hudson line through Spuyten Duyvil.</p>
+    <div class="go">
+      <a class="btn" href={worldUrl({ fly: '3694.14,-5647.86,10.80,28.38,0', q, time: time || '13:30', weather })}>Harlem–125th Street · Park Avenue</a>
+      <a class="btn" href={worldUrl({ fly: '458.77,96.18,-11.20,31.12,0', q, time: time || '13:30', weather })}>Grand Central · underground</a>
+      <a class="btn" href={worldUrl({ fly: '4522.17,-7877.21,10.80,-31.12,0', q, time: time || '13:30', weather })}>Yankees–East 153rd Street</a>
     </div>
   </div>
 

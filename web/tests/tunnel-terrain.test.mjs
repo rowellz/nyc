@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { assets } from './sveltekit-assets.mjs';
+import { CLIENT_REVISION } from '../src/lib/server/client-cache.js';
 
 const { syncTunnelTerrain, worldTunnels } = await import(new URL('tunnels.js', assets));
 const { triangleHeight } = await import(new URL('supports.js', assets));
+const { holesForTile } = await import(new URL(`rail/footprints.js?v=${CLIENT_REVISION}`, assets));
 assert((await readFile(new URL('streets-CfYSUqyW.js', assets), 'utf8'))
   .includes('e.events.on(`tileUnloaded`,t=>{ee(t);$tunnelTerrain(e)})'), 'tile removal refreshes terrain even without another road build');
 class Attribute {
@@ -76,7 +78,8 @@ function covered(mesh, x, z) {
   f.ctx.world.tiles.delete(f.neighbor.key);
   syncTunnelTerrain(f.ctx);
   assert(covered(f.ground, 200, 128), 'removing a profile restores the original surface');
-  assert(f.colliders.some(c => c.key === f.local.key && !c.holes.length), 'restored ground has matching collision');
+  assert.deepEqual(f.colliders.at(-1), {key:f.local.key,holes:holesForTile(f.local)},
+    'restored road ground has matching collision while permanent railway openings remain');
 }
 // Unrelated arrivals must not reallocate correct terrain; a newly created
 // ground mesh must still receive cuts when profiles have not changed.

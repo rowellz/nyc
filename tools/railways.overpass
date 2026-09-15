@@ -1,0 +1,6 @@
+[out:json][timeout:180];
+(
+ way[railway~"^(rail|subway|light_rail|tram)$"](40.67,-74.04,40.89,-73.895);
+ nwr[railway~"^(station|halt|platform|subway_entrance|stop)$"](40.67,-74.04,40.89,-73.895);
+);
+out body geom;

@@ -328,7 +328,10 @@ Other mobile street performance settings are tuned in
 `web/static/world/assets/mobile-build-policy.js` (`MOBILE_STREET_BUDGET`). Surface
 maps are capped at 128 px, procedural noise at 64 px, and the lane-paint/decal
 atlas at 512 px, with 2× anisotropy and mipmaps retained. The worker and no-worker
-texture paths share this limit; building textures keep their existing budget.
+texture paths share this limit. Mobile facade color and normal maps are also
+capped at 128 px with 2× anisotropy (`MOBILE_BUILDING_BUDGET`), reducing their
+pixel memory by 75% from the previous 256 px cap. Desktop maps retain their
+original resolution and filtering.
 The procedural generator now recognizes `mobile`, which previously selected
 1024 px maps. Mobile also uses the drawn manhole decal without fetching its two
 photographs. Maps load once per street module, so this reduces startup work,
@@ -674,6 +677,168 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
     their inner traffic lanes a lane apart.
 
 ## Developing on the client
+
+### Rail network
+
+Rail coverage is generated from OpenStreetMap railway features, using the same
+planning-before-streaming approach as the road renderer. The checked-in extract
+contains 4,480 railway ways. `rail/map-compiler.js` preserves shared OSM node IDs,
+track types, tunnel/bridge/cutting tags and layers, joins continuous track chains,
+and solves grades over the whole connected graph before assigning tile owners.
+Geometric crossings with different node IDs stay separate. Platform sections
+remain level; connecting approaches absorb elevation changes at a maximum 5.5%
+grade. Heights are synthetic because OSM layers describe stacking, not elevation.
+
+The current import generates 592 platform records beyond the tailored Broadway
+and Metro-North corridors below. These are platforms, not 592 distinct stations.
+Imported stations use procedural platforms, stairs, canopies and signs at mapped
+locations. Source platform polygons, station tags and entrance coordinates remain
+in `rail/map-features.json`; the renderer does not yet reproduce their exact
+outlines, mezzanines or entrance paths. Train movements are synthetic, follow
+connected track chains, and are not an implementation of every named service.
+
+Subway boards use the [MTA station catalog](https://data.ny.gov/Transportation/MTA-Subway-Stations/39hk-dx4f)
+and [regular GTFS feed](https://www.mta.info/developers) for normal daytime routes,
+colors and destinations. The offline sign index matches platform GTFS tags,
+station references and adjacent OSM tracks, including their travel directions.
+Each platform and inter-level stair displays its destination services; street
+boards list services reachable through that entrance. Local stops exclude
+express services that do not stop there. Cross-town services show destinations
+such as Brooklyn or West Side. Signs are repeated between platform columns.
+These are normal-service wayfinding boards, not live service-change information;
+train timetables and the simplified infrastructure remain simulated.
+
+To refresh service metadata, download the regular subway GTFS ZIP and the MTA
+station catalog JSON, then run:
+
+```bash
+python tools/import-subway-services.py /path/to/gtfs_subway.zip /path/to/stations.json
+node tools/index-subway-signs.mjs
+```
+
+The source URLs are in the importer. `subway-services.json` and
+`subway-tracks.json` retain offline inputs; only the compact `sign-data.js` is
+loaded during play. Pass an OSM body/geometry extract as the optional argument
+to `index-subway-signs.mjs` to refresh track directions. The map importer does
+this automatically. Source hashes and the GTFS feed version are recorded.
+PATH platforms retain their own network/destination labels.
+
+To refresh the map, fetch the checked-in Overpass query and run the importer:
+
+```bash
+curl --fail --get --data-urlencode data@tools/railways.overpass \
+  https://overpass-api.de/api/interpreter -o /tmp/railways.json
+node tools/import-railways.mjs /tmp/railways.json
+```
+
+The importer rejects incomplete responses, clips to the world's bounds, records
+the source timestamp and SHA256, and regenerates the track catalog, station
+access connections and worker footprint index. Runtime play requires no Overpass or MTA requests.
+Rail map data is © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright),
+under ODbL 1.0. The authored corridors are explicit replacement regions: matching
+mapped tracks inside them are omitted to avoid duplicate geometry. New lines
+outside those regions need map data, not another hand-written corridor.
+
+The SvelteKit world includes a Broadway local corridor with 13 stations between
+Times Square–42 St and 137 St–City College. Five-car trains run in both directions,
+brake into stations, dwell, and open their platform-side doors. The tracks rise
+from underground to the elevated 125 St station and descend again. Platforms,
+stairs, connecting passages, tunnel walls, roofs and elevated decks have collision;
+stations include name signs, benches, canopies and light strips. The `/play`
+launcher has direct camera links to the platforms.
+
+Metro-North adds nine stations: Grand Central, Harlem–125 St on Park Avenue,
+Yankees–E 153 St, Morris Heights, University Heights, Marble Hill, Spuyten Duyvil,
+Melrose and Tremont. The shared four-track Park Avenue trunk climbs from the
+Grand Central tunnel to the viaduct, crosses the Harlem River on a supported
+bridge, and splits at Mott Haven. Hudson and Harlem/New Haven services continue
+along their branches to the edge of the loaded world. The shared trunk and its
+two island platforms are built once, regardless of the number of services.
+Stations have stairs to street level; the Harlem branch uses open cut stations.
+
+Metro-North's horizontal alignment and station coordinates come from the
+[official MTA GTFS feed](https://www.mta.info/developers). Regenerate the checked-in
+`metro-north-data.js` with `python tools/import-metro-north.py /path/to/gtfsmnr.zip`;
+the output records the feed URL and archive SHA256. Elevations, platform layouts,
+structures and timetables are authored approximations, not survey or live service
+data. Grand Central uses a simplified terminal within the shared four-track layout.
+
+The Broadway corridor uses approximate station positions and synthetic service.
+Map coverage depends on the extract and loaded world bounds; station details
+and every service are not complete reproductions of the real networks.
+Players can board at an open train door with **F** or the on-screen button.
+Press F aboard a moving train to request the next available platform; at a stop,
+F exits immediately. Boarding requires a resident platform at the player's level,
+and terminal arrivals automatically unload passengers. Rides use the normal player
+position updates; dedicated passenger occupancy and free walking inside moving
+carriages are not implemented.
+
+`rail/access-data.js` connects 1,296 existing street entrance props to 514 platform
+records. The old painted stairwell is replaced by a terrain opening, collidable
+stairs, a passage and a platform stair opening. Visible treads use continuous
+walking collision to avoid catching the player capsule on step edges. These connections are procedural,
+not surveyed station interiors. `tools/index-station-access.mjs` rebuilds them from
+the mirrored entrance props and rail platforms. Existing NPCs can leave their
+sidewalk routes, enter stations, wait on platforms, and return to the street.
+They keep to separate directions in passages and retain their underground height
+and visibility. NPCs currently visit stations without boarding trains.
+
+Mapped underground entrances descend near their street positions and connect to
+nearby platforms. The planner reserves an aisle beside the stairs within the
+available track clearance; confined platforms retain their existing end access.
+Platform walking paths are navigation data, not additional enclosed hallways.
+Stairs between levels begin on the platforms, with UP/DOWN level signs at their
+openings. Platform mesh, collision and floor-height queries share those openings.
+The planner separates neighboring entrance flights and protects existing platforms.
+Fourteen entrances without a clear route are gated and marked CLOSED.
+
+Stair runs use short flights with resting landings. Inter-level connections use
+turn landings where the underlying railway changes direction. NPCs select any
+connected platform and preserve their intended floor where paths cross vertically.
+Wall and roof openings retain lintels, sills and corner returns. Shared endpoint
+frames close curved tunnel seams, and station end walls join the narrower bore.
+Retained map polygons restore lower platforms discarded by the original nearest-
+track deduplication, including Lexington Avenue–125th Street.
+Platform assignment prefers the mapped layer over tiny differences in distance
+to stacked tracks. `tools/refine-rail-platforms.mjs` applies that correction to an
+existing snapshot without another download.
+
+`web/static/world/assets/rail/network.js` owns the routes, bounded grades, station
+levels, train schedules and portal/stair footprints. Geometry and train carriages
+sample those same routes. Track sections have fixed tile owners and a neighbor halo;
+one section or station is built per frame. Train rendering is limited to four
+nearby consists across all lines on mobile and ten on desktop. Unloading releases geometry, signs
+and collision, while train geometry and materials are shared.
+
+`rail-assets.js` installs the module and the street-worker/height hooks. Rail uses
+the existing tunnel terrain cutter for ground, paving, water and collision, while
+preserving independent overhead road decks. The street height sampler applies
+rail support at the player's level so a street above a platform cannot pull the
+player back to ground level. The camera/fall guard recognizes supported underground
+travel, and elevated piers use the motorway support planner to span lower road
+lanes. Walls leave connected track and neighboring platform passages open.
+Workers import the compact footprint index rather than the full rail graph;
+terrain and water cuts are selected from spatial buckets for resident tiles.
+The geometry/runtime Three.js imports carry the same
+revision as `client-cache.js`; keep those in step when updating the client revision.
+
+Run `npm --prefix web run test:rail` for grades, seams, train spacing and stopping,
+station collision, connected entrance clearance, boarding and riding, NPC visits
+to stacked levels, short stair flights,
+branch seams, shared station ownership, served street cutouts, module loading
+order, and repeated streaming/disposal. The existing tunnel, road, startup and streaming suites cover
+the shared machinery. Changes apply to the SvelteKit services, including `web-dev`.
+With Chromium installed, `npm --prefix web run test:station-browser` also walks
+the actual player capsule down to underground platforms, up to an elevated
+platform, along their full walking aisles, and back to the street. It includes all
+eight 77th Street entrances, both Lexington–125th levels from every entrance,
+and all Grand Concourse platforms from one entrance with
+neighboring tracks and stations loaded together. Enclosure regressions cast rays
+through platforms and stair junctions to detect missing walls and ceilings.
+Each walking waypoint also checks the actual floor reached.
+Set `CHROMIUM` to override the browser path; screenshots are saved under `/tmp`.
+
+### Development server
 
 ```bash
 docker compose --profile dev up web-dev   # http://localhost:5173/world/

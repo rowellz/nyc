@@ -22,6 +22,7 @@ const sandbox = { console, performance, self: { postMessage: value => { response
   $carriagewayIndex: carriagewayIndex, $pathHalfWidth: pathHalfWidth,
   $pathPieceClear: pathPieceClear, $resolveRoadOverlaps: resolveRoadOverlaps,
   $pedestrianClearance: pedestrianClearance };
+sandbox.$railCuts = (await import(new URL("rail/cuts.js", assets))).cutRailStreets;
 vm.createContext(sandbox);
 const worker = readFileSync(new URL('tile.worker-Ai2ZdmRL.js', assets), 'utf8').replace(/^import .*$/gm, '');
 vm.runInContext(worker, sandbox);

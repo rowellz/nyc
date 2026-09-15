@@ -76,6 +76,11 @@ export function mobilePerformanceAssetTransform(rel, source) {
     replace('let t=await Gn(),n;', 'let t=e.data.quality===`mobile`?{}:await Gn(),n;');
   } else if (rel.endsWith('/buildings-BDmduZ8y.js')) {
     source = "import { nextBuildingTile as $nextBuildingTile } from './mobile-build-policy.js';\n" + source;
+    source = "import { buildingTextureUrl as $buildingTextureUrl, MOBILE_BUILDING_BUDGET as $buildingBudget } from './mobile-build-policy.js';\nimport { o as $mobileTextureUrl } from './quality-BuEwAkMy.js';\n" + source;
+    replace('async function Q(e,t,n=!0,r){try{let a=await ne(e);',
+      'async function Q(e,t,n=!0,r){try{e=$buildingTextureUrl($mobileTextureUrl(e));let a=await ne(e);');
+    replace('a.anisotropy=Math.min(8,t.capabilities.getMaxAnisotropy())',
+      'a.anisotropy=Math.min(e.includes(`/assets/textures-mobile/`)?$buildingBudget.anisotropy:8,t.capabilities.getMaxAnisotropy())');
     replace('function P(){for(;D.length;)', 'const $buildingContext=t;function P(){for(;D.length;)');
     replace('let t=D.shift();', 'let t=$nextBuildingTile(D,$buildingContext);');
   } else if (rel.endsWith('/vehicles-_zJz3z3J.js')) {

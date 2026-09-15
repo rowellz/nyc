@@ -1,4 +1,5 @@
 import { deckEdges } from './edges.js';
+import { holesForTile as railHolesForTile, waterHolesForTiles } from './rail/footprints.js?v=station-layout-32';
 
 /** Shared by the geometry worker and traffic. Heights are synthetic: OSM layers
  * describe stacking, not surveyed elevations. Keep grades continuous across ways. */
@@ -310,7 +311,7 @@ export function tunnelWaterHoles(profiles) {
 
 /** Subtract convex approach footprints from triangles, interpolating every
  * attribute. Used for both rendered paving and the actual ground collider. */
-export function cutGround(attributes, indices, holes) {
+export function cutGround(attributes, indices, holes, heightRange = [-0.5, 0.3]) {
   if (!holes.length) return null;
   const entries = Object.entries(attributes), posSlot = entries.findIndex(([name]) => name === 'position');
   const bounds = holes.map(r => ({ r, minX: Math.min(...r.map(p => p[0])), maxX: Math.max(...r.map(p => p[0])), minZ: Math.min(...r.map(p => p[1])), maxZ: Math.max(...r.map(p => p[1])) }));
@@ -334,7 +335,7 @@ export function cutGround(attributes, indices, holes) {
     const xyz = pieces[0].map(v => v[posSlot]);
     const minX = Math.min(...xyz.map(p => p[0])), maxX = Math.max(...xyz.map(p => p[0])), minZ = Math.min(...xyz.map(p => p[2])), maxZ = Math.max(...xyz.map(p => p[2]));
     for (const h of bounds) {
-      if (h.maxX < minX || h.minX > maxX || h.maxZ < minZ || h.minZ > maxZ || xyz.some(p => p[1] > 0.3 || p[1] < -0.5)) continue;
+      if (h.maxX < minX || h.minX > maxX || h.maxZ < minZ || h.minZ > maxZ || xyz.some(p => p[1] > heightRange[1] || p[1] < heightRange[0])) continue;
       pieces = pieces.flatMap(poly => {
         // Earlier cuts create pieces far from this hole. Do not subdivide
         // those pieces along the infinite extensions of its clipping edges.
@@ -465,7 +466,7 @@ export function syncTunnelTerrain(ctx, tile = null) {
   for (const current of changed ? ctx.world.tiles.values() : tile ? [tile] : []) {
     if (ctx.world.tiles.get(current.key) !== current) continue;
     const local = state.holes.filter(r => Math.max(...r.map(p => p[0])) >= current.tx * 256 && Math.min(...r.map(p => p[0])) <= (current.tx + 1) * 256
-      && Math.max(...r.map(p => p[1])) >= current.tz * 256 && Math.min(...r.map(p => p[1])) <= (current.tz + 1) * 256);
+      && Math.max(...r.map(p => p[1])) >= current.tz * 256 && Math.min(...r.map(p => p[1])) <= (current.tz + 1) * 256).concat(railHolesForTile(current));
     const signature = JSON.stringify(local), previous = state.tiles.get(current.key);
     const ground = ctx.scene.getObjectByName(`env-ground-${current.key}`);
     if (ground && (ground !== previous?.ground || signature !== previous?.signature)) recut(ground, local);
@@ -479,7 +480,7 @@ export function syncTunnelTerrain(ctx, tile = null) {
   }
   const water = ctx.scene.getObjectByName('env-water');
   if (water && waterProfiles.get(water) !== profiles) {
-    recut(water, tunnelWaterHoles(profiles)); waterProfiles.set(water, profiles);
+    recut(water, [...tunnelWaterHoles(profiles), ...waterHolesForTiles(ctx.world.tiles.values())]); waterProfiles.set(water, profiles);
   }
 }
 

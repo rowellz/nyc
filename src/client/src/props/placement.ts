@@ -358,11 +358,12 @@ export function* placeTileSteps(ctx: GameContext, tile: Tile, store: PropTile, a
       case 'subway_entrance': {
         const near = roadNear(tile.roads, p);
         if (near) yaw = Math.atan2(-near.dz, near.dx);
-        const lines = p.text?.trim() && /^[A-Z0-9 ]+$/.test(p.text.trim()) && p.text.trim().length <= 12
+        yaw = (ctx.modules.get('rail') as {entranceYaw?(x: number, z: number): number | undefined} | undefined)?.entranceYaw?.(p.x, p.z) ?? yaw;
+        const lines = (ctx.modules.get('rail') as {entranceClosed?(x: number, z: number): boolean} | undefined)?.entranceClosed?.(p.x, p.z) ? '|Entrance closed|Use another entrance' : p.text?.trim() && /^[A-Z0-9 ]+$/.test(p.text.trim()) && p.text.trim().length <= 12
           ? p.text.trim() : subwayLines(p.x, p.z, near?.road.name, seed);
         store.signs.push(`subway:${lines}`);
         add('subway', 0, 0, 0, yaw, atlas.subwaySign(lines));
-        add('stairwell', 0, 0.025);
+        if (!(ctx.modules.get('rail') as {functionalEntrance?(x: number, z: number): boolean} | undefined)?.functionalEntrance?.(p.x, p.z)) add('stairwell', 0, 0.025);
         for (const side of [-1, 1]) {
           add('globe', -SUB_L / 2, 0, side * (SUB_W / 2 + 0.12));
           light(-SUB_L / 2, 1.98, side * (SUB_W / 2 + 0.12), 3, 1.2, 1.2);

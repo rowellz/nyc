@@ -116,6 +116,12 @@ export class LocalController {
     const st = ctx.state;
     const s = st.local.state;
     const inp = ctx.input;
+    const rail = ctx.modules.get('rail') as {carryPassenger?(dt: number): boolean} | undefined;
+    if (rail?.carryPassenger?.(dt)) {
+      this.place(s.x, s.y + this.height / 2 + .1, s.z);
+      this.vel.set(0, 0, 0); this.vy = 0; this.speed = 0; this.animState = 'idle'; this.pendingSync = false;
+      return;
+    }
     if (this.pendingSync) {
       this.pendingSync = false;
       this.applySync();

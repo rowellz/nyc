@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { assets } from './sveltekit-assets.mjs';
-import { mobileTextureSize, streetTextureUrl } from '../static/world/assets/mobile-build-policy.js';
+import { mobileTextureSize, streetTextureUrl, buildingTextureUrl, MOBILE_BUILDING_BUDGET } from '../static/world/assets/mobile-build-policy.js';
 
 const worker = fs.readFileSync(new URL('texture.worker-CaHoFbYF.js', assets), 'utf8').replace(/^import .*\n/gm, '');
 const transfer = fs.readFileSync(new URL('transfer-CN3_6JL-.js', assets), 'utf8');
 const quality = fs.readFileSync(new URL('quality-BuEwAkMy.js', assets), 'utf8');
 
-for (const [mobile, width, height, expected, street = false] of [
+for (const [mobile, width, height, expected, street = false, building = false] of [
   [true, 512, 512, [256, 256]],
   [true, 512, 256, [256, 128]],
   [true, 256, 512, [128, 256]],
@@ -17,8 +17,14 @@ for (const [mobile, width, height, expected, street = false] of [
   [true, 512, 512, [128, 128], true],
   [true, 512, 256, [128, 64], true],
   [true, 64, 32, [64, 32], true],
+  [true, 512, 512, [128, 128], false, true],
+  [true, 512, 256, [128, 64], false, true],
+  [true, 256, 512, [64, 128], false, true],
+  [true, 64, 32, [64, 32], false, true],
+  [false, 2048, 1024, [2048, 1024], false, true],
 ]) {
-  const url = `https://example.test/world/assets/${mobile ? 'textures-mobile' : 'textures'}/brick/color.jpg${street ? '?streetMobile=1' : ''}`;
+  const originalUrl = `https://example.test/world/assets/${mobile ? 'textures-mobile' : 'textures'}/brick/color.jpg${street ? '?streetMobile=1' : ''}`;
+  const url = building ? buildingTextureUrl(originalUrl) : originalUrl;
   let result, closed = 0;
   const draws = [];
   const bitmap = { width, height, close() { closed++; } };
@@ -79,4 +85,32 @@ for (const [mobile, width, height, expected, street = false] of [
 const roadUrl = '/world/assets/textures/asphalt/color.jpg?version=2#image';
 assert.equal(streetTextureUrl(roadUrl, false), roadUrl);
 assert.equal(streetTextureUrl(roadUrl, true), '/world/assets/textures-mobile/asphalt/color.jpg?version=2&streetMobile=1#image');
+assert.equal(buildingTextureUrl(roadUrl), roadUrl);
+assert.equal(buildingTextureUrl('/world/assets/textures-mobile/brick/color.jpg?version=2#image'),
+  '/world/assets/textures-mobile/brick/color.jpg?version=2&buildingMobile=1#image');
+
+// Exercise the served facade loader to verify routing and filtering for both
+// color and normal maps, including devices with a lower anisotropy limit.
+const buildings = fs.readFileSync(new URL('buildings-BDmduZ8y.js', assets), 'utf8');
+const start = buildings.indexOf('async function Q('), end = buildings.indexOf('async function Pe(', start);
+assert(start >= 0 && end > start);
+for (const mobile of [true, false]) for (const maxAnisotropy of [1, 16]) for (const srgb of [true, false]) {
+  const device = vm.createContext({ navigator: { userAgent: mobile ? 'Android' : 'Desktop', maxTouchPoints: 0 } });
+  vm.runInContext(quality.replace(/export\{[^}]+\};/, '') + '\nglobalThis.mobileUrl = r;', device);
+  let loadedUrl, prepared;
+  const context = vm.createContext({
+    $buildingTextureUrl: buildingTextureUrl, $mobileTextureUrl: device.mobileUrl,
+    $buildingBudget: MOBILE_BUILDING_BUDGET, i: 'repeat', l: 'srgb',
+    ne: async url => { loadedUrl = url; return {}; },
+  });
+  vm.runInContext(buildings.slice(start, end), context);
+  const texture = await context.Q(`/world/assets/textures/brick/${srgb ? 'color' : 'normal'}.jpg`,
+    { capabilities: { getMaxAnisotropy: () => maxAnisotropy } }, srgb, async t => { prepared = t; });
+  assert(texture, 'facade texture loads successfully');
+  assert.equal(loadedUrl.includes('/textures-mobile/'), mobile);
+  assert.equal(new URL(loadedUrl, 'https://example.test').searchParams.get('buildingMobile'), mobile ? '1' : null);
+  assert.equal(texture.anisotropy, Math.min(mobile ? 2 : 8, maxAnisotropy));
+  assert.equal(texture.colorSpace, srgb ? 'srgb' : '');
+  assert.equal(prepared, texture, 'upload callback receives the configured texture');
+}
 console.log('Mobile texture worker and fallback checks passed.');
