@@ -1,0 +1,59 @@
+<body style="margin:0"><script type="module">
+import {WebGLRenderer,RAPIER as R} from '/world/assets/main-D_3aygO4.js';
+import {Zn as Scene,Ut as PerspectiveCamera,Z as Group,$ as HemisphereLight,z as DirectionalLight,w as Color} from '/world/assets/textureRelease-2U-gT89r.js';
+import {route as broadway,routes,sample,layout} from '/world/assets/rail/network.js?v=station-layout-32';
+import {buildTrack,buildStation,stationSign,materials} from '/world/assets/rail/geometry.js?v=station-layout-32';
+import {hubs,accessesByStation,sharedEntrances,entranceDestinations,stationDestinations} from '/world/assets/rail/access.js?v=station-layout-32';
+import {pathFrom,onPath,pathFloor} from '/world/assets/rail/access-plan.js?v=station-layout-32';
+const renderer=new WebGLRenderer({antialias:true,preserveDrawingBuffer:true});renderer.setSize(960,640);document.body.appendChild(renderer.domElement);
+const scene=new Scene();scene.background=new Color(0x9ab2c5);scene.add(new HemisphereLight(0xffffff,0x666666,2));const light=new DirectionalLight(0xffffff,2);light.position.set(10,30,10);scene.add(light);
+const camera=new PerspectiveCamera(65,960/640,.05,2000),mats=materials(),signs=[];
+await R.init();
+window.entryCases=()=>['lex77-east','lex77-west'].flatMap((id,index)=>{
+ const station=routes.flatMap(r=>r.stations).filter(s=>s.name==='77th Street')[index];
+ return (accessesByStation.get(station.key)??[]).map((_,entry)=>[id,entry,0]);
+});
+window.levelCases=()=>['lex125','concourse-0'].flatMap(id=>{
+ const source=routes.flatMap(r=>r.stations).find(s=>id==='lex125'?s.id==='way/905267133':s.id==='way/904894286');
+ return (id==='lex125'?accessesByStation.get(source.key).map((_,i)=>i):[0]).flatMap(entry=>stationDestinations(source.key).map(d=>[id,entry,0,d.stationKey]));
+});
+window.show=(id,entryIndex=0,platformIndex=0,targetKey=null)=>{
+ const interior=false;
+ for(const sign of signs)sign.dispose();signs.length=0;
+ for(const child of [...scene.children])if(child.type==='Group'){scene.remove(child);child.traverse(o=>o.geometry?.dispose());}
+ const selected=typeof id==='number'?{route:broadway,station:broadway.stations[id]}:routes.flatMap(route=>route.stations.filter(station=>(id==='lex125'?station.id==='way/905267133':station.name===(String(id).startsWith('concourse')?'149th Street-Grand Concourse':'77th Street'))).map(station=>({route,station})))[String(id).startsWith('concourse')?Number(id.split('-')[1]):id==='lex77-west'?1:0];
+ const entry=(accessesByStation.get(selected.station.key)??sharedEntrances(selected.station.key))[entryIndex];
+ const destination=entranceDestinations(entry).filter(d=>d.stationKey===(targetKey??selected.station.key))[platformIndex];
+ const hub=destination.hub,route=routes.find(r=>r.id===hub.routeId),station=route.stations.find(s=>s.key===destination.stationKey);
+ const built=Object.assign(buildStation(station,route),{debugName:station.key}),meshes=[built];
+ for(const other of routes){const segments=[...other.segmentsByTile.values()].flat().filter(([a,b])=>Math.abs((a.x+b.x)/2-station.x)<250&&Math.abs((a.z+b.z)/2-station.z)<250);if(!segments.length)continue;meshes.push(Object.assign(buildTrack(segments,[],other),{debugName:'track:'+other.id}));for(const adjacent of other.stations)if(adjacent.key!==station.key&&Math.hypot(adjacent.x-station.x,adjacent.z-station.z)<230)meshes.push(Object.assign(buildStation(adjacent,other),{debugName:adjacent.key}));}
+ scene.add(...meshes.map(mesh=>mesh.build(mats)));
+ const sign=stationSign(station,mats,route);signs.push(sign);scene.add(sign.group);
+ const platform=[];for(let s=hub.end+12;s<station.s+(station.length??route.platformLength??120)/2-8;s+=4)platform.push({...sample(route,s,hub.offset),y:station.y+1.15});
+ const path=pathFrom([...destination.path,...platform]),p=onPath(path,interior?entry.path[1].s+5:0),q=onPath(path,p.s+6);
+ camera.position.set(p.x,p.y+1.7,p.z);camera.lookAt(q.x,q.y+1.3,q.z);renderer.render(scene,camera);
+ const colliderNames=new Map();
+ const world=new R.World({x:0,y:-9.81,z:0});
+ for(const mesh of meshes)if(mesh.collision.index.length){const col=world.createCollider(R.ColliderDesc.trimesh(Float32Array.from(mesh.collision.position),Uint32Array.from(mesh.collision.index),R.TriMeshFlags.FIX_INTERNAL_EDGES));colliderNames.set(col.handle,mesh.debugName);}
+ const threshold=new built.constructor(),start=path[0];threshold.span({...start,x:start.x-entry.dx*3,z:start.z-entry.dz*3},start,2.3,.22,'concrete',-.11,0,true);world.createCollider(R.ColliderDesc.trimesh(Float32Array.from(threshold.collision.position),Uint32Array.from(threshold.collision.index),R.TriMeshFlags.FIX_INTERNAL_EDGES));
+ const body=world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(path[0].x,path[0].y+1,path[0].z));
+ const col=world.createCollider(R.ColliderDesc.capsule(.55,.35),body),cc=world.createCharacterController(.05);
+ cc.enableAutostep(.4,.2,true);cc.enableSnapToGround(.35);cc.setMaxSlopeClimbAngle(50*Math.PI/180);cc.setMinSlopeSlideAngle(55*Math.PI/180);world.step();
+ let frames=0,error=null,vy=0;
+ for(const target of [...path.slice(1),...path.slice(0,-1).reverse(),{...path[0],x:path[0].x-entry.dx*1.5,z:path[0].z-entry.dz*1.5}]) {
+  let stuck=0,previous=Infinity;
+  for(let i=0;i<12000;i++) {
+   const pos=body.translation(),dx=target.x-pos.x,dz=target.z-pos.z,d=Math.hypot(dx,dz);if(d<.55){if(Math.abs(pos.y-.95-target.y)>.75)error={reason:'wrong floor at waypoint',target,pos,expectedFeet:target.y,actualFeet:pos.y-.95};break;}
+   vy=cc.computedGrounded()?0:vy;vy-=9.81/60;cc.computeColliderMovement(col,{x:dx/d*Math.min(d,.04),y:vy/60,z:dz/d*Math.min(d,.04)});
+   const step=cc.computedMovement(),next={x:pos.x+step.x,y:pos.y+step.y,z:pos.z+step.z};body.setNextKinematicTranslation(next);world.step();frames++;
+   if(previous-d<.001)stuck++;else stuck=0;previous=d;
+   if(stuck>40||next.y< -60||i===11999){error={target,pos:next,d,step,stuck,collisions:Array.from({length:cc.numComputedCollisions()},(_,i)=>{const c=cc.computedCollision(i);return {handle:c.collider.handle,owner:colliderNames.get(c.collider.handle),normal:c.normal1,point:c.witness1};})};break;}
+  }
+  if(error)break;
+ }
+ window.inspectSigns=()=>{const platform=layout(route,station).platforms[platformIndex]??layout(route,station).platforms[0],outer=route.mapped?platform.offset+Math.sign(platform.offset)*(platform.width/2-.1):route.island?platform.offset:platform.side*9.15;const boardS=Math.floor(station.s/18)*18+9,p=sample(route,boardS,platform.offset),q=sample(route,boardS,outer);camera.position.set(p.x,p.y+2.85,p.z);camera.lookAt(q.x,q.y+3,q.z);renderer.render(scene,camera);};
+ window.inspectStairs=()=>{const stair=hub.direct?entry.path:hub.path,p=onPath(stair,Math.max(1,stair.at(-1).s-10)),q=onPath(stair,Math.max(7,stair.at(-1).s-4));camera.position.set(p.x,p.y+1.6,p.z);camera.lookAt(q.x,q.y+1.3,q.z);renderer.render(scene,camera);};
+ window.inspect=()=>{const p=sample(route,station.s,hub.offset),q=sample(route,station.s+35,hub.offset);camera.position.set(p.x,p.y+2.85,p.z);camera.lookAt(q.x,q.y+2.6,q.z);renderer.render(scene,camera);};const result={station:station.name,stationKey:station.key,entry:entry.id,frames,error,end:body.translation(),start:path[0],render:renderer.info.render};world.free();window.result=result;return result;
+};
+window.show(0);window.ready=true;
+</script>

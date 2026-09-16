@@ -34,10 +34,11 @@ export const TIMES = [
   { value: '23:30', label: '23:30 night' },
 ];
 
-/** @param {{ spot?: string, time?: string, weather?: string, q?: string, nohud?: boolean, debug?: boolean }} o */
+/** @param {{ spot?: string, fly?: string, time?: string, weather?: string, q?: string, nohud?: boolean, debug?: boolean }} o */
 export function worldUrl(o = {}) {
   const p = new URLSearchParams();
   if (o.spot) p.set('spot', o.spot);
+  if (o.fly) p.set('fly', o.fly);
   if (o.time) p.set('time', o.time);
   if (o.weather) p.set('weather', o.weather);
   if (o.q) p.set('q', o.q);

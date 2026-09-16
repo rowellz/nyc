@@ -1,6 +1,5 @@
 .git
 node_modules
-server/node_modules
 web/node_modules
 web/.svelte-kit
 web/build

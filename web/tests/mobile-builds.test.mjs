@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { assets } from './sveltekit-assets.mjs';
-import { nextSceneBuild, nextBuildingTile } from '../static/world/assets/mobile-build-policy.js';
+import { sceneBuildBudgetMs, nextSceneBuild, nextBuildingTile } from '../static/world/assets/mobile-build-policy.js';
 import { mobilePerformanceAssetPaths } from '../src/lib/server/mobile-performance-assets.js';
 import { serveStatic } from '../src/lib/server/static.js';
 import { CLIENT_REVISION, versionClientImports } from '../src/lib/server/client-cache.js';
@@ -13,6 +13,19 @@ const loading = readFileSync(new URL('loading-DS_gLujL.js', assets), 'utf8')
 
 // Drive the actual building dispatcher: travel priority applies before worker
 // construction too, with an oldest-job turn so distant buildings still finish.
+for (const [level, fastTravel, expectedSteps] of [['mobile', true, 1], ['mobile', false, 3], ['high', true, 3]]) {
+  const f = queueFixture(level);
+  f.ctx.world.stats = { fastTravel };
+  let steps = 0;
+  f.scope.job('streets:0_0').run((function* () {
+    for (let i = 0; i < 20; i++) { f.cost(); steps++; yield; }
+  })());
+  await f.frame();
+  assert.equal(steps, expectedSteps, 'fast mobile travel reserves more of the frame for rendering');
+  for (let i = 0; i < 25; i++) await f.frame();
+  assert.equal(f.ctx.busy, 0, 'reduced budget still completes scene work');
+}
+
 for (const level of ['mobile', 'high']) {
   const source = readFileSync(new URL('buildings-BDmduZ8y.js', assets), 'utf8');
   const from = source.indexOf('function P(){'), to = source.indexOf('function F(', from);
@@ -124,7 +137,7 @@ function queueFixture(level = 'mobile') {
   const uploads = [];
   const ctx = { quality: { level }, busy: 0, world: { tilePriority: tx => Math.abs(tx) },
     renderer: { initTexture: texture => uploads.push({ texture, frame: frameNumber }) } };
-  const sandbox = vm.createContext({ Promise, console, $nextSceneBuild: nextSceneBuild,
+  const sandbox = vm.createContext({ Promise, console, $sceneBuildBudgetMs: sceneBuildBudgetMs, $nextSceneBuild: nextSceneBuild,
     performance: { now: () => time }, requestAnimationFrame: fn => { frames.push(fn); return 1; } });
   vm.runInContext(loading + '\nglobalThis.buildScope=n;', sandbox);
   const scope = sandbox.buildScope(ctx);
@@ -220,17 +233,17 @@ class Canvas {
     for (const kind of ['albedo', 'normal', 'rough']) {
       const texture = textures[name][kind];
       if (!texture) continue;
-      assert.equal(texture.image.width, 128);
-      assert.equal(texture.image.height, 128);
-      assert.equal(texture.image.data.byteLength, 128 * 128 * 4);
-      assert.equal(texture.anisotropy, 2);
+      assert.equal(texture.image.width, 64);
+      assert.equal(texture.image.height, 64);
+      assert.equal(texture.image.data.byteLength, 64 * 64 * 4);
+      assert.equal(texture.anisotropy, 1);
       assert(texture.generateMipmaps);
     }
   }
-  assert.equal(textures.noise.image.width, 64);
-  assert.equal(textures.noise.anisotropy, 2);
-  assert.equal(textures.atlas.image.width, 512, 'paint atlas retains extra resolution for legibility');
-  assert.equal(textures.atlas.anisotropy, 2);
+  assert.equal(textures.noise.image.width, 32);
+  assert.equal(textures.noise.anisotropy, 1);
+  assert.equal(textures.atlas.image.width, 256, 'paint atlas retains extra resolution for legibility');
+  assert.equal(textures.atlas.anisotropy, 1);
   for (const name of ['asphalt', 'cobble']) {
     for (const texture of Object.values(textures[name]).filter(t => t?.image)) {
       assert.equal(texture.image.width, 1, 'unused road maps are only packing placeholders');

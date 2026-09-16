@@ -7,7 +7,7 @@
  * after the client's own bundle, that reaches the running game through
  * `window.__game`. Only this service serves them.
  *
- * In development one more tag goes in: Vite's HMR client, which is what receives
+ * In development desktop pages load Vite's HMR client, which receives
  * the reload the watcher in vite.config.js sends when the mirrored bundle
  * changes. Nothing else would inject it — these pages are served as bytes off
  * disk, not rendered by SvelteKit.
@@ -15,8 +15,23 @@
 
 const DEV = process.env.NODE_ENV !== 'production';
 
-/** Pages that take addons also take the dev client; everything else is untouched. */
-const DEV_TAGS = DEV ? '<script type="module" src="/@vite/client"></script>' : '';
+// A phone testing the city should not rebuild its entire WebGL scene whenever
+// an editor saves a file. Keep the dev runtime/socket out of mobile game pages;
+// ?live=1 opts in, and ?live=0 also disables it on desktop. This does not affect
+// SvelteKit's own pages or the game's WebSocket connection.
+const DEV_TAGS = DEV ? `<script>
+(() => {
+  const live = new URLSearchParams(location.search).get('live');
+  const mobile = /iPad|iPhone|iPod|Android|Mobile|Silk/i.test(navigator.userAgent)
+    || /Mac/i.test(navigator.userAgent + navigator.platform) && navigator.maxTouchPoints > 0
+    || typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  if (live !== '1' && (live === '0' || mobile)) return;
+  const script = document.createElement('script');
+  script.type = 'module';
+  script.src = '/@vite/client';
+  document.head.appendChild(script);
+})();
+</script>` : '';
 
 /** Addon scripts per page, relative to PUBLIC_DIR. Injected in order. */
 export const ADDONS = {
@@ -53,7 +68,8 @@ const tagsFor = (scripts) => scripts.map((src) => `<script src="${src}" defer></
 export function addonsFor(rel) {
   const scripts = ADDONS[rel];
   if (!scripts || !scripts.length) return undefined;
-  const tags = DEV_TAGS ? `${DEV_TAGS}\n${tagsFor(scripts)}` : tagsFor(scripts);
+  let tags = DEV_TAGS ? `${DEV_TAGS}\n${tagsFor(scripts)}` : tagsFor(scripts);
+  if (rel === 'world/index.html') tags += '\n<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" aria-label="Railway map attribution" style="position:fixed;bottom:3px;left:6px;z-index:30;padding:2px 4px;background:#0009;color:#ddd;font:10px sans-serif;text-decoration:none">© OpenStreetMap contributors</a>';
   return (html) => {
     // safe.html has no <body> of its own, so fall back to the closing <html>.
     for (const marker of ['</body>', '</html>']) {

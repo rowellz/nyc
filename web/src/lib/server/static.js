@@ -19,6 +19,7 @@ import { versionClientImports } from './client-cache.js';
 import { createStreetTileService } from './street-context.js';
 import { streetContextAssetPaths, streetContextAssetTransform } from './street-context-assets.js';
 import { precompressedResponse } from './precompressed.js';
+import { railAssetPaths, railAssetTransform } from './rail-assets.js';
 
 /**
  * In development nothing is cached. The mirrored client is patched in place (see
@@ -122,6 +123,10 @@ export async function serveStatic(relPath, options = {}) {
     }
     if (streetContextAssetPaths.has(rel)) {
       body = streetContextAssetTransform(rel, body);
+      headers['cache-control'] = 'no-store';
+    }
+    if (railAssetPaths.has(rel)) {
+      body = railAssetTransform(rel, body);
       headers['cache-control'] = 'no-store';
     }
     if (options.transform) body = options.transform(body);

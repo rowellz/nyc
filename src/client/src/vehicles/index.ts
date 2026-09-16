@@ -170,6 +170,7 @@ export async function createVehicles(ctx: GameContext): Promise<VehiclesModule> 
   }
 
   function interact(): void {
+    if ((ctx.modules.get('rail') as {controlsInteraction?(): boolean} | undefined)?.controlsInteraction?.()) return;
     const now = ctx.now ?? 0;
     if (disposed || !ctx.state.welcomed || !ctx.net.connected || ctx.state.screenshotMode || ctx.state.local.dead || now - lastInteract < 0.25) return;
     lastInteract = now;

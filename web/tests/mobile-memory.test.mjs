@@ -3,10 +3,63 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { assets } from './sveltekit-assets.mjs';
 import { serveStatic } from '../src/lib/server/static.js';
+import { MOBILE_STREET_BUDGET } from '../static/world/assets/mobile-build-policy.js';
 
 const { Z: Group, rt: InstancedMesh, g: BufferGeometry, Pt: Material } =
   await import(new URL('textureRelease-2U-gT89r.js', assets));
 const { l: disposeObject } = await import(new URL('geom-8zUJB5A-.js', assets));
+
+// Execute the served worker-pool setup, preserving reply/error handlers and
+// initial texture dispatch. Reducing the pools must not drop their only slot.
+for (const level of ['mobile', 'high']) {
+  const expected = level === 'mobile' ? 1 : 2;
+  class Worker {
+    messages = [];
+    terminated = false;
+    constructor(_url, options) { this.name = options.name; }
+    postMessage(message) { this.messages.push(message); }
+    terminate() { this.terminated = true; }
+  }
+  const source = readFileSync(new URL('streets-CfYSUqyW.js', assets), 'utf8');
+  const start = source.indexOf('try{V=new Worker('), end = source.indexOf('function Z(', start);
+  assert(start > 0 && end > start);
+  const replies = [], slots = [];
+  const streetScope = vm.createContext({ Worker, URL, W: slots, V: null, A: false,
+    $streetBudget: MOBILE_STREET_BUDGET,
+    e: { quality: { level }, renderer: { capabilities: { getMaxAnisotropy: () => 8 } } },
+    b: { then: fn => fn(null) }, Y: reply => replies.push(reply), X: () => { throw Error('worker setup failed'); },
+  });
+  vm.runInContext(source.slice(start, end).replaceAll('import.meta.url', '"https://test/world/assets/streets.js"'), streetScope);
+  assert.equal(slots.length, expected);
+  assert.equal(slots[0].messages.length, 1, 'the first street worker still generates textures');
+  assert.equal(slots[0].messages[0].quality, level);
+  for (const worker of slots) await worker.onmessage({ data: { id: replies.length + 1 } });
+  assert.equal(replies.length, expected, 'each street worker accepts geometry replies');
+
+  const buildings = readFileSync(new URL('buildings-BDmduZ8y.js', assets), 'utf8');
+  const begin = buildings.indexOf('const $buildingWorkerCount='), finish = buildings.indexOf('function M(', begin);
+  assert(begin > 0 && finish > begin);
+  let pumped = 0, cancelled = 0;
+  const buildingSlots = [], owners = new Map();
+  const buildingScope = vm.createContext({ Worker, URL, console,
+    t: { quality: { level } }, Fe: 2, E: buildingSlots, k: owners, v: new Map(),
+    D: [{ job: { cancel: () => cancelled++ } }], P: () => pumped++,
+  });
+  vm.runInContext(buildings.slice(begin, finish).replaceAll('import.meta.url', '"https://test/world/assets/buildings.js"'), buildingScope);
+  assert.equal(buildingSlots.length, expected);
+  buildingSlots[0].busy = true;
+  buildingSlots[0].w.onmessage({ data: { id: 1 } });
+  assert.equal(buildingSlots[0].busy, false, 'a completed build releases the only mobile slot');
+  assert.equal(pumped, 1, 'queued building work continues after a reply');
+  for (const slot of [...buildingSlots]) {
+    slot.w.onmessageerror();
+    assert(slot.w.terminated);
+  }
+  assert.equal(buildingSlots.length, 0);
+  assert.equal(cancelled, 1, 'losing the pool cancels queued jobs');
+}
+console.log('PASS mobile geometry worker limits, texture initialization, replies and pool failure cleanup');
+
 const material = new Material();
 let disposedMaterials = 0;
 material.addEventListener('dispose', () => disposedMaterials++);

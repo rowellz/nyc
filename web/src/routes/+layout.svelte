@@ -38,7 +38,7 @@
   <footer>
     <div class="shell">
       <p class="faint">
-        SvelteKit port of the reconstructed <span class="mono">nyc</span> service — static client, REST API and the
+        The reconstructed New York service — static client, REST API and the
         authoritative WebSocket game loop in one process. The game itself is served at
         <a href="/world/">/world/</a>.
       </p>

@@ -1,5 +1,6 @@
 /** Mobile scheduling/texture fixes applied only by the SvelteKit service. */
 export const mobilePerformanceAssetPaths = new Set([
+  'world/assets/main-D_3aygO4.js', 'world/assets/quality-BuEwAkMy.js',
   'world/assets/loading-DS_gLujL.js', 'world/assets/streets-CfYSUqyW.js',
   'world/assets/tile.worker-Ai2ZdmRL.js', 'world/assets/texture.worker-CaHoFbYF.js',
   'world/assets/transfer-CN3_6JL-.js',
@@ -9,6 +10,7 @@ export const mobilePerformanceAssetPaths = new Set([
   'world/assets/buildings-BDmduZ8y.js',
   'world/assets/landmarks-KpQKy0CX.js',
   'world/assets/geom-8zUJB5A-.js',
+  'world/assets/environment-WQwLg8tn.js', 'world/assets/textures.worker--LU96PcS.js',
 ]);
 
 export function mobilePerformanceAssetTransform(rel, source) {
@@ -17,7 +19,20 @@ export function mobilePerformanceAssetTransform(rel, source) {
     if (source.split(before).length !== 2) throw new Error(`Mobile performance override anchor changed in ${rel}: ${before}`);
     source = source.replace(before, after);
   };
-  if (rel.endsWith('/geom-8zUJB5A-.js')) {
+  if (rel.endsWith('/main-D_3aygO4.js')) {
+    source = "import { createMobileFrameBudget as $createMobileFrameBudget, resizeDrawingBuffer as $resizeDrawingBuffer } from './mobile-frame-budget.js';\n" + source;
+    replace('Mu(`streaming tiles`,.85),f.addEventListener',
+      'const $mobileFrameBudget=$createMobileFrameBudget(k,x,t.raw.get(`adaptive`)!==`0`&&t.raw.get(`capture`)!==`1`);Mu(`streaming tiles`,.85),f.addEventListener');
+    replace('preserveDrawingBuffer:t.screenshotMode',
+      'preserveDrawingBuffer:t.screenshotMode&&(!c||t.raw.get(`capture`)===`1`)');
+    replace('afterFrame(){if(a(),c)', 'afterFrame(){$mobileFrameBudget(performance.now(),pe);if(a(),c)');
+    replace('n()&&e===m&&i===h&&s===g', 'e===m&&i===h&&s===g');
+    replace('a.setPixelRatio(s),a.setSize(e,i,!0)', '$resizeDrawingBuffer(a,e,i,s),r.pixelRatio=s');
+  } else if (rel.endsWith('/quality-BuEwAkMy.js')) {
+    // The iOS override discarded q=low. Start with fewer shaded pixels and
+    // retain low's stricter ceiling throughout adaptive recovery.
+    replace('u.pixelRatio=i(1,innerWidth,innerHeight)', 'u.pixelRatio=i(e===`low`?.75:.85,innerWidth,innerHeight)');
+  } else if (rel.endsWith('/geom-8zUJB5A-.js')) {
     // Geometry disposal does not release an InstancedMesh's instance buffers.
     // Landmark furniture owns both and is rebuilt as tiles/footprints change.
     replace('t.geometry&&t.geometry.dispose()',
@@ -33,11 +48,17 @@ export function mobilePerformanceAssetTransform(rel, source) {
     replace('n<(e.quality.drawDistance+t.radius)**2',
       'n<(e.quality.drawDistance+(e.quality.level===`mobile`?0:t.radius))**2');
   } else if (rel.endsWith('/loading-DS_gLujL.js')) {
-    source = "import { nextSceneBuild as $nextSceneBuild } from './mobile-build-policy.js';\n" + source;
+    source = "import { nextSceneBuild as $nextSceneBuild, sceneBuildBudgetMs as $sceneBuildBudgetMs } from './mobile-build-policy.js';\n" + source;
+    replace('let e=performance.now()+3,', 'let e=performance.now()+$sceneBuildBudgetMs(this.ctx),');
     replace('ctx;ready=[];frame=0;', 'ctx;ready=[];frame=0;turn=0;');
     replace('this.ready.push({job:s,steps:t})', 'this.ready.push({job:s,steps:t,label:e})');
     replace('let e=this.ready.shift();', 'let e=$nextSceneBuild(this.ready,this.ctx,this.turn++);');
   } else if (rel.endsWith('/streets-CfYSUqyW.js')) {
+    // Each geometry worker owns its own JS heap and construction scratch data.
+    // Keep one on mobile; the first also handles the initial texture request.
+    replace('let t=new Worker(new URL(`/world/assets/tile.worker-Ai2ZdmRL.js`,``+import.meta.url),{type:`module`,name:`streets-1`})',
+      'if(e.quality.level!==`mobile`){let t=new Worker(new URL(`/world/assets/tile.worker-Ai2ZdmRL.js`,``+import.meta.url),{type:`module`,name:`streets-1`})');
+    replace('W.push(t),b.then(t=>{', 'W.push(t)}b.then(t=>{');
     source = "import { createMobileRoadMaterial as $mobileRoadMaterial } from './mobile-road-material.js';\n" + source;
     source = "import { streetTextureUrl as $streetTextureUrl, MOBILE_STREET_BUDGET as $streetBudget, markStreetDirty as $markStreetDirty, canBuildStreet as $canBuildStreet, beginStreetBuild as $beginStreetBuild } from './mobile-build-policy.js';\n" + source;
     replace('async function W(e){let t=', 'async function W(e){const $mobile=e.quality.level===`mobile`;let t=');
@@ -75,7 +96,26 @@ export function mobilePerformanceAssetTransform(rel, source) {
     // Keep the drawn manhole in the atlas without fetching/compositing two photos.
     replace('let t=await Gn(),n;', 'let t=e.data.quality===`mobile`?{}:await Gn(),n;');
   } else if (rel.endsWith('/buildings-BDmduZ8y.js')) {
+    replace('if(typeof Worker<`u`)for(let e=0;e<Fe;e++)',
+      'const $buildingWorkerCount=t.quality.level===`mobile`?1:Fe;if(typeof Worker<`u`)for(let e=0;e<$buildingWorkerCount;e++)');
+    source = "import { mobileFacadeShader as $mobileFacadeShader } from './mobile-facade.js';\n" + source;
+    replace('function ue(e,t){let n=', 'function ue(e,t){const $facadeSource=t.mobile?$mobileFacadeShader(se):se;let n=');
+    replace('`+se).replace(`#include <normal_fragment_maps>`', '`+$facadeSource).replace(`#include <normal_fragment_maps>`');
+    replace('m=ue(d,{textures:!1})', 'm=ue(d,{textures:!1,mobile:t.quality.level===`mobile`})');
+    replace('`facade-v2-${t.textures?`tex`:`proc`}`', '`facade-v3-${t.mobile?`mobile`:t.textures?`tex`:`proc`}`');
+    // The filtered wall/flat roof path uses vertex colors and the sign atlas.
+    // Do not decode/upload unused facade photos or recompile to the photo path.
+    replace('async function U(){H++;', 'async function U(){if(t.quality.level===`mobile`){B=!0;return}H++;');
+    // Fade nearby facade detail sooner, skipping room/shop interior shading
+    // beyond the fade while retaining the existing windows and night lighting.
+    replace('uDetailDist:{value:a===`ultra`||a===`high`?520:a===`medium`?380:260}',
+      'uDetailDist:{value:a===`mobile`?96:a===`ultra`||a===`high`?520:a===`medium`?380:260}');
     source = "import { nextBuildingTile as $nextBuildingTile } from './mobile-build-policy.js';\n" + source;
+    source = "import { buildingTextureUrl as $buildingTextureUrl, MOBILE_BUILDING_BUDGET as $buildingBudget } from './mobile-build-policy.js';\nimport { o as $mobileTextureUrl } from './quality-BuEwAkMy.js';\n" + source;
+    replace('async function Q(e,t,n=!0,r){try{let a=await ne(e);',
+      'async function Q(e,t,n=!0,r){try{e=$buildingTextureUrl($mobileTextureUrl(e));let a=await ne(e);');
+    replace('a.anisotropy=Math.min(8,t.capabilities.getMaxAnisotropy())',
+      'a.anisotropy=Math.min(e.includes(`/assets/textures-mobile/`)?$buildingBudget.anisotropy:8,t.capabilities.getMaxAnisotropy())');
     replace('function P(){for(;D.length;)', 'const $buildingContext=t;function P(){for(;D.length;)');
     replace('let t=D.shift();', 'let t=$nextBuildingTile(D,$buildingContext);');
   } else if (rel.endsWith('/vehicles-_zJz3z3J.js')) {
@@ -125,6 +165,46 @@ ${parking}
     replace('populationTime=0;', 'populationTime=0;populationStarted=performance.now();');
     replace('this.populationTime>=4',
       '(this.ctx.quality.level===`mobile`?performance.now()-this.populationStarted>=4000:this.populationTime>=4)');
+  } else if (rel.endsWith('/environment-WQwLg8tn.js')) {
+    // Static mobile foliage omits the wind shader work entirely. Freezing its
+    // time uniform would still execute all four sine evaluations per vertex.
+    replace('function qt(e,t,n,r,i){', 'function qt(e,t,n,r,i){const $staticTrees=e.quality.level===`mobile`;');
+    replace('G(n,t?`env-tree-crown-v4`:`env-tree-leaves-v4`,',
+      'G(n,($staticTrees?`static-`:``)+(t?`env-tree-crown-v4`:`env-tree-leaves-v4`),');
+    replace('uTime:r.uTime,uWind:r.uWind,uWetness:r.uWetness,uTreeSun:d',
+      '...($staticTrees?{}:{uTime:r.uTime,uWind:r.uWind}),uWetness:r.uWetness,uTreeSun:d');
+    replace('uniform float uTime; uniform vec2 uWind; attribute vec3 aLeaf;',
+      '${$staticTrees?``:`uniform float uTime; uniform vec2 uWind; `}attribute vec3 aLeaf;');
+    const windStart = source.indexOf('          // three tiers:');
+    const windEndText = 'transformed.y += treeFlutter * treeWind * 0.0025 * aLeaf.x * position.y;';
+    const windEnd = source.indexOf(windEndText, windStart);
+    if (windStart < 0 || windEnd < windStart) throw new Error('Tree wind shader anchor changed');
+    const wind = source.slice(windStart, windEnd + windEndText.length);
+    replace(wind, '${$staticTrees?``:`' + wind + '`}');
+    replace('update(t){let n=e.camera.position,i=r.uWind.value.length();for(let e of s)e.windBounds(i);',
+      'update(t){let n=e.camera.position,i=$staticTrees?0:r.uWind.value.length();if(!$staticTrees)for(let e of s)e.windBounds(i);');
+    source = "import { terrainWorkerInput as $terrainWorkerInput, emptyTerrainPixels as $emptyTerrainPixels, terrainTexturePixels as $terrainTexturePixels, updateTerrainTexture as $updateTerrainTexture } from './terrain-worker-input.js';\n" + source;
+    source = "import { shouldInvalidateMask as $shouldInvalidateMask, markMaskDirty as $markMaskDirty, canBuildMask as $canBuildMask, beginMaskBuild as $beginMaskBuild } from './mobile-build-policy.js';\n" + source;
+    replace('function F(e,t){for(let n=e-1;', 'function F(e,t){const $tx=e,$tz=t;for(let n=e-1;');
+    replace('r&&(r.revision=++S,r.job?.cancel(),r.job=o.job(`environment mask ${t}`),x.add(t))',
+      'r&&$shouldInvalidateMask(r,$tx,$tz)&&($markMaskDirty(r),r.revision=++S,r.job?.cancel(),r.job=o.job(`environment mask ${t}`),x.add(t))');
+    replace('let a=i.tile,o=(a.tx*256+128-e.camera.position.x)',
+      'if(!$canBuildMask(i,e))continue;let a=i.tile,o=(a.tx*256+128-e.camera.position.x)');
+    replace('if(t){if(x.delete(t.tile.key),T)',
+      'if(t){x.delete(t.tile.key);$beginMaskBuild(t);if(!t.tile.parks.length&&!t.tile.water.length){R(t,$emptyTerrainPixels(),t.job);return}if(T)');
+    replace('T.postMessage({id:A,tile:t.tile,roads:e.world.roadsNear(n,r,184.32),buildings:e.world.buildingsNear(n,r,184.32)})',
+      'T.postMessage($terrainWorkerInput(A,t.tile,e.world))');
+    replace('let r=new g(n,512,512,D,te)', 'const $pixels=$terrainTexturePixels(n);let r=new g($pixels.data,$pixels.size,$pixels.size,D,te)');
+    replace('t.tex.image.data=n,t.tex.needsUpdate=!0', '$updateTerrainTexture(t.tex,n)');
+    replace('let e=this.ctx.quality.level===`mobile`?`low`:this.ctx.quality.level', 'let e=this.ctx.quality.level');
+    replace('let n=e===`low`?256:512', 'let n=e===`mobile`?128:e===`low`?256:512');
+    replace('anisotropy:this.ctx.renderer.capabilities.getMaxAnisotropy()',
+      'anisotropy:this.ctx.quality.level===`mobile`?1:this.ctx.renderer.capabilities.getMaxAnisotropy()');
+    replace('Ve(e.renderer.capabilities.getMaxAnisotropy())',
+      'Ve(e.quality.level===`mobile`?1:e.renderer.capabilities.getMaxAnisotropy())');
+    replace('leaves(t,n,r){return', 'leaves(t,n,r){if(this.ctx.quality.level===`mobile`)t=Math.min(t,128);return');
+  } else if (rel.endsWith('/textures.worker--LU96PcS.js')) {
+    replace('let n=e===`low`?256:512', 'let n=e===`mobile`?128:e===`low`?256:512');
   } else {
     source = "import { mobileTextureSize as $mobileTextureSize } from './mobile-build-policy.js';\n" + source;
     if (rel.endsWith('/texture.worker-CaHoFbYF.js')) {

@@ -2,14 +2,45 @@
  * Keep the atlas larger than the surface maps so lane paint stays legible.
  */
 export const MOBILE_STREET_BUDGET = Object.freeze({
-  mapSize: 128,
-  noiseSize: 64,
-  atlasSize: 512,
-  anisotropy: 2,
+  mapSize: 64,
+  noiseSize: 32,
+  atlasSize: 256,
+  anisotropy: 1,
   roadStepsPerBackground: 3,
   streetSettleMs: 100,
   streetMaxWaitMs: 400,
 });
+
+export const MOBILE_BUILDING_BUDGET = Object.freeze({ mapSize: 64, anisotropy: 1 });
+
+/** Keep scene uploads/collider commits progressing, with more room for rendering
+ * while crossing tiles quickly. An individual native operation can still overrun. */
+export function sceneBuildBudgetMs(ctx) {
+  return ctx.quality.level === 'mobile' && ctx.world?.stats?.fastTravel ? 1 : 3;
+}
+
+const maskChanges = new WeakMap();
+/** Only park channels depend on neighboring roads/buildings. The water channel
+ * comes entirely from the owning tile, even for coastal tiles. */
+export function shouldInvalidateMask(rec, tx, tz) {
+  return (rec.tile.tx === tx && rec.tile.tz === tz) || !!rec.tile.parks?.length;
+}
+
+export function markMaskDirty(rec) {
+  const now = performance.now(), state = maskChanges.get(rec);
+  maskChanges.set(rec, { first: state?.first ?? now, last: now });
+}
+
+export function canBuildMask(rec, ctx) {
+  // First ground must appear promptly. Only debounce repaints of visible tiles.
+  if (!rec.mask || ctx.quality.level !== 'mobile') return true;
+  const state = maskChanges.get(rec);
+  if (!state) return true;
+  const now = performance.now();
+  return now - state.last >= 100 || now - state.first >= 400;
+}
+
+export function beginMaskBuild(rec) { maskChanges.delete(rec); }
 
 const streetChanges = new WeakMap();
 
@@ -37,7 +68,7 @@ export function beginStreetBuild(rec) {
   streetChanges.delete(rec);
 }
 
-/** Only street maps opt into the smaller mobile budget; facade maps keep theirs. */
+/** Tag street maps so the shared decoder can apply their mobile budget. */
 export function streetTextureUrl(url, mobile) {
   if (!mobile) return url;
   const parsed = new URL(url, 'https://textures.invalid');
@@ -47,7 +78,17 @@ export function streetTextureUrl(url, mobile) {
 }
 
 export function mobileTextureSize(url) {
-  return new URL(url, 'https://textures.invalid').searchParams.get('streetMobile') === '1' ? MOBILE_STREET_BUDGET.mapSize : 256;
+  const params = new URL(url, 'https://textures.invalid').searchParams;
+  if (params.get('buildingMobile') === '1') return MOBILE_BUILDING_BUDGET.mapSize;
+  return params.get('streetMobile') === '1' ? MOBILE_STREET_BUDGET.mapSize : 128;
+}
+
+/** Facade color and normal maps share the cap; unrelated scene maps keep theirs. */
+export function buildingTextureUrl(url) {
+  const parsed = new URL(url, 'https://textures.invalid');
+  if (!parsed.pathname.includes('/assets/textures-mobile/')) return url;
+  parsed.searchParams.set('buildingMobile', '1');
+  return /^(https?:)?\/\//.test(url) ? parsed.href : parsed.pathname + parsed.search + parsed.hash;
 }
 
 /** Three road steps per background step on mobile, within the existing frame

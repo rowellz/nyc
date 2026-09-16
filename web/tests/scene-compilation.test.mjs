@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { assets } from './sveltekit-assets.mjs';
-import { nextSceneBuild } from '../static/world/assets/mobile-build-policy.js';
+import { sceneBuildBudgetMs, nextSceneBuild } from '../static/world/assets/mobile-build-policy.js';
 const main = readFileSync(new URL('main-D_3aygO4.js', assets), 'utf8');
 const start = main.indexOf('this.compileAsync=function('), end = main.indexOf(';let Tt=', start);
 assert(start > 0 && end > start);
@@ -16,7 +16,7 @@ const sandbox = vm.createContext({
   I: { get: material => properties.get(material) ?? {} }, He: { get: () => null },
   setTimeout: fn => timers.push(fn), requestAnimationFrame: fn => { frames.push(fn); return 1; },
   performance: { now: () => clock += 0.01 }, console: { warn: (...args) => warnings.push(args) },
-  $nextSceneBuild: nextSceneBuild,
+  $sceneBuildBudgetMs: sceneBuildBudgetMs, $nextSceneBuild: nextSceneBuild,
 });
 vm.runInContext(queue + '\nglobalThis.compile = ' + compileSource + ';globalThis.scope = n;', sandbox);
 function material({ ready = false } = {}) {

@@ -60,6 +60,7 @@ interface Seat { x: number; z: number; yaw: number; height: number; y?: number; 
 type PedState = 'walk' | 'approach' | 'wait' | 'stand' | 'window' | 'sit' | 'sitDown' | 'standUp' | 'flinch' | 'flee' | 'cross' | 'stepBack';
 
 interface Ped {
+  stationVisit?: boolean;
   inst: CharacterInstance;
   lane: Lane;
   dir: -1 | 1;
@@ -466,8 +467,8 @@ export class PedManager {
     return Math.min(Math.round(this.maxPeds * hourScale), Math.round(this.spawnLen * this.densityScale));
   }
 
-  private inView(x: number, z: number): boolean {
-    this.sphere.center.set(x, 0.9, z);
+  private inView(x: number, z: number, y = 0): boolean {
+    this.sphere.center.set(x, y + 0.9, z);
     this.sphere.radius = 1.0;
     const v = this.frustum.intersectsSphere(this.sphere);
     this.sphere.radius = 1.8;
@@ -769,6 +770,7 @@ export class PedManager {
 
   private despawn(i: number): void {
     const p = this.peds[i]; this.peds.splice(i, 1);
+    (this.ctx.modules.get('rail') as {releasePed?(ped: Ped): void} | undefined)?.releasePed?.(p);
     if (p.seat?.y !== undefined) this.seatEvents.despawned++;
     this.releaseSeat(p);
     for (const q of this.peds) if (q.follow === p) q.follow = null;
@@ -1144,7 +1146,7 @@ export class PedManager {
     const target = this.targetCount();
     for (let i = this.peds.length - 1; i >= 0; i--) {
       const p = this.peds[i];
-      const inView = this.inView(p.x, p.z);
+      const inView = this.inView(p.x, p.z, p.gy);
       p.unseen = inView ? 0 : p.unseen + dt;
       const stale = !this.lanes.has(`${p.lane.road.id}:${p.lane.side}`);
       const distance = Math.hypot(p.x - f.x, p.z - f.z);
@@ -1154,7 +1156,7 @@ export class PedManager {
       const recycle = !parked && p.unseen > 8 && distance > 15 && !p.crossing;
       const retire = parked ? Math.hypot(p.x - this.camPos.x, p.z - this.camPos.z) > PARK_SEAT_RADIUS + 10
         || this.densityScale === 0 : this.walkerCount() > target;
-      if ((stale || distance > DESPAWN_R || retire || recycle) && !inView) this.despawn(i);
+      if ((stale || distance > (p.stationVisit ? 300 : DESPAWN_R) || (!p.stationVisit && (retire || recycle))) && !inView) this.despawn(i);
     }
     this.grid.rebuild(this.peds);
     this.populateSeats();
@@ -1178,8 +1180,9 @@ export class PedManager {
     // cutoff from the previous pose dropped the Nth rig and could admit a farther one.
     this.nearPeds.length = 0;
     for (const p of this.peds) {
-      this.think(p, dt); this.move(p, dt, local.x, local.z, player);
-      if (this.inView(p.x, p.z)) {
+      const rail = ctx.modules.get('rail') as {updatePed?(ped: Ped, dt: number, manager: PedManager): boolean} | undefined;
+      if (!rail?.updatePed?.(p, dt, this)) { this.think(p, dt); this.move(p, dt, local.x, local.z, player); }
+      if (this.inView(p.x, p.z, p.gy)) {
         const distance = (p.x - this.camPos.x) ** 2 + (p.z - this.camPos.z) ** 2;
         if (distance < PED_FULL ** 2) this.nearPeds.push(p);
       }
@@ -1191,13 +1194,13 @@ export class PedManager {
     this.crowdBatch.begin();
     for (let i = 0; i < this.peds.length; i++) {
       const p = this.peds[i], inst = p.inst;
-      if (!p.seat && (i + this.slot) % 12 === 0) p.gy = this.walkingHeight(p.x, p.z);
+      if (!p.seat && !p.stationVisit && (i + this.slot) % 12 === 0) p.gy = this.walkingHeight(p.x, p.z);
       const seated = p.seat && (p.state === 'sit' || p.state === 'sitDown' || p.state === 'standUp');
       const seatY = seated ? (p.seat!.y ?? p.gy + p.seat!.height) - p.gy : 0;
       inst.seating = seated ? { height: seatY / inst.root.scale.y, weight: p.seatWeight, lean: -9 + (p.seed % 17) } : null;
       inst.root.position.set(p.x, p.gy + (seatY + (0.075 - 0.955) * inst.root.scale.y) * p.seatWeight, p.z); inst.root.rotation.y = p.yaw;
       const d2 = (p.x - this.camPos.x) ** 2 + (p.z - this.camPos.z) ** 2;
-      const visible = this.inView(p.x, p.z);
+      const visible = this.inView(p.x, p.z, p.gy);
       const full = this.fullPeds.has(p);
       if (visible !== p.visible) { p.visible = visible; inst.setVisible(visible); }
       if (!visible) { inst.root.removeFromParent(); continue; }

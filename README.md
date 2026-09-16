@@ -10,15 +10,11 @@ contract the client documents. Everything runs locally with no network access.
 
 ```bash
 docker compose up --build
-# the original service:   http://localhost:8080/world/
-# the SvelteKit port:     http://localhost:3000/
+# http://localhost:3000/
 ```
 
-Two containers serve the same city. `nyc` is the original reconstruction — a Node
-http server with the game welded into it. `web` is the same service **ported to
-SvelteKit**, which serves the client, the tiles, the REST API, its own pages and
-the authoritative game loop from one process. They do not talk to each other and
-do not share a world.
+`web` is a SvelteKit app that serves the client, the tiles, the REST API, its
+own pages and the authoritative game loop from one process.
 
 ---
 
@@ -30,12 +26,10 @@ do not share a world.
 | `public/world/world/` | 3,697 map tiles + `index.json` + `areas.json` | mirrored |
 | `public/world/assets/` | JS/CSS chunks, 161 textures (×2 variants), 8 character models, fonts | mirrored |
 | `src/` | 215 original TypeScript files, 62,887 lines | **extracted from source maps** |
-| `server/` | HTTP + WebSocket game server | **written from scratch** |
-| `web/` | The same service as a SvelteKit app | **ported from `server/`** |
+| `web/` | The SvelteKit service: HTTP, pages, REST and the WebSocket game server | **written from scratch** |
 | `tools/` | Re-mirror and offline-patch scripts | written |
 
-Most of each image is the city: `nyc` and `web` carry the same `public/`
-payload and end up within a few tens of MB of each other.
+Most of the image is the city: the `public/` payload.
 
 ---
 
@@ -83,52 +77,10 @@ sniffs the gzip magic bytes, so the server must not double-encode them.
 
 ---
 
-## The server
+## The service
 
-`server/index.js`, one dependency (`ws`).
-
-```
-GET  /world/*              static client + tiles
-GET  /world/api/admin/me   { admin: boolean }
-POST /world/api/telemetry  boot/crash beacons -> 204
-WS   /world/ws             JSON control + 34-byte binary player states
-```
-
-Implemented from `src/shared/protocol.ts`: the handshake (`hello`/`welcome`,
-token-based reconnect), 15 Hz area-of-interest snapshots within 350 m, the 34-byte
-state codec, hitscan combat with the real weapon table, headshots, armor, the
-115 m Bryant Park safe zone, 120 s spawn protection, scoring, landmark discovery,
-leaderboard, a 2-hour day cycle, and drifting weather.
-
-Everything is in-memory: **restarting the container resets all progress.**
-
-### Configuration
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `PORT` | `8080` | listen port |
-| `BASE_PATH` | `/world` | must match the client's build-time base |
-| `ADMIN` | `0` | `1` grants every player admin (noclip fly, teleport) |
-| `VERBOSE` | `0` | `1` logs the client's telemetry beacons |
-
-### Tests
-
-41 protocol conformance checks driving a headless client through the real binary
-codec — handshake, ping/pong, snapshot round-trip, the speed clamp, AOI culling,
-safe-zone immunity, damage/death/scoring, respawn, leaderboard, token reconnect:
-
-```bash
-cd server && npm install && npm test          # against localhost:8080
-PORT=8081 npm test                            # against a running container
-```
-
----
-
-## The SvelteKit port
-
-`web/` is the same service written as a SvelteKit app. It is a port, not a
-wrapper: the `web` container serves the mirrored client, the world tiles, the
-REST endpoints and the game socket itself, and never contacts `nyc`.
+`web/` is a SvelteKit app, one runtime dependency (`ws`). It serves the
+mirrored client, the world tiles, the REST endpoints and the game socket itself.
 
 ```
 /                          overview, rendered from the live world
@@ -143,12 +95,19 @@ GET  /world/api/status     live world as JSON (new)       src/routes/world/api/s
 WS   /world/ws             JSON control + binary states   src/lib/server/net.js
 ```
 
+The game is implemented from `src/shared/protocol.ts`: the handshake
+(`hello`/`welcome`, token-based reconnect), 15 Hz area-of-interest snapshots
+within 350 m, the 34-byte state codec, hitscan combat with the real weapon table,
+headshots, armor, the 115 m Bryant Park safe zone, 120 s spawn protection,
+scoring, landmark discovery, leaderboard, a 2-hour day cycle, and drifting
+weather. Everything is in-memory: **restarting the container resets all
+progress.**
+
 Four things decided the shape of it:
 
-**The game had to come out of the http server.** `server/index.js` interleaves
-routing, the world and the socket in one file. `src/lib/server/world.js` is that
+**The game is separate from the http server.** `src/lib/server/world.js` is the
 simulation with the transport removed — it takes anything that can `send()` and
-`close()` — so the wire behaviour is unchanged while SvelteKit owns the routes.
+`close()` — so the wire behaviour is independent of SvelteKit owning the routes.
 
 **SvelteKit cannot accept a WebSocket upgrade.** So `server.js` creates the http
 server, mounts adapter-node's handler on it, and attaches the socket alongside.
@@ -166,16 +125,15 @@ with no HTTP hop and no second WebSocket.
 **Tile headers are load-bearing.** Tiles are raw gzip served as
 `application/gzip` with no `Content-Encoding`; announcing the encoding would make
 the browser inflate them and the streamer worker, which sniffs the magic bytes
-itself, would fail. `static.js` reproduces the original's headers exactly —
-verified by diffing both servers' responses.
+itself, would fail. `static.js` reproduces the original's headers exactly.
 
-`src/lib/shared/` holds `protocol.js` and `constants.js`, unchanged apart from
-being ESM, mirroring the recovered `src/shared/` that both halves import.
+`src/lib/shared/` holds `protocol.js` and `constants.js`, the recovered
+`src/shared/` as ESM.
 
 ### Changing the client without touching `public/`
 
-The compiled client is shared with `nyc` and stays byte-for-byte as mirrored, so
-this service adds to it on the way out instead: `client-addons.js` appends script
+The compiled client stays byte-for-byte as mirrored, so this service adds to it
+on the way out instead: `client-addons.js` appends script
 tags to the pages it extends — `index.html` and `safe.html` — as they are served,
 and the scripts live in `web/static/`. They
 reach the running game through `window.__game`, the handle `main.ts` already
@@ -247,7 +205,7 @@ windows are search limits, not promises to build every tile within them.
 Street workers, queued mobile building workers and terrain/building commits use
 the shared tile priority, with regular FIFO turns to finish older background work.
 Recent tiles survive brief turns for up to six seconds. Mobile retires at most
-one tile per frame, separately from publishing new tiles. iOS overlaps four tile
+one tile per frame, separately from publishing new tiles. iOS overlaps two tile
 requests on its existing decoder; Android retains two. Decoded replies waiting
 for scene publication count against those request limits. Mobile still commits
 at most one tile per frame. Obsolete replies release their slots even while
@@ -277,6 +235,73 @@ and data availability; they do not measure Safari frame rates or real device
 scene-construction latency.
 Run `cd web && npm run test:memory` for repeated landmark travel and resource
 disposal checks against the served client.
+
+### Mobile frame rate
+
+iPhone/iPad rendering starts at a pixel ratio of **0.85** (about 28% fewer
+shaded pixels than ratio 1); `?q=low` now keeps its **0.75** ceiling on iOS.
+During direct rendering, `mobile-frame-budget.js` samples frame intervals from
+the existing loop. After a three-second warmup, sustained averages above 23 ms
+reduce resolution in 0.1 steps, down to 0.65. Ten seconds below 18 ms recover
+0.05 at a time, up to the starting ratio. Changes have a three-second cooldown.
+Loading screens, hidden tabs, menus and long pauses reset sampling; disconnects
+pause adaptation in play mode. Interactive free camera (`?spot` / `?fly`) adapts
+too, even though the original client calls it `screenshotMode`. Rendering through
+the post-processing composer does not adapt. Use `?adaptive=0` to compare with a
+fixed resolution. For automated captures, `?capture=1` disables adaptation and
+retains the drawing buffer; ordinary iOS free camera no longer preserves it.
+The HUD and touch controls retain their CSS size. Viewport and resolution changes
+resize the drawing buffer once and retain the selected ratio after rotation.
+
+Mobile buildings use the existing filtered facade layout at every distance,
+with the room/shop interior and parallax code removed and a flat roof material.
+Window layout, shopfront bands, signs and night lights remain. The filtered
+facades use vertex colors, so mobile skips unused facade photo fetches/uploads
+and the subsequent photo-material compilation. This trades close-up surface
+detail and some sharpness for less GPU work.
+The served import revision changes so Safari fetches the updated code.
+
+Mobile trees are static: their near-leaf and distant-crown vertex shaders omit
+wind lean, sway and flutter, and skip per-frame wind-bound updates. Desktop
+retains wind animation. Tree placement, distance-based detail, canopy variation,
+leaf lighting and tile arrival/removal still update normally. This removes four
+wind sine evaluations per leaf vertex, but keeps the same geometry and textures;
+it does not materially reduce resident tree memory. `npm run test:fps` checks
+both shader variants and the tree instance lifecycle.
+
+Run `cd web && npm run test:fps` for frame-rate replays, slow/fast recovery,
+iOS free camera/low mode, orientation, buffer allocations, the simplified
+facade shader and the actual served transforms.
+These are regression tests, not an iPhone benchmark. To measure the result,
+use `?debug=1` on the same iPhone, viewpoint and weather before/after, allow the
+city to finish loading, and compare FPS during standing, turning and travel.
+The debug overlay's DPR follows adaptive changes. Repeat after several minutes
+to check sustained performance as the phone heats up.
+
+During mobile travel above 24 m/s, background tile additions/removals are paced
+150 ms apart and new tile publication pauses at six outstanding scene jobs
+(normally sixteen). Missing terrain under the camera keeps its urgent bypass;
+the 32-tile iOS memory cap still applies. The shared scene commit queue uses a
+1 ms cooperative budget during fast travel and returns to 3 ms when it slows.
+Background scenery may finish later while moving quickly. These budgets bound
+scheduled work, not the duration of an individual native GPU/physics call.
+
+Terrain mask invalidation now skips neighboring tiles without parks: their
+water channel depends only on their own tile. Park masks retain neighboring
+road/building updates, combining bursts with a 100 ms settle delay and 400 ms
+maximum wait. First ground bypasses this delay, and stale worker results remain
+discarded. Run `npm run test:textures` for these lifecycle checks and
+`npm run test:streaming` for 120 m/s travel pacing, stopping, urgent terrain,
+nearby coverage and bounded residency. These simulations do not measure iPhone FPS.
+
+Terrain worker requests include only the polygons and road/building fields the
+mask painter reads, excluding unrelated tile data and street planning context.
+Tiles without parks skip neighboring road/building queries. Tiles without either
+parks or water skip mask painting entirely: they share a read-only zero CPU grid
+and upload an independent 1×1 zero texture (4 bytes instead of 1 MiB). Ground
+publication still uses the scene job queue. Water and park masks retain their
+512×512 resolution. The texture tests compare painter commands for three real
+tiles and check empty-mask publication and texture allocation changes.
 
 Tunnel terrain uses the same complete nearby road context as street workers,
 including tunnel ways whose owner tiles are not resident. Profile/elevation
@@ -326,19 +351,35 @@ cobblestone maps. Desktop retains its detailed road material.
 
 Other mobile street performance settings are tuned in
 `web/static/world/assets/mobile-build-policy.js` (`MOBILE_STREET_BUDGET`). Surface
-maps are capped at 128 px, procedural noise at 64 px, and the lane-paint/decal
-atlas at 512 px, with 2× anisotropy and mipmaps retained. The worker and no-worker
-texture paths share this limit; building textures keep their existing budget.
+maps are capped at 64 px, procedural noise at 32 px, and the lane-paint/decal
+atlas at 256 px, with 1× anisotropy and mipmaps retained. The worker and no-worker
+texture paths share this limit. Halving each dimension quarters pixel memory.
+The shared mobile photo decoder caps other scene maps at 128 px. The fallback
+facade-photo loader has a 64 px cap (`MOBILE_BUILDING_BUDGET`), though the normal
+mobile building path now skips facade photos entirely. Procedural terrain and
+tree maps, including replacement leaf atlases, use a 128 px cap with 1×
+anisotropy in both worker and fallback generation. Desktop maps retain their
+original resolution and filtering.
 The procedural generator now recognizes `mobile`, which previously selected
 1024 px maps. Mobile also uses the drawn manhole decal without fetching its two
 photographs. Maps load once per street module, so this reduces startup work,
 uploads and resident texture memory, rather than per-tile network traffic.
 `mobile-performance-assets.js` applies these hooks to the served chunks.
 
+Mobile uses one street geometry worker and one building geometry worker;
+desktop keeps two of each. This reduces simultaneous worker heaps and geometry
+construction allocations. The iOS decoder allows at most two tile requests,
+including decoded replies awaiting publication. Tile residency and geometry
+detail are unchanged, but scenery can take longer to fill in during fast travel.
+`npm run test:memory` checks the actual served pool setup, texture initialization,
+reply handling and failure cleanup. These checks do not measure Safari memory
+or establish the cause of an automatic page reload.
+
 The shared scene commit queue gives mobile road jobs three generator steps per
 background step, choosing road tiles with the streamer's travel priority. Its
-3 ms deadline, one-texture-upload limit, cancellation and shader-compilation
-waits remain in force. Buildings still receive a share while roads are busy.
+3 ms deadline drops to 1 ms during fast mobile travel; the one-texture-upload
+limit, cancellation and shader-compilation waits remain in force. Buildings
+still receive a share while roads are busy.
 Street worker dispatch also combines invalidations within 100 ms (waiting at
 most 400 ms during continuous arrivals) and prevents two workers from rebuilding
 different revisions of the same tile concurrently. Existing geometry stays in
@@ -486,7 +527,7 @@ river glossy.
 cd web && npm install
 npm run dev            # http://localhost:5173 — pages, game and socket, with HMR
 npm run build && npm start
-npm test               # the server/ protocol suite, against localhost:3000
+npm test               # the 41-check protocol suite, against a running localhost:3000
 npm run test:ui        # the look stick, driven through jsdom (no server needed)
 ```
 
@@ -506,9 +547,9 @@ The client has a built-in camera mode, recovered in `src/client/src/core/spots.t
 screenshots, and the fastest way to confirm the container renders:
 
 ```
-http://localhost:8080/world/?spot=times-square&time=13:30&weather=clear&nohud=1
-http://localhost:8080/world/?spot=aerial-midtown&time=18:00
-http://localhost:8080/world/?spot=brooklyn-bridge
+http://localhost:3000/world/?spot=times-square&time=13:30&weather=clear&nohud=1
+http://localhost:3000/world/?spot=aerial-midtown&time=18:00
+http://localhost:3000/world/?spot=brooklyn-bridge
 ```
 
 29 spots exist: `bryant-park`, `times-square`, `empire-state`, `flatiron`, `soho`,
@@ -532,15 +573,14 @@ In the browser console, `__game.teleport(x, z)` moves you anywhere in the city;
 
 ## Verified
 
-- All 41 protocol checks in `server/test-protocol.js` pass against the original
-  service, and against the SvelteKit port — from source, from `vite dev`, and from
-  the built `web` image.
-- The two services return byte-identical headers for the client, the hashed
-  assets, the character models and the gzip tiles; the only difference is that
-  SvelteKit sets `content-length` on the JSON API responses, where the original
+- All 41 protocol checks in `web/tests/protocol.test.mjs` pass — from source,
+  from `vite dev`, and from the built `web` image.
+- The service returns the origin's headers for the client, the hashed assets, the
+  character models and the gzip tiles, byte for byte; the one difference is that
+  SvelteKit sets `content-length` on the JSON API responses, where the origin
   used chunked encoding.
 - Every one of the 403 non-tile files under `public/world/`, plus a sample of the
-  3,697 tiles, comes back 200 from the port at exactly its on-disk size — and
+  3,697 tiles, comes back 200 at exactly its on-disk size — and
   still does with the addon injection in place, which rewrites `index.html` only.
 - The addons' 98 checks pass under jsdom: where it installs, when it stays
   out of the way, the deltas it feeds for full, half, diagonal and dead-zone
@@ -574,21 +614,16 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
 - **Weather is synthetic.** The real server reports `source: 'nws'` (US National
   Weather Service); this one drifts through conditions locally and reports
   `'fallback'`, which is a value the client already handles.
-- **No persistence.** Profiles live in memory, keyed by token. The two containers
-  each hold their own world, so a player in one is invisible in the other.
-- **The port has not been opened in a browser here.** Its protocol conformance
-  and every byte it serves were checked programmatically, but the Chromium boot
-  in *Verified* above was run against `nyc`, not `web`.
+- **No persistence.** Profiles live in memory, keyed by token.
 - **`src/` does not build.** It is the recovered source for reading and reference.
   Type-only files (`context.ts`, `world.ts`) were erased at compile time and are
   absent, and there is no `vite.config`, `package.json`, or `index.html` for it.
   The container serves the original compiled bundle, not a rebuild of `src/`.
 - Deliberate modifications to the mirrored bundle:
-  - The scene texture decoder caps mobile building and street maps at 256 px
-    on the longest edge, preserving aspect ratio and leaving desktop maps at
-    their original resolution. The worker and its main-thread fallback both
-    apply the cap before upload. Run `cd web && npm run test:textures` to check
-    both paths against the shipped client.
+  - The original decoder capped mobile photos at 256 px. The service now applies
+    the smaller per-use budgets described above, preserving aspect ratio on
+    both worker and fallback paths. Run `cd web && npm run test:textures` to
+    check the effective limits against the served client.
   - `tools/patch-offline.js` repoints the web-font `<link>` from Google Fonts to
     the vendored copy. Upstream already ships system-font fallbacks, so this only
     removes a network round-trip.
@@ -675,6 +710,168 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
 
 ## Developing on the client
 
+### Rail network
+
+Rail coverage is generated from OpenStreetMap railway features, using the same
+planning-before-streaming approach as the road renderer. The checked-in extract
+contains 4,480 railway ways. `rail/map-compiler.js` preserves shared OSM node IDs,
+track types, tunnel/bridge/cutting tags and layers, joins continuous track chains,
+and solves grades over the whole connected graph before assigning tile owners.
+Geometric crossings with different node IDs stay separate. Platform sections
+remain level; connecting approaches absorb elevation changes at a maximum 5.5%
+grade. Heights are synthetic because OSM layers describe stacking, not elevation.
+
+The current import generates 592 platform records beyond the tailored Broadway
+and Metro-North corridors below. These are platforms, not 592 distinct stations.
+Imported stations use procedural platforms, stairs, canopies and signs at mapped
+locations. Source platform polygons, station tags and entrance coordinates remain
+in `rail/map-features.json`; the renderer does not yet reproduce their exact
+outlines, mezzanines or entrance paths. Train movements are synthetic, follow
+connected track chains, and are not an implementation of every named service.
+
+Subway boards use the [MTA station catalog](https://data.ny.gov/Transportation/MTA-Subway-Stations/39hk-dx4f)
+and [regular GTFS feed](https://www.mta.info/developers) for normal daytime routes,
+colors and destinations. The offline sign index matches platform GTFS tags,
+station references and adjacent OSM tracks, including their travel directions.
+Each platform and inter-level stair displays its destination services; street
+boards list services reachable through that entrance. Local stops exclude
+express services that do not stop there. Cross-town services show destinations
+such as Brooklyn or West Side. Signs are repeated between platform columns.
+These are normal-service wayfinding boards, not live service-change information;
+train timetables and the simplified infrastructure remain simulated.
+
+To refresh service metadata, download the regular subway GTFS ZIP and the MTA
+station catalog JSON, then run:
+
+```bash
+python tools/import-subway-services.py /path/to/gtfs_subway.zip /path/to/stations.json
+node tools/index-subway-signs.mjs
+```
+
+The source URLs are in the importer. `subway-services.json` and
+`subway-tracks.json` retain offline inputs; only the compact `sign-data.js` is
+loaded during play. Pass an OSM body/geometry extract as the optional argument
+to `index-subway-signs.mjs` to refresh track directions. The map importer does
+this automatically. Source hashes and the GTFS feed version are recorded.
+PATH platforms retain their own network/destination labels.
+
+To refresh the map, fetch the checked-in Overpass query and run the importer:
+
+```bash
+curl --fail --get --data-urlencode data@tools/railways.overpass \
+  https://overpass-api.de/api/interpreter -o /tmp/railways.json
+node tools/import-railways.mjs /tmp/railways.json
+```
+
+The importer rejects incomplete responses, clips to the world's bounds, records
+the source timestamp and SHA256, and regenerates the track catalog, station
+access connections and worker footprint index. Runtime play requires no Overpass or MTA requests.
+Rail map data is © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright),
+under ODbL 1.0. The authored corridors are explicit replacement regions: matching
+mapped tracks inside them are omitted to avoid duplicate geometry. New lines
+outside those regions need map data, not another hand-written corridor.
+
+The SvelteKit world includes a Broadway local corridor with 13 stations between
+Times Square–42 St and 137 St–City College. Five-car trains run in both directions,
+brake into stations, dwell, and open their platform-side doors. The tracks rise
+from underground to the elevated 125 St station and descend again. Platforms,
+stairs, connecting passages, tunnel walls, roofs and elevated decks have collision;
+stations include name signs, benches, canopies and light strips. The `/play`
+launcher has direct camera links to the platforms.
+
+Metro-North adds nine stations: Grand Central, Harlem–125 St on Park Avenue,
+Yankees–E 153 St, Morris Heights, University Heights, Marble Hill, Spuyten Duyvil,
+Melrose and Tremont. The shared four-track Park Avenue trunk climbs from the
+Grand Central tunnel to the viaduct, crosses the Harlem River on a supported
+bridge, and splits at Mott Haven. Hudson and Harlem/New Haven services continue
+along their branches to the edge of the loaded world. The shared trunk and its
+two island platforms are built once, regardless of the number of services.
+Stations have stairs to street level; the Harlem branch uses open cut stations.
+
+Metro-North's horizontal alignment and station coordinates come from the
+[official MTA GTFS feed](https://www.mta.info/developers). Regenerate the checked-in
+`metro-north-data.js` with `python tools/import-metro-north.py /path/to/gtfsmnr.zip`;
+the output records the feed URL and archive SHA256. Elevations, platform layouts,
+structures and timetables are authored approximations, not survey or live service
+data. Grand Central uses a simplified terminal within the shared four-track layout.
+
+The Broadway corridor uses approximate station positions and synthetic service.
+Map coverage depends on the extract and loaded world bounds; station details
+and every service are not complete reproductions of the real networks.
+Players can board at an open train door with **F** or the on-screen button.
+Press F aboard a moving train to request the next available platform; at a stop,
+F exits immediately. Boarding requires a resident platform at the player's level,
+and terminal arrivals automatically unload passengers. Rides use the normal player
+position updates; dedicated passenger occupancy and free walking inside moving
+carriages are not implemented.
+
+`rail/access-data.js` connects 1,296 existing street entrance props to 514 platform
+records. The old painted stairwell is replaced by a terrain opening, collidable
+stairs, a passage and a platform stair opening. Visible treads use continuous
+walking collision to avoid catching the player capsule on step edges. These connections are procedural,
+not surveyed station interiors. `tools/index-station-access.mjs` rebuilds them from
+the mirrored entrance props and rail platforms. Existing NPCs can leave their
+sidewalk routes, enter stations, wait on platforms, and return to the street.
+They keep to separate directions in passages and retain their underground height
+and visibility. NPCs currently visit stations without boarding trains.
+
+Mapped underground entrances descend near their street positions and connect to
+nearby platforms. The planner reserves an aisle beside the stairs within the
+available track clearance; confined platforms retain their existing end access.
+Platform walking paths are navigation data, not additional enclosed hallways.
+Stairs between levels begin on the platforms, with UP/DOWN level signs at their
+openings. Platform mesh, collision and floor-height queries share those openings.
+The planner separates neighboring entrance flights and protects existing platforms.
+Fourteen entrances without a clear route are gated and marked CLOSED.
+
+Stair runs use short flights with resting landings. Inter-level connections use
+turn landings where the underlying railway changes direction. NPCs select any
+connected platform and preserve their intended floor where paths cross vertically.
+Wall and roof openings retain lintels, sills and corner returns. Shared endpoint
+frames close curved tunnel seams, and station end walls join the narrower bore.
+Retained map polygons restore lower platforms discarded by the original nearest-
+track deduplication, including Lexington Avenue–125th Street.
+Platform assignment prefers the mapped layer over tiny differences in distance
+to stacked tracks. `tools/refine-rail-platforms.mjs` applies that correction to an
+existing snapshot without another download.
+
+`web/static/world/assets/rail/network.js` owns the routes, bounded grades, station
+levels, train schedules and portal/stair footprints. Geometry and train carriages
+sample those same routes. Track sections have fixed tile owners and a neighbor halo;
+one section or station is built per frame. Train rendering is limited to four
+nearby consists across all lines on mobile and ten on desktop. Unloading releases geometry, signs
+and collision, while train geometry and materials are shared.
+
+`rail-assets.js` installs the module and the street-worker/height hooks. Rail uses
+the existing tunnel terrain cutter for ground, paving, water and collision, while
+preserving independent overhead road decks. The street height sampler applies
+rail support at the player's level so a street above a platform cannot pull the
+player back to ground level. The camera/fall guard recognizes supported underground
+travel, and elevated piers use the motorway support planner to span lower road
+lanes. Walls leave connected track and neighboring platform passages open.
+Workers import the compact footprint index rather than the full rail graph;
+terrain and water cuts are selected from spatial buckets for resident tiles.
+The geometry/runtime Three.js imports carry the same
+revision as `client-cache.js`; keep those in step when updating the client revision.
+
+Run `npm --prefix web run test:rail` for grades, seams, train spacing and stopping,
+station collision, connected entrance clearance, boarding and riding, NPC visits
+to stacked levels, short stair flights,
+branch seams, shared station ownership, served street cutouts, module loading
+order, and repeated streaming/disposal. The existing tunnel, road, startup and streaming suites cover
+the shared machinery. Changes apply to the SvelteKit services, including `web-dev`.
+With Chromium installed, `npm --prefix web run test:station-browser` also walks
+the actual player capsule down to underground platforms, up to an elevated
+platform, along their full walking aisles, and back to the street. It includes all
+eight 77th Street entrances, both Lexington–125th levels from every entrance,
+and all Grand Concourse platforms from one entrance with
+neighboring tracks and stations loaded together. Enclosure regressions cast rays
+through platforms and stair junctions to detect missing walls and ceilings.
+Each walking waypoint also checks the actual floor reached.
+Set `CHROMIUM` to override the browser path; screenshots are saved under `/tmp`.
+
+### Development server
+
 ```bash
 docker compose --profile dev up web-dev   # http://localhost:5173/world/
 ```
@@ -683,8 +880,19 @@ docker compose --profile dev up web-dev   # http://localhost:5173/world/
 and the whole mirrored `public/` tree bind-mounted, so edits land without an
 image rebuild. Saving a file under `public/world/assets/` reloads the page: the
 watcher is in `web/vite.config.js`, and the reload reaches the mirrored client
-through Vite's HMR client, which `client-addons.js` injects into `index.html`
-alongside the usual addons. `web/src` gets SvelteKit's own HMR as normal.
+through Vite's HMR client, which `client-addons.js` loads on desktop game pages.
+Mobile game pages skip that client and its automatic reloads by default: reload
+Safari manually to pick up edits. Add `live=1` to the game URL to enable live
+reload on a phone, or `live=0` to disable it on desktop. This leaves the game
+socket connected. `web/src` gets SvelteKit's own HMR as normal.
+
+This removes dev-only reloads; it does not establish that a Safari crash was
+caused by memory. If Safari reloads or reports a repeated page problem while
+the service stays up, investigate the browser. If the service disappears, check
+`docker compose logs --tail=100 web-dev` and
+`docker inspect nyc-web-dev --format '{{.State.OOMKilled}} {{.State.ExitCode}}'`
+for a container termination instead. Use the same viewpoint and quality when
+comparing ports 5173 and 3000.
 
 It is a full page reload rather than a module swap, which is what the client can
 actually use — it is one compiled bundle with no HMR boundaries, and the tile
