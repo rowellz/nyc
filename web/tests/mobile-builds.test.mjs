@@ -13,7 +13,7 @@ const loading = readFileSync(new URL('loading-DS_gLujL.js', assets), 'utf8')
 
 // Drive the actual building dispatcher: travel priority applies before worker
 // construction too, with an oldest-job turn so distant buildings still finish.
-for (const [level, fastTravel, expectedSteps] of [['mobile', true, 1], ['mobile', false, 3], ['high', true, 3]]) {
+for (const [level, fastTravel, expectedSteps] of [['mobile', true, 1], ['mobile', false, 3], ['high', true, 2], ['high', false, 3]]) {
   const f = queueFixture(level);
   f.ctx.world.stats = { fastTravel };
   let steps = 0;
@@ -21,7 +21,7 @@ for (const [level, fastTravel, expectedSteps] of [['mobile', true, 1], ['mobile'
     for (let i = 0; i < 20; i++) { f.cost(); steps++; yield; }
   })());
   await f.frame();
-  assert.equal(steps, expectedSteps, 'fast mobile travel reserves more of the frame for rendering');
+  assert.equal(steps, expectedSteps, 'fast travel reserves more of the frame for rendering');
   for (let i = 0; i < 25; i++) await f.frame();
   assert.equal(f.ctx.busy, 0, 'reduced budget still completes scene work');
 }
@@ -40,17 +40,15 @@ for (const level of ['mobile', 'high']) {
     N: r => r.tile, $buildingContext: context, $nextBuildingTile: nextBuildingTile });
   vm.runInContext(source.slice(from, to), sandbox);
   sandbox.P();
-  assert.equal(sent[0], level === 'mobile' ? 0 : 10);
-  if (level === 'mobile') {
+  assert.equal(sent[0], 0, 'occupied buildings dispatch before distant queued tiles on every device');
+  slot.busy = false; sandbox.P();
+  assert.equal(sent[1], 1);
+  for (let i = 0; i < 2; i++) {
+    const urgent = rec(-i - 1); records.set(urgent.key, urgent); queue.push(urgent);
     slot.busy = false; sandbox.P();
-    assert.equal(sent[1], 1);
-    for (let i = 0; i < 2; i++) {
-      const urgent = rec(-i - 1); records.set(urgent.key, urgent); queue.push(urgent);
-      slot.busy = false; sandbox.P();
-    }
-    assert.equal(sent[2], -1);
-    assert.equal(sent[3], 10, 'fourth dispatch advances the oldest background tile');
   }
+  assert.equal(sent[2], -1);
+  assert.equal(sent[3], 10, 'fourth dispatch advances the oldest background tile');
 }
 
 {
@@ -128,16 +126,33 @@ for (const level of ['mobile', 'high']) {
   assert.equal(sent.length, 4, '400ms maximum wait prevents starvation during continuous streaming');
   active.clear(); dirty.clear();
   ctx.quality.level = 'high';
-  change(rec(3)); sandbox.$();
-  assert.equal(sent.length, 5, 'desktop does not acquire the mobile settle delay');
+  const desktop = rec(3);
+  change(desktop); sandbox.$();
+  assert.equal(sent.length, 4, 'desktop also coalesces repeated invalidations');
+  clock += 100; sandbox.$();
+  assert.equal(sent.length, 5, 'desktop work resumes after settling');
+  active.clear(); dirty.clear();
+  for (const level of ['mobile', 'high']) {
+    ctx.quality.level = level;
+    const prepared = rec(4);
+    prepared.tile.streetContext = { roads: [] };
+    const before = sent.length;
+    change(prepared); sandbox.$();
+    assert.equal(sent.length, before + 1);
+    assert.equal(sent.at(-1).input.key, '4_0', 'complete road context dispatches immediately without a settle delay');
+    const count = sent.length;
+    change(prepared); sandbox.$();
+    assert.equal(sent.length, count, 'complete context still prevents duplicate active builds');
+    active.clear(); dirty.clear();
+  }
 }
 
-function queueFixture(level = 'mobile') {
+function queueFixture(level = 'mobile', select = nextSceneBuild) {
   let time = 0, frames = [], frameNumber = 0;
   const uploads = [];
   const ctx = { quality: { level }, busy: 0, world: { tilePriority: tx => Math.abs(tx) },
     renderer: { initTexture: texture => uploads.push({ texture, frame: frameNumber }) } };
-  const sandbox = vm.createContext({ Promise, console, $sceneBuildBudgetMs: sceneBuildBudgetMs, $nextSceneBuild: nextSceneBuild,
+  const sandbox = vm.createContext({ Promise, console, $sceneBuildBudgetMs: sceneBuildBudgetMs, $nextSceneBuild: select,
     performance: { now: () => time }, requestAnimationFrame: fn => { frames.push(fn); return 1; } });
   vm.runInContext(loading + '\nglobalThis.buildScope=n;', sandbox);
   const scope = sandbox.buildScope(ctx);
@@ -151,6 +166,33 @@ function queueFixture(level = 'mobile') {
   return { ctx, scope, frame, uploads, cost: () => { time += 1; } };
 }
 
+// Compare the old desktop FIFO policy and the route policy using the same
+// served queue, build costs and fast-travel budget. This measures scheduling
+// latency in simulated frames, not GPU FPS.
+{
+  async function roadLatency(select) {
+    const f = queueFixture('high', select);
+    f.ctx.world.stats = { fastTravel: true };
+    for (let i = 1; i <= 60; i++) f.scope.job(`buildings:${i}_0`).run((function* () {
+      for (let n = 0; n < 6; n++) { f.cost(); yield; }
+    })());
+    let done = false, frames = 0;
+    f.scope.job('streets:0_0').run((function* () {
+      for (let i = 0; i < 12; i++) { f.cost(); yield; }
+      done = true;
+    })());
+    while (!done && frames < 300) { await f.frame(); frames++; }
+    assert(done);
+    f.scope.dispose();
+    assert.equal(f.ctx.busy, 0);
+    return frames;
+  }
+  const fifo = await roadLatency(ready => ready.shift());
+  const priority = await roadLatency(nextSceneBuild);
+  assert(priority < fifo / 4, 'route priority substantially reduces occupied road latency under backlog');
+  console.log(`PASS desktop road backlog replay: ${fifo} FIFO frames -> ${priority} prioritized frames`);
+}
+
 for (const level of ['mobile', 'high']) {
   const f = queueFixture(level), order = [];
   for (let i = 0; i < 60; i++) f.scope.job(`buildings:${i}_0`).run((function* () {
@@ -162,13 +204,8 @@ for (const level of ['mobile', 'high']) {
     roadDone = true;
   })());
   for (let i = 0; i < 7; i++) await f.frame();
-  if (level === 'mobile') {
-    assert(roadDone, 'near road publishes despite sixty active building commits');
-    assert(order.includes('building:0'), 'buildings make progress while roads are busy');
-  } else {
-    assert.equal(order[0], 'building:0', 'desktop retains FIFO scheduling');
-    assert(!roadDone);
-  }
+  assert(roadDone, `${level}: near road publishes despite sixty active building commits`);
+  assert(order.includes('building:0'), 'buildings make progress while roads are busy');
   f.scope.dispose();
   assert.equal(f.ctx.busy, 0, 'cancellation drains busy exactly once');
   await f.frame();

@@ -91,7 +91,7 @@ const lifecycleEnd = source.indexOf('export{te as LANDMARK_BINS', lifecycleStart
 assert(removeStart > 0 && removeEnd > removeStart && lifecycleStart > removeEnd && lifecycleEnd > lifecycleStart);
 function fixture(level) {
   const group = new Group(), removedColliders = [];
-  const ctx = { quality: { level, drawDistance: level === 'mobile' ? 512 : 1500 },
+  const ctx = { quality: { level, drawDistance: level === 'mobile' ? 512 : 768 },
     camera: { position: { x: 0, z: 0 } }, time: { daylight: 1 }, state: { weather: {} },
     world: { hasTile: () => true }, physics: { unregisterDeck() {} } };
   const landmark = (id, x, radius = 80) => ({ id, center: [x, 0], radius, owners: new Set(),
@@ -118,8 +118,8 @@ for (const level of ['mobile', 'high']) {
   const f = fixture(level); f.settle();
   assert(f.near.root);
   assert(f.bridge.root, 'large landmarks load when their edge is nearby');
-  assert.equal(!!f.far.root, level !== 'mobile', 'mobile does not build the 6 km skyline');
-  if (level === 'mobile') {
+  assert.equal(f.far.root, null, 'distant landmarks use prebuilt proxies on every device');
+  {
     for (let i = 0; i < 10; i++) {
       f.ctx.camera.position.x = 2000; f.settle();
       assert.equal(f.near.root, null, 'distant landmarks release their meshes');

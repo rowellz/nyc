@@ -20,6 +20,7 @@ import { createStreetTileService } from './street-context.js';
 import { streetContextAssetPaths, streetContextAssetTransform } from './street-context-assets.js';
 import { precompressedResponse } from './precompressed.js';
 import { railAssetPaths, railAssetTransform } from './rail-assets.js';
+import { createSceneryService } from './scenery.js';
 
 /**
  * In development nothing is cached. The mirrored client is patched in place (see
@@ -46,6 +47,7 @@ const MIME = {
  */
 export const PUBLIC_DIR = resolvePublicDir();
 const PREPARED_DIR = !DEV && process.env.PREPARED_ASSET_DIR;
+const scenery = createSceneryService(PUBLIC_DIR, PREPARED_DIR);
 const streetTile = createStreetTileService(path.join(PUBLIC_DIR, 'world/world/tiles'), {
   catalogPath: PREPARED_DIR ? path.join(PREPARED_DIR, 'road-index.json') : undefined,
 });
@@ -74,6 +76,9 @@ export async function serveStatic(relPath, options = {}) {
   if (file !== PUBLIC_DIR && !file.startsWith(PUBLIC_DIR + path.sep)) {
     return new Response('forbidden', { status: 403, headers: { 'content-type': 'text/plain' } });
   }
+
+  const distant = await scenery(rel, options);
+  if (distant) return distant;
 
   let st;
   try {

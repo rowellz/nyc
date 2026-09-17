@@ -16,7 +16,7 @@ export const MOBILE_BUILDING_BUDGET = Object.freeze({ mapSize: 64, anisotropy: 1
 /** Keep scene uploads/collider commits progressing, with more room for rendering
  * while crossing tiles quickly. An individual native operation can still overrun. */
 export function sceneBuildBudgetMs(ctx) {
-  return ctx.quality.level === 'mobile' && ctx.world?.stats?.fastTravel ? 1 : 3;
+  return ctx.world?.stats?.fastTravel ? (ctx.quality.level === 'mobile' ? 1 : 2) : 3;
 }
 
 const maskChanges = new WeakMap();
@@ -56,7 +56,9 @@ export function canBuildStreet(rec, active, ctx) {
   // An invalidation can requeue a tile while its old revision still occupies
   // a worker. Do not let the other worker build that same tile simultaneously.
   for (const request of active.values()) if (request.rec === rec) return false;
-  if (ctx.quality.level !== 'mobile') return true;
+  // Prepared tiles already carry complete road context and cannot be dirtied
+  // by neighboring arrivals. Their first roads need no settling delay.
+  if (rec.tile.streetContext) return true;
   const state = streetChanges.get(rec);
   if (!state) return true;
   const now = performance.now();
@@ -91,12 +93,11 @@ export function buildingTextureUrl(url) {
   return /^(https?:)?\/\//.test(url) ? parsed.href : parsed.pathname + parsed.search + parsed.hash;
 }
 
-/** Three road steps per background step on mobile, within the existing frame
+/** Three road steps per background step, within the existing frame
  * deadline. Keep buildings progressing even during continuous road streaming.
  * Queue items return to the tail after yielding, preserving fairness on ties.
  */
 export function nextSceneBuild(ready, ctx, turn) {
-  if (ctx.quality.level !== 'mobile') return ready.shift();
   const share = MOBILE_STREET_BUDGET.roadStepsPerBackground;
   const roads = turn % (share + 1) !== share;
   const fifoBackground = !roads && turn % ((share + 1) * 4) === (share + 1) * 4 - 1;
@@ -120,7 +121,7 @@ const buildingTurns = new WeakMap();
 /** Follow the same route when dispatching queued building workers, while
  * reserving every fourth dispatch for the oldest queued tile. */
 export function nextBuildingTile(queue, ctx) {
-  if (ctx.quality.level !== 'mobile' || !ctx.world?.tilePriority) return queue.shift();
+  if (!ctx.world?.tilePriority) return queue.shift();
   const turn = buildingTurns.get(ctx) ?? 0;
   buildingTurns.set(ctx, turn + 1);
   if (turn % 4 === 3) return queue.shift();

@@ -51,12 +51,13 @@ for (const initial of [.75, .5]) {
 const main = readFileSync(new URL('main-D_3aygO4.js', assets), 'utf8');
 const quality = readFileSync(new URL('quality-BuEwAkMy.js', assets), 'utf8');
 assert(main.includes('$mobileFrameBudget(performance.now(),pe)'));
+assert(main.includes('v.level===`mobile`&&e===`atmosphere`?'), 'Android uses the direct mobile renderer too');
 assert(main.includes('$createMobileFrameBudget(k,x,t.raw.get(`adaptive`)!==`0`&&t.raw.get(`capture`)!==`1`)'));
 assert(main.includes('preserveDrawingBuffer:t.screenshotMode&&(!c||t.raw.get(`capture`)===`1`)'));
 assert(main.includes(`./mobile-frame-budget.js?v=${CLIENT_REVISION}`));
 for (const [ua, touch, override, ratio] of [
   ['iPhone', 5, undefined, .85], ['iPhone', 5, 'low', .75],
-  ['Macintosh', 5, undefined, .85], ['Android', 5, undefined, 1.25],
+  ['Macintosh', 5, undefined, .85], ['Android', 5, undefined, .85],
   ['Desktop', 0, 'high', 1.5],
 ]) {
   const scope = vm.createContext({ navigator: { userAgent: ua, platform: ua, maxTouchPoints: touch },

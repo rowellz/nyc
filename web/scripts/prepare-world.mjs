@@ -3,6 +3,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { gzip, brotliCompress, constants } from 'node:zlib';
 import { buildStreetCatalog } from '../src/lib/server/street-context.js';
+import { prepareScenery } from '../src/lib/server/scenery-compiler.js';
 
 const source = path.resolve(process.argv[2] ?? '../public');
 const output = path.resolve(process.argv[3] ?? 'generated');
@@ -14,6 +15,8 @@ const compressGzip = promisify(gzip), compressBrotli = promisify(brotliCompress)
 await mkdir(output, { recursive: true });
 const catalog = await buildStreetCatalog(path.join(source, 'world/world/tiles'));
 await writeFile(path.join(output, 'road-index.json'), JSON.stringify(catalog));
+const scenery = await prepareScenery(source, output);
+console.log(`Prepared ${scenery.chunks} scenery chunks, ${(scenery.bytes / 1048576).toFixed(1)} MiB compressed, ${scenery.triangles} triangles across two LODs`);
 let count = 0;
 async function prepare(directory) {
   for (const item of await readdir(path.join(source, directory), { withFileTypes: true })) {

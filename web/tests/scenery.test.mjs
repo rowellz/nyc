@@ -1,0 +1,143 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { gunzipSync, gzipSync } from 'node:zlib';
+import { sceneryTools, sceneryChunks, compileScenery, landFaces, readSceneryTiles } from '../src/lib/server/scenery-compiler.js';
+import { createSceneryService } from '../src/lib/server/scenery.js';
+import { serveStatic } from '../src/lib/server/static.js';
+import { encodeScenery, decodeScenery, prepareSceneryGeometry } from '../static/world/assets/scenery-format.js';
+import { createSceneryStream, sceneryBudget } from '../static/world/assets/scenery-stream.js';
+import { assets } from './sveltekit-assets.mjs';
+const publicDir=path.resolve(import.meta.dirname??new URL('.',import.meta.url).pathname,'../../public');
+const tools=await sceneryTools(publicDir);
+{
+  const response=await serveStatic('world/world/lod/manifest.json');
+  assert.equal(response.status,200,'LOD routes resolve before looking for mirrored files');
+  const manifest=await response.json();assert.equal(manifest.chunks.length,272);
+  assert(manifest.chunks.every(c=>!('tiles' in c)),'source tile keys stay on the server');
+  const mesh=await serveStatic('world/world/lod/0_0.far.bin');
+  assert.equal(mesh.status,200);assert.equal(mesh.headers.get('content-encoding'),null);
+  const body=gunzipSync(Buffer.from(await mesh.arrayBuffer()));
+  assert.equal(decodeScenery(body.buffer.slice(body.byteOffset,body.byteOffset+body.byteLength)).key,'0_0');
+}
+const empty=(tx=0,tz=0)=>({key:`${tx}_${tz}`,tx,tz,buildings:[],roads:[],water:[]});
+const square=(x,z,w)=>[[x,z],[x+w,z],[x+w,z+w],[x,z+w]];
+const tile=empty();tile.water=[[square(80,80,96),square(112,112,32)]];
+tile.buildings=[{id:1,height:50,footprint:[square(10,10,30)]},{id:2,height:8,footprint:[square(190,10,20)]}];
+tile.roads=[{id:1,cls:'primary',width:10,pts:[[0,50],[256,50]]},{id:2,cls:'residential',width:6,pts:[[0,60],[256,60]]},
+  {id:3,cls:'primary',tunnel:true,width:10,pts:[[0,70],[256,70]]}];
+{
+  const faces=landFaces(tile,tools.inside);
+  const area=faces.reduce((n,r)=>n+Math.abs(r.reduce((s,p,i)=>s+p[0]*r[(i+1)%r.length][1]-r[(i+1)%r.length][0]*p[1],0))/2,0);
+  assert.equal(area,256*256-96*96+32*32,'coastline subtraction preserves islands inside water');
+  const mid=compileScenery('0_0',[tile],'mid',tools),far=compileScenery('0_0',[tile],'far',tools);
+  assert.equal(mid.buildings,2);assert.equal(far.buildings,1);
+  assert.equal(mid.layers.find(l=>l.kind==='roads').index.length,12,'tunnels never appear as surface strips');
+  assert.equal(far.layers.find(l=>l.kind==='roads').index.length,6,'far roads omit side streets');
+  for(const c of [mid,far]) {
+    const decoded=prepareSceneryGeometry(decodeScenery(encodeScenery(c)));
+    assert.equal(decoded.triangles,c.layers.reduce((n,l)=>n+l.index.length/3,0));
+    for(const layer of decoded.layers) {
+      assert(layer.bounds.radius>0);
+      assert.deepEqual(layer.renderIndex,layer.index);
+      for(let i=0;i<layer.position.length;i+=3)assert(Math.hypot(...layer.position.slice(i,i+3).map((v,j)=>v-layer.bounds.center[j]))<=layer.bounds.radius+1e-4);
+    }
+    assert.equal(decoded.key,c.key);assert.equal(decoded.tier,c.tier);
+    c.layers.forEach((layer,i)=>{
+      assert.deepEqual([...decoded.layers[i].index],layer.index);
+      assert.deepEqual(decoded.layers[i].features,layer.features);
+      assert(decoded.layers[i].position.every(Number.isFinite));
+      assert(!('colliders' in decoded.layers[i]));
+      if(layer.kind!=='buildings')assert(decoded.layers[i].normal.every((n,j)=>j%3!==1||n===127),'horizontal faces point up');
+    });
+  }
+  assert.throws(()=>decodeScenery(new ArrayBuffer(3)),/size/);
+  const malformed=encodeScenery(mid);new DataView(malformed).setUint32(0,0xffffffff,true);
+  assert.throws(()=>decodeScenery(malformed),/header/);
+  assert(sceneryChunks(['-1_-1']).has('-1_-1'),'negative coordinates use floor, not truncation');
+}
+{
+  const keys=['0_0','1_0','0_1','1_1'];
+  const tiles=await readSceneryTiles(publicDir,keys);
+  const mid=compileScenery('0_0',tiles,'mid',tools),far=compileScenery('0_0',tiles,'far',tools);
+  const triangles=c=>c.layers.reduce((n,l)=>n+l.index.length/3,0);
+  assert(triangles(far)<triangles(mid));
+  assert(decodeScenery(encodeScenery(mid)).buildings>50);
+  console.log(`PASS real Midtown prebuilt scenery: ${triangles(mid)} mid / ${triangles(far)} far triangles, no scene builders or colliders`);
+  const directory=await mkdtemp(path.join(tmpdir(),'nyc-scenery-test-'));
+  try {
+    await mkdir(path.join(directory,'scenery'));
+    const manifest={version:1,chunkSize:1024,revision:'fixture',chunks:[{key:'0_0'}]};
+    await writeFile(path.join(directory,'scenery/manifest.json'),JSON.stringify(manifest));
+    const encoded=gzipSync(new Uint8Array(encodeScenery(mid)));
+    await writeFile(path.join(directory,'scenery/0_0.mid.bin.gz'),encoded);
+    const service=createSceneryService('/missing-source-world',directory);
+    assert.equal((await service('world/world/lod/manifest.json')).status,200,'production reads prepared files without original tile decode');
+    const response=await service('world/world/lod/0_0.mid.bin');
+    assert.equal(response.headers.get('content-encoding'),null);
+    const body=gunzipSync(Buffer.from(await response.arrayBuffer()));
+    assert.equal(body.length,encodeScenery(mid).byteLength);
+    assert.equal((await service('world/world/lod/0_0.mid.bin',{method:'HEAD'})).headers.get('content-length'),String(encoded.length));
+    assert.equal((await service('world/world/lod/99_99.mid.bin')).status,404);
+    assert.equal(await service('world/world/lod/../../secret'),null);
+  }finally{await rm(directory,{recursive:true,force:true});}
+}
+function fixture({bytes=1000,requests=2,triangles=Infinity}={}) {
+  let time=0,changes=0;
+  const pending=[],removed=[],published=[];
+  const stream=createSceneryStream({budget:{distance:2200,middle:800,chunks:12,bytes,requests,triangles},now:()=>time,
+    fetchChunk:(key,tier,signal)=>new Promise((resolve,reject)=>{pending.push({key,tier,signal,resolve,reject});signal.addEventListener('abort',()=>reject(Error('aborted')));}),
+    publish:data=>{changes++;published.push(data);return data;},remove:handle=>{changes++;removed.push(handle);}});
+  stream.setManifest({chunks:Array.from({length:25},(_,i)=>({key:`${i-12}_0`}))});
+  const tick=async(x=128,allowed=true)=>{time+=100;const before=changes;stream.update(x,128,allowed);await Promise.resolve();await Promise.resolve();assert(changes-before<=2,'at most one replacement (add + remove) per frame');assert(stream.stats.bytes<=bytes);assert(stream.stats.triangles<=triangles);assert(stream.stats.inFlight<=requests);};
+  const land=()=>{for(const p of pending.splice(0))p.resolve({key:p.key,tier:p.tier,byteLength:100,triangles:1000});};
+  return{stream,pending,published,removed,tick,land};
+}
+{
+  const f=fixture();await f.tick();assert.equal(f.pending[0].key,'0_0');
+  f.land();await f.tick(128,false);assert.equal(f.published.length,0,'scene pressure holds replies without opening extra request slots');
+  await f.tick();assert.equal(f.published[0].key,'0_0');
+  for(let i=0;i<12;i++){f.land();await f.tick();}
+  assert(f.stream.resident.size>2);
+  const before=f.published.length;await f.tick(8300);f.land();
+  for(let i=0;i<4;i++){await f.tick(8300);f.land();}
+  assert(f.published.slice(before).some(c=>c.key==='8_0'),'teleport destination bypasses the retirement backlog');
+  for(let i=0;i<50;i++){f.land();await f.tick(i%2?128:8300);}
+  f.stream.dispose();assert.equal(f.stream.stats.bytes,0);assert.equal(f.stream.resident.size,0);
+  f.land();await Promise.resolve();assert.equal(f.stream.resident.size,0,'late replies cannot resurrect disposed chunks');
+}
+{
+  const f=fixture({triangles:2500});
+  for(let i=0;i<40;i++){f.land();await f.tick();}
+  assert(f.stream.resident.size<=2,'triangle budget applies independently of memory');
+  assert(f.stream.resident.has('0_0'),'closest chunk survives triangle pressure');
+  f.stream.dispose();assert.equal(f.stream.stats.triangles,0);
+}
+{
+  const f=fixture({bytes:250});
+  for(let i=0;i<40;i++){f.land();await f.tick();}
+  assert(f.stream.resident.size<=2,'byte cap applies independently of chunk count');
+  assert(f.stream.resident.has('0_0'),'closest chunk survives memory pressure');f.stream.dispose();
+}
+{
+  const f=fixture();for(let i=0;i<8;i++){f.land();await f.tick();}
+  const original=f.stream.resident.get('1_0');assert.equal(original.tier,'far');
+  await f.tick(700);assert.equal(f.stream.resident.get('1_0'),original,'keep the far mesh while its mid replacement is downloading');
+  f.land();for(let i=0;i<6;i++){await f.tick(700);f.land();}
+  assert.equal(f.stream.resident.get('1_0').tier,'mid');assert(f.removed.includes(original.handle));
+  f.stream.dispose();
+}
+{
+  const {nearSceneryCoverage}=await import(new URL('scenery.js',assets));
+  const coverage=nearSceneryCoverage({children:[{name:'buildings',visible:true,children:[{name:'bld-0_0',visible:true}]},
+    {name:'streets',visible:true,children:[{name:'streets:1_0',visible:false}]},
+    {name:'environment',visible:true,children:[{name:'env-ground-0_0',visible:true}]}]});
+  assert(coverage.buildings.has('0_0'));assert(coverage.ground.has('0_0'));assert.equal(coverage.roads.size,0);
+  const source=await readFile(new URL('buildings-BDmduZ8y.js',assets),'utf8');
+  assert(source.includes('x=$createScenery(t,y)'),'served client replaces the all-world skyline worker');
+  assert(sceneryBudget(true,2500).bytes<sceneryBudget(false,6000).bytes);
+  const ios=sceneryBudget(true,2500,true);
+  assert.equal(ios.bytes,8*1024*1024);assert.equal(ios.distance,1500);assert.equal(ios.triangles,80000);
+}
+console.log('PASS scenery binary format, coastline holes, tiers, production serving, bounded streaming, teleports, cancellation and visible-mesh handoff');

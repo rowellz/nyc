@@ -1,6 +1,6 @@
 /** Schedule the mirrored client's tiles and street builds using the same route priority. */
 export const streamingAssetPaths = new Set(['world/assets/main-D_3aygO4.js', 'world/assets/streets-CfYSUqyW.js',
-  'world/assets/quality-BuEwAkMy.js']);
+  'world/assets/quality-BuEwAkMy.js', 'world/assets/buildings-BDmduZ8y.js']);
 
 export function streamingAssetTransform(rel, source) {
   if (!streamingAssetPaths.has(rel)) return source;
@@ -38,13 +38,17 @@ export function streamingAssetTransform(rel, source) {
     // Audio must not overlap an optional factory still allocating after entry.
     replace('he&&!_e&&e-he>=1e4', 'he&&!_e&&e-he>=1e4&&(k.busy??0)===0&&!k.startup?.initializing');
   } else if (rel.endsWith('/quality-BuEwAkMy.js')) {
-    // Keep mobile at 512 m, including its far layer, to bound scene memory.
-    // The mirrored iOS override already sets both distances to 512 m.
-    replace('drawDistance:512,farDistance:768', 'drawDistance:512,farDistance:512');
-    replace('drawDistance:700,farDistance:3e3', 'drawDistance:1500,farDistance:3e3');
-    replace('drawDistance:600,farDistance:2500', 'drawDistance:1500,farDistance:2500');
-    replace('drawDistance:1e3,farDistance:5e3', 'drawDistance:1500,farDistance:5e3');
-    replace('drawDistance:1200,farDistance:6e3', 'drawDistance:1500,farDistance:6e3');
+    // Full simulation stays local; independently bounded prebuilt scenery
+    // extends visibility without expanding the physics/traffic tile radius.
+    replace('drawDistance:512,farDistance:768', 'drawDistance:512,farDistance:2500');
+    replace('u.farDistance=u.drawDistance=512', 'u.drawDistance=256,u.farDistance=1500');
+    replace('drawDistance:700,farDistance:3e3', 'drawDistance:768,farDistance:5e3');
+    replace('drawDistance:600,farDistance:2500', 'drawDistance:768,farDistance:4e3');
+    replace('drawDistance:1e3,farDistance:5e3', 'drawDistance:768,farDistance:6e3');
+    replace('drawDistance:1200,farDistance:6e3', 'drawDistance:768,farDistance:8e3');
+  } else if (rel.endsWith('/buildings-BDmduZ8y.js')) {
+    source = "import { createScenery as $createScenery } from './scenery.js';\n" + source;
+    replace('x=t.quality.farDistance>t.quality.drawDistance?Ee(t,d,y):null', 'x=$createScenery(t,y)');
   } else {
     replace('o=i*i+a*a;o<r&&(n=t,r=o)',
       'o=e.world.tilePriority?.(t.tile.tx,t.tile.tz)??i*i+a*a;o<r&&(n=t,r=o)');

@@ -180,19 +180,21 @@ placement/rendering/vehicle hooks after source edits or reapplying mirror patche
 
 
 The SvelteKit streaming transform in `streaming-assets.js` installs
-`predictive-streaming.js` before the first tile request. Mobile loads tiles within
-a **512 m radius** of the player/free camera; desktop presets use **1,500 m**.
+`predictive-streaming.js` before the first tile request. iOS loads detailed tiles within
+a **256 m radius**, Android uses **512 m**, and desktop presets use **768 m**.
+The immediate 3×3 tiles are always included.
 Distance is measured to tile edges, so tiles intersecting the radius are included.
-Mobile's far distance is also 512 m, avoiding an additional far-building layer.
-The mobile atmosphere uses its original fog fade from 180 to 700 m.
+Prebuilt visual scenery extends beyond those detailed, simulated tiles.
+The mobile atmosphere keeps its 180–700 m near-scene fog; distant scenery has
+its own fade to the horizon color over its larger range.
 Mobile keeps the simplified roads and existing device-specific effects budgets.
-Mobile landmarks also use the 512 m range, measured from their approximate edge
+Detailed landmarks also use the local tile range, measured from their approximate edge
 so nearby bridge spans remain visible. Distant landmarks release after an extra
-tile of hysteresis once their owning tiles unload. Desktop retains the separate
-6 km skyline range. Landmark cleanup releases instanced furniture buffers as well
+tile of hysteresis once their owning tiles unload. Distant building landmarks
+use the prebuilt scenery instead. Landmark cleanup releases instanced furniture buffers as well
 as geometry; shared materials live until the landmark module is disposed.
 
-iOS allows up to **32 resident tiles** to accommodate the 512 m neighborhood, one
+iOS allows up to **16 resident tiles** to accommodate the local 3×3, one
 additional route tile and three recently used tiles. `IOS_STREAMING` in
 `predictive-streaming.js` holds its resident and request limits. The immediate
 surrounding nine tiles take priority over farther work; startup waits for only
@@ -202,11 +204,11 @@ three forward slots and its longer search window. Desktop looks up to 512 m beyo
 the draw distance. Camera facing supplies the direction when stationary. These
 windows are search limits, not promises to build every tile within them.
 
-Street workers, queued mobile building workers and terrain/building commits use
+Street workers, queued building workers and terrain/building commits use
 the shared tile priority, with regular FIFO turns to finish older background work.
 Recent tiles survive brief turns for up to six seconds. Mobile retires at most
-one tile per frame, separately from publishing new tiles. iOS overlaps two tile
-requests on its existing decoder; Android retains two. Decoded replies waiting
+one tile per frame, separately from publishing new tiles. iOS allows one tile
+request on its existing decoder; Android retains two. Decoded replies waiting
 for scene publication count against those request limits. Mobile still commits
 at most one tile per frame. Obsolete replies release their slots even while
 scene building is backed up. On iOS, an already-decoded missing occupied tile can
@@ -229,12 +231,70 @@ late replies and recovery from a fully stalled request pool. Run
 `node tools/patch-streamer-worker.mjs` after changing the recovered tile decoder.
 
 Run `cd web && npm run test:streaming` for the served quality/fog settings, mobile
-512 m and desktop 1.5 km coverage, actual GWB upper-level road data, nearby
+512 m and desktop 768 m coverage, actual GWB upper-level road data, nearby
 priority, blocked builders, turns, teleports, retries and memory bounds. These simulations check scheduling
 and data availability; they do not measure Safari frame rates or real device
 scene-construction latency.
 Run `cd web && npm run test:memory` for repeated landmark travel and resource
 disposal checks against the served client.
+
+### Distant scenery
+
+`scenery-compiler.js` prepares two render-only meshes per 1,024 m chunk from the
+world tiles. The middle tier retains simplified building footprints, surface
+roads, and land with coastlines and water holes. The far tier simplifies the
+footprints further, omits buildings under 12 m, and keeps only major roads.
+Road elevations are approximate at these distances; tunnels, sidewalk details,
+traffic, pedestrians and physics remain the responsibility of nearby tiles.
+
+| Preset | Detailed tiles | Middle scenery | Far scenery |
+|---|---:|---:|---:|
+| iOS | 256 m | 256 m | 1,500 m |
+| Android / mobile | 512 m | 512 m | 2,500 m |
+| Low | 768 m | 2,200 m | 4,000 m |
+| Medium | 768 m | 2,200 m | 5,000 m |
+| High | 768 m | 2,200 m | 6,000 m |
+| Ultra | 768 m | 2,200 m | 8,000 m |
+
+Ranges are measured to chunk edges; the shader fades and clips the outer edge.
+The middle tier has 256 m of hysteresis to avoid repeated replacements on turns.
+The resident scenery budget is 16 chunks / 8 MiB of decoded buffers on iOS,
+48 chunks / 24 MiB on other mobile devices and 192 chunks / 96 MiB on desktop,
+plus at most one/two pending chunks. iOS caps resident scenery at 80,000 triangles;
+other mobile devices allow 160,000 triangles. Mobile uses vertex lighting
+instead of the desktop physically based shader. GPU copies consume additional
+memory. When a dense view reaches the byte or triangle cap,
+nearer chunks take priority, so the maximum visible range is a budget ceiling.
+
+The client fetches compressed binary geometry, with normals and colors already
+prepared, instead of fetching every world tile into the old skyline worker.
+A dedicated worker fetches, decompresses, validates and measures the geometry,
+then transfers the buffers to the animation thread without copying them.
+Each chunk uses at most three draw calls and no colliders, shadows or textures.
+Publication/retirement is paced to one chunk per frame; under detailed-scene
+pressure, publication is limited to twice per second so driving cannot starve
+scenery indefinitely. Abandoned requests are cancelled, failures retry, and replaced
+or retired chunks release their GPU resources. A coarse tile remains visible
+until the corresponding building, street or ground mesh is actually present.
+Landmark proxies disappear when their detailed landmark is ready. The skyline
+water reflection keeps proxies for near meshes that its reflection pass hides.
+
+`npm run prepare:world` writes scenery under `generated/scenery/` alongside the
+road catalog and compressed client. Production reads those files directly;
+development lazily compiles only requested chunks and keeps a bounded cache.
+The supplied world produces 272 chunks / 544 tier files, about 72 MiB compressed
+on disk; clients fetch only the neighborhood they need. Regenerate prepared
+assets when map data or the scenery compiler changes.
+
+Run `npm run test:scenery` for geometry, coastlines, binary transport, tiers,
+budget enforcement, cancellation and replacement checks. `npm run
+test:scenery-browser` additionally checks actual WebGL shader compilation,
+near/landmark handoff and GPU disposal; set `CHROMIUM` to a Chromium executable.
+Set `SCENERY_IOS=1` to exercise the smaller iPhone budget and five repeated
+travel/unload cycles, checking that retired GPU geometry returns to zero.
+This uses Chromium with the iOS policy; it does not reproduce Safari process
+termination or establish the cause of a reload on a physical iPhone.
+Software-rendered browser tests verify correctness, not device FPS.
 
 ### Mobile frame rate
 
@@ -278,13 +338,23 @@ city to finish loading, and compare FPS during standing, turning and travel.
 The debug overlay's DPR follows adaptive changes. Repeat after several minutes
 to check sustained performance as the phone heats up.
 
-During mobile travel above 24 m/s, background tile additions/removals are paced
-150 ms apart and new tile publication pauses at six outstanding scene jobs
-(normally sixteen). Missing terrain under the camera keeps its urgent bypass;
-the 32-tile iOS memory cap still applies. The shared scene commit queue uses a
-1 ms cooperative budget during fast travel and returns to 3 ms when it slows.
+During travel above 24 m/s, background tile additions/removals are paced
+150 ms apart on mobile and 50 ms apart on desktop. New tile publication pauses
+at six outstanding scene jobs on mobile and ten on desktop (normally sixteen).
+Missing terrain under the camera keeps its urgent bypass; the 32-tile iOS memory
+cap still applies. All devices share one tile addition or removal per frame,
+alternating cleanup with publication so an old row cannot block upcoming tiles.
+The shared scene commit queue uses a 1 ms cooperative budget on mobile and 2 ms
+on desktop during fast travel, returning to 3 ms when movement slows.
 Background scenery may finish later while moving quickly. These budgets bound
 scheduled work, not the duration of an individual native GPU/physics call.
+
+Road commits and building worker dispatch follow travel priority on desktop as
+well as mobile, with regular FIFO turns to keep distant work progressing.
+Repeated road invalidations coalesce on both devices. Free-camera movement above
+150 m/s keeps prediction active; a jump of at least one tile in a single sample
+resets velocity as a teleport. The streaming tests replay 360 m/s travel with a
+backward-facing camera and verify occupied ground, cleanup pacing and recovery.
 
 Terrain mask invalidation now skips neighboring tiles without parks: their
 water channel depends only on their own tile. Park masks retain neighboring
@@ -368,23 +438,27 @@ uploads and resident texture memory, rather than per-tile network traffic.
 
 Mobile uses one street geometry worker and one building geometry worker;
 desktop keeps two of each. This reduces simultaneous worker heaps and geometry
-construction allocations. The iOS decoder allows at most two tile requests,
-including decoded replies awaiting publication. Tile residency and geometry
-detail are unchanged, but scenery can take longer to fill in during fast travel.
+construction allocations. The iOS decoder allows at most one tile request,
+including decoded replies awaiting publication. Mobile geometry workers keep their slots until the decoded scene and physics
+commit finishes or is cancelled. This bounds large decoded replies waiting in
+the commit queue; worker construction cannot run arbitrarily far ahead.
+The cached street shader warm-up promise discards its resolved mesh so it
+cannot retain the first tile after unload.
 `npm run test:memory` checks the actual served pool setup, texture initialization,
 reply handling and failure cleanup. These checks do not measure Safari memory
 or establish the cause of an automatic page reload.
 
-The shared scene commit queue gives mobile road jobs three generator steps per
+The shared scene commit queue gives road jobs three generator steps per
 background step, choosing road tiles with the streamer's travel priority. Its
-3 ms deadline drops to 1 ms during fast mobile travel; the one-texture-upload
-limit, cancellation and shader-compilation waits remain in force. Buildings
+3 ms deadline drops to 1 ms on mobile and 2 ms on desktop during fast travel;
+the one-texture-upload limit, cancellation and shader-compilation waits remain in force. Buildings
 still receive a share while roads are busy.
 Street worker dispatch also combines invalidations within 100 ms (waiting at
 most 400 ms during continuous arrivals) and prevents two workers from rebuilding
 different revisions of the same tile concurrently. Existing geometry stays in
 place until its replacement is ready. These timings live beside the texture
-settings in `MOBILE_STREET_BUDGET`.
+settings in `MOBILE_STREET_BUDGET`. Tiles with complete, prepared road context
+skip the settle delay because neighboring arrivals cannot invalidate them.
 The mobile pedestrian startup grace period uses four seconds of wall time;
 slow frames no longer stretch that wait and delay the HUD. Crowd spawning keeps
 running after the startup gate is released.
@@ -926,3 +1000,18 @@ work, retrieved from a public origin; the textures carry CC0 licenses named in
 *"independent, free-to-play experimental tech demo ... not affiliated with or
 endorsed by Rockstar Games or Take-Two Interactive."* This container is for local
 and offline use; check with the origin before redistributing or hosting it.
+
+### Mobile frame pacing follow-up
+
+All mobile devices now use the direct mobile atmosphere. Android previously
+used the desktop atmosphere/composer, which also prevented the resolution
+controller from adapting. Android now shares the 0.85 initial pixel ratio
+(0.75 with `q=low`) and disabled shadows used by the mobile renderer.
+
+The iOS texture upload preflight inspects each shared material once per render,
+instead of repeating its property and uniform scan for every mesh. It still
+rechecks on later renders so asynchronously assigned maps and changing uniforms
+receive the texture cap. `npm run test:fps` includes a shared-material regression
+and a host CPU replay; its timings do not measure phone FPS. Scenery decoding,
+geometry validation, bounds and landmark index copies now run in a worker;
+`npm run test:scenery` checks cancellation, late replies and worker failures.

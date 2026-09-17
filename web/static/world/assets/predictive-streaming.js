@@ -2,11 +2,10 @@
 // Replace its scheduling policy without changing those lifetime contracts.
 import { installTileRequests } from './tile-requests.js';
 const TILE = 256;
-// The 512 m neighborhood spans at most 5x5 tiles, with room for one route
-// tile, three recently used tiles and an urgent arrival during retirement.
-const IOS_STREAMING = Object.freeze({ maxTiles: 32, requests: 2 });
+// iOS keeps the local 3x3, one route tile and up to three retained tiles.
+// Leave a little retirement overlap while keeping geometry/physics bounded.
+const IOS_STREAMING = Object.freeze({ maxTiles: 16, requests: 1 });
 const FAST_TRAVEL_SPEED = 24;
-const TRAVEL_SCENE_INTERVAL = 0.15;
 const keyOf = (tx, tz) => `${tx}_${tz}`;
 const distance = (tx, tz, x, z) => Math.hypot(
   Math.max(tx * TILE - x, 0, x - (tx + 1) * TILE),
@@ -35,7 +34,7 @@ function routeEntry(tx, tz, x, z, dx, dz) {
 // roads should not wait for unrelated buildings to finish. The streamer still
 // enforces one publication per frame and its resident-tile limit.
 export function canCommitSceneTile(ctx, world) {
-  const limit = (world.mobile || world.ios) && world.stats?.fastTravel ? 6 : 16;
+  const limit = world.stats?.fastTravel ? (world.mobile || world.ios ? 6 : 10) : 16;
   if ((ctx.busy ?? 0) < limit) return true;
   const key = keyOf(Math.floor(world.focus.x / TILE), Math.floor(world.focus.z / TILE));
   return !world.tiles.has(key) && world.landed.some(({ p, id }) =>
@@ -54,6 +53,8 @@ export function configureStreaming(world, camera) {
   const lastWanted = new Map();
   let retiring = [];
   let nextSceneChange = 0;
+  let retiredLast = false;
+  const travelSceneInterval = mobile ? 0.15 : 0.05;
 
   // Keep the occupied tile and its immediate boundary neighbors first. Beyond
   // that, favor the route ahead over equally distant work behind the player.
@@ -62,7 +63,7 @@ export function configureStreaming(world, camera) {
     const d = distance(tx, tz, x, z);
     if (tx === Math.floor(x / TILE) && tz === Math.floor(z / TILE)) return -2 * TILE;
     if (d < TILE / 2) return -TILE + d;
-    if (mobile && Math.hypot(aheadX, aheadZ) > 0) {
+    if (Math.hypot(aheadX, aheadZ) > 0) {
       const lead = Math.hypot(aheadX, aheadZ);
       const entry = routeEntry(tx, tz, x, z, aheadX / lead, aheadZ / lead);
       // Build the route in arrival order; a far tile must never jump ahead
@@ -81,9 +82,9 @@ export function configureStreaming(world, camera) {
     const dt = sample ? wall - sample.time : 0;
     if (dt > 0 && dt < 1) {
       const dx = focus.x - sample.x, dz = focus.z - sample.z;
-      const speed = Math.hypot(dx, dz) / dt;
-      // Respawns / spot changes must not leave a long speculative trail.
-      if (speed <= 150) {
+      // Fast free cameras legitimately exceed 150 m/s. Detect discontinuities
+      // by displacement instead; a whole tile in one sample is a spot change.
+      if (Math.hypot(dx, dz) < TILE) {
         const blend = 1 - Math.exp(-dt / 0.2);
         vx += (dx / dt - vx) * blend;
         vz += (dz / dt - vz) * blend;
@@ -91,7 +92,7 @@ export function configureStreaming(world, camera) {
     } else { vx = vz = 0; }
     sample = { x: focus.x, z: focus.z, time: wall };
     const speed = Math.hypot(vx, vz);
-    this.stats.fastTravel = mobile && !nearOnly && speed > FAST_TRAVEL_SPEED;
+    this.stats.fastTravel = !nearOnly && speed > FAST_TRAVEL_SPEED;
     camera.getWorldDirection(direction);
     const facing = Math.hypot(direction.x, direction.z);
     const nearReach = this.ios ? TILE : this.drawDistance;
@@ -106,7 +107,7 @@ export function configureStreaming(world, camera) {
     // Plan before committing so teleports cannot publish stale decoded tiles.
     originalUpdate.call(this, focus, now, nearOnly, false);
     // Disposing one tile fans out through every scene module. Never tear down
-    // a whole row and publish another tile in the same mobile frame.
+    // a whole row and publish another tile in the same frame.
     discardObsolete();
     const key = keyOf(Math.floor(focus.x / TILE), Math.floor(focus.z / TILE));
     // All decoded slots can still belong to wanted neighbors after a move.
@@ -127,13 +128,20 @@ export function configureStreaming(world, camera) {
     const sceneDue = !this.stats.fastTravel || wall >= nextSceneChange;
     // Once there is room, do not drain a whole retirement queue before showing
     // the occupied tile. Cleanup resumes on subsequent frames.
-    const retire = mobile && (sceneDue || urgent)
-      && !(urgent && (!this.ios || this.tiles.size < IOS_STREAMING.maxTiles)) ? retiring.shift() : undefined;
+    const hasRoom = !this.ios || this.tiles.size < IOS_STREAMING.maxTiles;
+    const canPublish = commitAllowed && this.landed.length > 0 && hasRoom;
+    // Alternate cleanup and publication when both have work. A long retirement
+    // queue must not hold the route hostage; iOS still retires first at its cap.
+    const retire = (sceneDue || urgent) && !(urgent && hasRoom)
+      && (!canPublish || !retiredLast) ? retiring.shift() : undefined;
     const before = this.tiles.size;
     if (retire !== undefined) this.unload(retire);
     else if (commitAllowed && (sceneDue || urgent)
       && (!this.ios || this.tiles.size < IOS_STREAMING.maxTiles)) this.commitLanded();
-    if (this.tiles.size !== before) nextSceneChange = wall + TRAVEL_SCENE_INTERVAL;
+    if (this.tiles.size !== before) {
+      retiredLast = retire !== undefined;
+      nextSceneChange = wall + travelSceneInterval;
+    }
     this.pump(wall);
     this.stats.inFlight = this.inFlight.size;
     this.stats.queued = this.queue.length;
@@ -182,8 +190,7 @@ export function configureStreaming(world, camera) {
     retiring = [];
     for (const [key, tile] of this.tiles) {
       if (wanted.has(key) || retained.has(key)) continue;
-      if (mobile) retiring.push(key);
-      else if (distance(tile.tx, tile.tz, fx, fz) > this.drawDistance + 2 * TILE) this.unload(key);
+      if (mobile || distance(tile.tx, tile.tz, fx, fz) > this.drawDistance + 2 * TILE) retiring.push(key);
     }
     for (const key of lastWanted.keys()) if (!wanted.has(key) && !this.tiles.has(key)) lastWanted.delete(key);
     this.queue = [...wanted.values()].filter(p => {
@@ -243,6 +250,7 @@ export function configureStreaming(world, camera) {
     lastWanted.clear();
     retiring = [];
     nextSceneChange = 0;
+    retiredLast = false;
     this.stats.fastTravel = false;
     originalUnloadAll.call(this);
   };

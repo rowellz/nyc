@@ -7,6 +7,7 @@ export const mobilePerformanceAssetPaths = new Set([
   'world/assets/character-O1u3Gxpp.js',
   'world/assets/vehicles-_zJz3z3J.js',
   'world/assets/mobile-SBC7KRMu.js',
+  'world/assets/textureRelease-2U-gT89r.js',
   'world/assets/buildings-BDmduZ8y.js',
   'world/assets/landmarks-KpQKy0CX.js',
   'world/assets/geom-8zUJB5A-.js',
@@ -28,25 +29,38 @@ export function mobilePerformanceAssetTransform(rel, source) {
     replace('afterFrame(){if(a(),c)', 'afterFrame(){$mobileFrameBudget(performance.now(),pe);if(a(),c)');
     replace('n()&&e===m&&i===h&&s===g', 'e===m&&i===h&&s===g');
     replace('a.setPixelRatio(s),a.setSize(e,i,!0)', '$resizeDrawingBuffer(a,e,i,s),r.pixelRatio=s');
+    // Android used the desktop atmosphere/composer, which also disabled the
+    // direct-render resolution controller. Use the mobile atmosphere on both.
+    replace('c&&e===`atmosphere`?', 'v.level===`mobile`&&e===`atmosphere`?');
   } else if (rel.endsWith('/quality-BuEwAkMy.js')) {
     // The iOS override discarded q=low. Start with fewer shaded pixels and
     // retain low's stricter ceiling throughout adaptive recovery.
     replace('u.pixelRatio=i(1,innerWidth,innerHeight)', 'u.pixelRatio=i(e===`low`?.75:.85,innerWidth,innerHeight)');
+    replace('u.pixelRatio=i(e===`low`?.75:n.dpr,innerWidth,innerHeight)', 'u.pixelRatio=i(e===`low`?.75:.85,innerWidth,innerHeight)');
+    replace('u.shadows=!t()&&e!==`low`', 'u.shadows=!1');
+  } else if (rel.endsWith('/textureRelease-2U-gT89r.js')) {
+    source = "import { prepareSceneTextures as $prepareSceneTextures } from './texture-preflight.js';\n" + source;
+    replace('let r=new Set,i=e=>{e instanceof B&&!r.has(e)&&(r.add(e),rl(e))};e.traverse(e=>{let t=e.material;for(let e of Array.isArray(t)?t:t?[t]:[]){Object.values(e).forEach(i);let t=e.uniforms;if(t)for(let e of Object.values(t))Array.isArray(e.value)?e.value.forEach(i):i(e.value)}}),n(e,t)',
+      '$prepareSceneTextures(e,rl),n(e,t)');
   } else if (rel.endsWith('/geom-8zUJB5A-.js')) {
     // Geometry disposal does not release an InstancedMesh's instance buffers.
     // Landmark furniture owns both and is rebuilt as tiles/footprints change.
     replace('t.geometry&&t.geometry.dispose()',
       't.isInstancedMesh&&t.dispose(),t.geometry&&t.geometry.dispose()');
   } else if (rel.endsWith('/landmarks-KpQKy0CX.js')) {
-    // The skyline used a separate 6 km radius even on the 512 m mobile tier.
+    // Detailed landmarks follow the local scene. The prebuilt scenery now owns
+    // their distant silhouettes instead of constructing full models at 6 km.
     replace('let me=ve,ke=me**2,je=(me+256)**2;',
-      'let me=e.quality.level===`mobile`?Math.min(ve,e.quality.drawDistance):ve,ke=me**2,je=(me+256)**2;');
+      'let me=Math.min(ve,e.quality.drawDistance),ke=me**2,je=(me+256)**2;');
     // Large landmarks (bridges) can have a nearby edge and a distant center.
-    // Use the distance to that edge on mobile, for building and releasing alike.
+    // Use the distance to that edge for building and releasing alike.
     replace('function de(t){return(e.camera.position.x-t.center[0])**2+(e.camera.position.z-t.center[1])**2}',
-      'function de(t){const d=(e.camera.position.x-t.center[0])**2+(e.camera.position.z-t.center[1])**2;return e.quality.level===`mobile`?Math.max(0,Math.sqrt(d)-t.radius)**2:d}');
+      'function de(t){const d=(e.camera.position.x-t.center[0])**2+(e.camera.position.z-t.center[1])**2;return Math.max(0,Math.sqrt(d)-t.radius)**2}');
     replace('n<(e.quality.drawDistance+t.radius)**2',
-      'n<(e.quality.drawDistance+(e.quality.level===`mobile`?0:t.radius))**2');
+      'n<e.quality.drawDistance**2');
+    // Keep the detailed replacement visible throughout retention hysteresis.
+    // Its BIN still suppresses the proxy until removeLandmark releases it.
+    replace('e.root.visible=de(e)<=ke', 'e.root.visible=true');
   } else if (rel.endsWith('/loading-DS_gLujL.js')) {
     source = "import { nextSceneBuild as $nextSceneBuild, sceneBuildBudgetMs as $sceneBuildBudgetMs } from './mobile-build-policy.js';\n" + source;
     replace('let e=performance.now()+3,', 'let e=performance.now()+$sceneBuildBudgetMs(this.ctx),');
@@ -54,6 +68,16 @@ export function mobilePerformanceAssetTransform(rel, source) {
     replace('this.ready.push({job:s,steps:t})', 'this.ready.push({job:s,steps:t,label:e})');
     replace('let e=this.ready.shift();', 'let e=$nextSceneBuild(this.ready,this.ctx,this.turn++);');
   } else if (rel.endsWith('/streets-CfYSUqyW.js')) {
+    source = "import { releaseGeometryRequest as $releaseGeometryRequest } from './geometry-residency.js';\n" + source;
+    // The active request owns both worker construction and the decoded commit.
+    replace('G.delete(e.id),e.error&&console.warn',
+      '$releaseGeometryRequest(G,e.id,t,$mobileGeometry,$),e.error&&console.warn');
+    replace('function Y(e){let t=G.get(e.id);',
+      'const $mobileGeometry=e.quality.level===`mobile`;function Y(e){let t=G.get(e.id);');
+    // compileAsync resolves to the mesh. Caching that value pins the first
+    // tile's geometry even after it has been unloaded from the scene.
+    replace('g=e.renderer.compileAsync(c,e.camera,e.scene),K.set',
+      'g=e.renderer.compileAsync(c,e.camera,e.scene).then(()=>{}),K.set');
     // Each geometry worker owns its own JS heap and construction scratch data.
     // Keep one on mobile; the first also handles the initial texture request.
     replace('let t=new Worker(new URL(`/world/assets/tile.worker-Ai2ZdmRL.js`,``+import.meta.url),{type:`module`,name:`streets-1`})',
@@ -96,6 +120,11 @@ export function mobilePerformanceAssetTransform(rel, source) {
     // Keep the drawn manhole in the atlas without fetching/compositing two photos.
     replace('let t=await Gn(),n;', 'let t=e.data.quality===`mobile`?{}:await Gn(),n;');
   } else if (rel.endsWith('/buildings-BDmduZ8y.js')) {
+    source = "import { holdGeometrySlot as $holdGeometrySlot } from './geometry-residency.js';\n" + source;
+    replace('e.data.tile?t.job?.run(L(t,e.data.tile))',
+      'e.data.tile?($holdGeometrySlot(n,t.job,$buildingWorkerCount===1,()=>E.includes(n)&&P()),t.job?.run(L(t,e.data.tile)))');
+    replace('if(t.terminate(),k.get(n.id)?.job?.cancel()',
+      'if(t.terminate(),n.commitJob?.cancel(),k.get(n.id)?.job?.cancel()');
     replace('if(typeof Worker<`u`)for(let e=0;e<Fe;e++)',
       'const $buildingWorkerCount=t.quality.level===`mobile`?1:Fe;if(typeof Worker<`u`)for(let e=0;e<$buildingWorkerCount;e++)');
     source = "import { mobileFacadeShader as $mobileFacadeShader } from './mobile-facade.js';\n" + source;
