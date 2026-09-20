@@ -188,7 +188,7 @@ export function mobilePerformanceAssetTransform(rel, source) {
     // Fade nearby facade detail sooner, skipping room/shop interior shading
     // beyond the fade while retaining the existing windows and night lighting.
     replace('uDetailDist:{value:a===`ultra`||a===`high`?520:a===`medium`?380:260}',
-      'uDetailDist:{value:a===`mobile`?96:a===`ultra`||a===`high`?520:a===`medium`?380:260}');
+      'uDetailDist:{value:a===`mobile`?192:a===`ultra`||a===`high`?520:a===`medium`?380:260}');
     source = "import { nextBuildingTile as $nextBuildingTile } from './mobile-build-policy.js';\n" + source;
     source = "import { buildingTextureUrl as $buildingTextureUrl, MOBILE_BUILDING_BUDGET as $buildingBudget } from './mobile-build-policy.js';\nimport { o as $mobileTextureUrl } from './quality-BuEwAkMy.js';\n" + source;
     replace('async function Q(e,t,n=!0,r){try{let a=await ne(e);',

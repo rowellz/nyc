@@ -167,9 +167,9 @@ function fixture({bytes=1000,requests=2,triangles=Infinity}={}) {
 {
   const {nearSceneryCoverage,createScenery}=await import(new URL('scenery.js',assets));
   const {Z:Group}=await import(new URL('textureRelease-2U-gT89r.js',assets));
-  for(const [level,ios,expected] of [['mobile',false,[625,2500]],['mobile',true,[375,1500]],['high',false,[180,700]]]) {
+  for(const [level,ios,expected] of [['mobile',false,[875,3500]],['mobile',true,[625,2500]],['high',false,[180,700]]]) {
     const fog={isFog:true,near:180,far:700};
-    const context={quality:{level,farDistance:2500},world:{ios},worldGroup:new Group(),scene:{fog}};
+    const context={quality:{level,farDistance:ios?2500:3500},world:{ios},worldGroup:new Group(),scene:{fog}};
     const scenery=createScenery(context);
     assert.deepEqual([fog.near,fog.far],expected,'near and far mobile objects use one atmosphere');
     scenery.dispose();
@@ -184,7 +184,7 @@ function fixture({bytes=1000,requests=2,triangles=Infinity}={}) {
   assert(source.includes('x=$createScenery(t,y)'),'served client replaces the all-world skyline worker');
   assert(sceneryBudget(true,2500).bytes<sceneryBudget(false,6000).bytes);
   const ios=sceneryBudget(true,2500,true);
-  assert.equal(ios.bytes,8*1024*1024);assert.equal(ios.distance,1500);assert.equal(ios.triangles,80000);
+  assert.equal(ios.bytes,8*1024*1024);assert.equal(ios.distance,2500);assert.equal(ios.triangles,80000);
 }
 console.log('PASS scenery binary format, coastline holes, tiers, production serving, bounded streaming, teleports, cancellation and visible-mesh handoff');
 

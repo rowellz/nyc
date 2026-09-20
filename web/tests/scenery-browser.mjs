@@ -31,7 +31,7 @@ const renderer=new WebGLRenderer({antialias:true,preserveDrawingBuffer:true});re
 const scene=new Scene();scene.background=new Color(0x9ab2c5);scene.add(new HemisphereLight(0xffffff,0x666666,2));const light=new DirectionalLight(0xffffff,2);light.position.set(100,300,100);scene.add(light);
 const camera=new PerspectiveCamera(65,1.5,.1,10000);camera.position.set(512,500,1400);camera.lookAt(512,0,-1200);
 const worldGroup=new Group();scene.add(worldGroup);const built=new Set();
-const ctx={quality:{level:${JSON.stringify(level)},farDistance:${ios?1500:2500}},world:{baseUrl:'/world/world',ios:${ios}},worldGroup,scene,camera,time:{daylight:1},busy:10};
+const ctx={quality:{level:${JSON.stringify(level)},farDistance:${ios?2500:3500}},world:{baseUrl:'/world/world',ios:${ios}},worldGroup,scene,camera,time:{daylight:1},busy:10};
 window.__ready=true;const lod=createScenery(ctx,built);
 function frame(){lod.update();renderer.render(scene,camera);requestAnimationFrame(frame)}frame();
 window.inspect=()=>({stats:lod.stats,triangles:renderer.info.render.triangles,calls:renderer.info.render.calls,errors:window.errors,basic:lod.group.children.every(c=>c.children.every(m=>m.material.isMeshBasicMaterial))});

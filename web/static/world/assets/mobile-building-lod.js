@@ -13,7 +13,7 @@ export function selectBuildingDetail(ctx, previous = new Set()) {
     const held=previous.has(building.id);
     const distance=Math.hypot(Math.max(x0-camera.x,0,camera.x-x1),
       Math.max(z0-camera.z,0,camera.z-z1), (building.height || 3)-(camera.y || 0));
-    if (distance <= (held ? 128 : 96)) candidates.push({id:building.id, edges,
+    if (distance <= (held ? 256 : 192)) candidates.push({id:building.id, edges,
       rank:distance-(held?24:0)});
   }
   candidates.sort((a,b)=>a.rank-b.rank || a.id-b.id);

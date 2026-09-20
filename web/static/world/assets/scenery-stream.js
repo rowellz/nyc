@@ -1,7 +1,7 @@
 import { CHUNK_SIZE } from './scenery-format.js';
 
 export function sceneryBudget(mobile, farDistance, ios = false) {
-  if (ios) return { distance: Math.min(farDistance,1500), middle:256,
+  if (ios) return { distance: Math.min(farDistance,2500), middle:256,
     triangles:80000, chunks:16, bytes:8*1024*1024, requests:1,
     decodeBytes:2*1024*1024, peakBytes:14*1024*1024 };
   return { distance: farDistance, middle: mobile ? 512 : 2200,

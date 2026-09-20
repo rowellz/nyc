@@ -1,6 +1,6 @@
 import { g as BufferGeometry, h as BufferAttribute, kt as Mesh, Z as Group, Pt as MeshStandardMaterial, At as MeshBasicMaterial, ar as Sphere, Or as Vector3 } from './textureRelease-2U-gT89r.js';
 import { SCENERY_VERSION, compactSceneryIndex } from './scenery-format.js';
-import { createSceneryStream, sceneryBudget } from './scenery-stream.js';
+import { createSceneryStream, sceneryBudget } from './scenery-stream.js?v=highway-chunk-pacing-66';
 import { createSceneryTransport } from './scenery-transport.js';
 
 // Same world-space noise as nearby terrain. The distant path samples only albedo;

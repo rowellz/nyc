@@ -19,7 +19,7 @@ export const MOBILE_BUILDING_BUDGET = Object.freeze({ mapSize: 64, anisotropy: 1
 export function selectDetailedLandmarks(ctx, landmarks) {
   if(ctx.quality.level!=='mobile')return null;
   const ios=ctx.world?.ios===true,limit=ios?2:3;
-  const range=Math.min(ctx.quality.drawDistance,ios?128:192);
+  const range=Math.min(ctx.quality.drawDistance,ios?192:256);
   const selected=new Set(),candidates=[];
   for(const landmark of landmarks) {
     // Parks, bridges and standalone street structures carry walkable surfaces

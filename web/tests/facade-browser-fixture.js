@@ -93,10 +93,10 @@ window.testFacadeSurfaceLod=()=>{
       return [...pixel];
     };
     results[landmark?'landmark':'ordinary']={
-      street:sample(8,8),upperFromStreet:sample(8,200),
-      flying:sample(200,200),lowerFromAir:sample(200,8),crown:sample(380,380),
-      horizontal:sample(200,200,24,200),transition:sample(200,200,96),
-      outside:sample(200,200,124),
+      street:sample(8,8),upperFromStreet:sample(8,300),
+      flying:sample(200,200),lowerFromAir:sample(300,8),crown:sample(380,380),
+      horizontal:sample(200,200,24,300),transition:sample(200,200,192),
+      outside:sample(200,200,244),
     };
     material.dispose();
   }

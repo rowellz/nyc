@@ -2,9 +2,9 @@
 // Replace its scheduling policy without changing those lifetime contracts.
 import { installTileRequests } from './tile-requests.js';
 const TILE = 256;
-// iOS keeps the local 3x3, one route tile and one recently used tile.
+// iOS fills the 384 m neighborhood, with one route tile and recent retention.
 // Leave a little retirement overlap while keeping geometry/physics bounded.
-const IOS_STREAMING = Object.freeze({ maxTiles: 12, requests: 1 });
+const IOS_STREAMING = Object.freeze({ maxTiles: 20, requests: 1 });
 const FAST_TRAVEL_SPEED = 24;
 const keyOf = (tx, tz) => `${tx}_${tz}`;
 const distance = (tx, tz, x, z) => Math.hypot(
@@ -45,7 +45,7 @@ export function configureStreaming(world, camera) {
   const cancelObsoleteRequests = installTileRequests(world);
   const mobile = world.mobile || world.ios;
   const mobileRequestLimit = world.ios ? IOS_STREAMING.requests : 2;
-  const residentLimit = world.ios ? IOS_STREAMING.maxTiles : mobile ? 28 : Infinity;
+  const residentLimit = world.ios ? IOS_STREAMING.maxTiles : mobile ? 40 : Infinity;
   const originalUpdate = world.update;
   const originalUnloadAll = world.unloadAll;
   const direction = world.focus.clone();

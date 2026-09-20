@@ -43,7 +43,8 @@ function fixture(level='mobile') {
   return {ctx,water,geometry};
 }
 try {
-  const {ctx,water,geometry}=fixture();
+ for (const level of ['mobile','low','high','ultra']) {
+  const {ctx,water,geometry}=fixture(level);
   syncTunnelTerrain(ctx);
   assert.equal(water.geometry,geometry,'tile event returns before expensive clipping');
   assert.equal(ctx.busy,1,'water uses the shared job budget');
@@ -65,22 +66,19 @@ try {
   assert.deepEqual(water.geometry.index.array,indices,'retirement restores the original plane');
   assert.deepEqual(water.geometry.attributes.uv.array,attrs.uv.array);
 
-  const cancelled=fixture();syncTunnelTerrain(cancelled.ctx);frame();
+  const cancelled=fixture(level);syncTunnelTerrain(cancelled.ctx);frame();
   cancelled.ctx.world.tiles.clear();syncTunnelTerrain(cancelled.ctx);
   assert.equal(cancelled.ctx.busy,1,'superseded job releases busy exactly once');
   drain(cancelled.ctx);
   assert.deepEqual(cancelled.water.geometry.index.array,indices,'a late cut cannot restore retired holes');
-  const removed=fixture();syncTunnelTerrain(removed.ctx);frame();removed.water.removeFromParent();
+  const removed=fixture(level);syncTunnelTerrain(removed.ctx);frame();removed.water.removeFromParent();
   drain(removed.ctx);
   assert.equal(removed.water.geometry,removed.geometry,'unloaded water never receives a late publication');
 
-  // Non-mobile consumers retain synchronous clipping, including physics.
-  const desktop=fixture('high');syncTunnelTerrain(desktop.ctx);
-  assert.notEqual(desktop.water.geometry,desktop.geometry);
-  assert.equal(desktop.ctx.busy,undefined);
+ }
 } finally {
   globalThis.performance=originalPerformance;
   if(originalRAF===undefined)delete globalThis.requestAnimationFrame;else globalThis.requestAnimationFrame=originalRAF;
 }
 assert(versionClientImports("import './tunnels.js';").includes(`tunnels.js?v=${CLIENT_REVISION}`),'reload invalidates cached terrain code');
-console.log(`PASS mobile chunk pacing: ${holes.length} real rail holes, ${yields} clipping yields, frame budget, unchanged-cut reuse, cancellation and restoration`);
+console.log(`PASS mobile/desktop chunk pacing: ${holes.length} real rail holes, ${yields} clipping yields, frame budget, unchanged-cut reuse, cancellation and restoration`);

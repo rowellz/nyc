@@ -187,12 +187,12 @@ placement/rendering/vehicle hooks after source edits or reapplying mirror patche
 
 The SvelteKit streaming transform in `streaming-assets.js` installs
 `predictive-streaming.js` before the first tile request. iOS loads detailed tiles within
-a **256 m radius**, Android uses **512 m**, and desktop presets use **768 m**.
+a **384 m radius**, Android uses **640 m**, and desktop presets use **768 m**.
 The immediate 3×3 tiles are always included.
 Distance is measured to tile edges, so tiles intersecting the radius are included.
 Prebuilt visual scenery extends beyond those detailed, simulated tiles.
-Mobile scenery and nearby meshes share one fog range: 375–1,500 m on iOS
-and 625–2,500 m on the other mobile presets, keeping the detail boundary from
+Mobile scenery and nearby meshes share one fog range: 625–2,500 m on iOS
+and 875–3,500 m on the other mobile presets, keeping the detail boundary from
 becoming a sudden change in haze.
 Mobile keeps the simplified roads and existing device-specific effects budgets.
 Detailed landmarks also use the local tile range, measured from their approximate edge
@@ -202,8 +202,8 @@ use the prebuilt scenery instead. Landmark cleanup releases instanced furniture 
 as geometry; shared materials live until the landmark module is disposed.
 
 On iOS, at most two custom architectural landmarks are constructed near the
-camera (128 m from their approximate edge); other mobile presets allow three
-within 192 m. Existing models get a small distance preference to avoid churn.
+camera (192 m from their approximate edge); other mobile presets allow three
+within 256 m. Existing models get a small distance preference to avoid churn.
 Unselected models and unfinished construction jobs retire before another model
 starts allocating. Their ordinary building facades/colliders remain the fallback;
 parks, bridges and structures without a building replacement retain their normal
@@ -261,8 +261,8 @@ The streaming tests include repeated city-length trips, callback/worker cleanup,
 late replies and recovery from a fully stalled request pool. Run
 `node tools/patch-streamer-worker.mjs` after changing the recovered tile decoder.
 
-Run `cd web && npm run test:streaming` for the served quality/fog settings, mobile
-512 m and desktop 768 m coverage, actual GWB upper-level road data, nearby
+Run `cd web && npm run test:streaming` for the served quality/fog settings,
+384 m iOS / 640 m Android and desktop 768 m coverage, actual GWB upper-level road data, nearby
 priority, blocked builders, turns, teleports, retries and memory bounds. These simulations check scheduling
 and data availability; they do not measure Safari frame rates or real device
 scene-construction latency.
@@ -294,13 +294,17 @@ traffic, pedestrians and physics remain the responsibility of nearby tiles.
 
 | Preset | Detailed tiles | Middle scenery | Far scenery |
 |---|---:|---:|---:|
-| iOS | 256 m | 256 m | 1,500 m |
-| Android / mobile | 512 m | 512 m | 2,500 m |
+| iOS | 384 m | 256 m | 2,500 m |
+| Android / mobile | 640 m | 512 m | 3,500 m |
 | Low | 768 m | 2,200 m | 4,000 m |
 | Medium | 768 m | 2,200 m | 5,000 m |
 | High | 768 m | 2,200 m | 6,000 m |
 | Ultra | 768 m | 2,200 m | 8,000 m |
 
+Mobile scenery ranges were extended in client revision `mobile-scenery-range-63`.
+The later `mobile-ground-building-range-65` revision also extends detailed ground
+and buildings to 384 m on iOS and 640 m on other phones. Scenery memory and
+triangle budgets remain bounded; detailed tiles retain staggered publication.
 Ranges are measured to chunk edges; the shader fades and clips the outer edge.
 The middle tier has 256 m of hysteresis to avoid repeated replacements on turns.
 The resident scenery budget is 16 chunks / 8 MiB of decoded buffers on iOS,
@@ -364,8 +368,9 @@ retains the drawing buffer; ordinary iOS free camera no longer preserves it.
 The HUD and touch controls retain their CSS size. Viewport and resolution changes
 resize the drawing buffer once and retain the selected ratio after rotation.
 
+Client revision `mobile-ground-building-range-65` extends mobile building detail.
 Mobile buildings select facade detail per surface point using the full 3D distance
-to the camera. Detail fades from 72 to 120 metres; subpixel detail fades sooner.
+to the camera. Detail fades from 144 to 240 metres; subpixel detail fades sooner.
 Driving past a tower keeps nearby lower floors detailed, while flying beside it
 moves that detail band up to the camera. Beyond the band, ordinary walls return
 a simpler window-and-wall surface before shading reveals, weathering and shopfront
@@ -1123,7 +1128,7 @@ geometry validation, bounds and landmark index copies now run in a worker;
 
 Mobile buildings now have a shell tier that retains footprints, pitched roofs,
 setbacks and foundations while dropping fine parapet/coping geometry. A shared
-selection admits roof-edge detail within 96 m of the camera (128 m to retain it),
+selection admits roof-edge detail within 192 m of the camera (256 m to retain it),
 including vertical distance to the roof. iOS admits at most 24 detailed buildings
 and 192 footprint edges; other mobile devices admit 40 and 320. The controller
 checks every 750 ms, schedules one replacement at a time after existing building
@@ -1145,7 +1150,7 @@ a 4 MiB request. Decoding checks the inflated limit while streaming. An oversize
 middle-tier chunk falls back to its coarse tier. These are geometry accounting
 budgets, not measurements or limits of Safari's total process memory: textures,
 physics, drivers, JavaScript objects and garbage-collection timing add overhead.
-Nearby simulation tiles retain the 12-tile iOS cap and now have a 28-tile cap on
+Nearby simulation tiles use a 20-tile iOS cap and a 40-tile cap on
 other mobile devices, with the occupied tile and its immediate neighbors first.
 
 The mobile renderer uses the adaptive pixel budgets documented above and disables
@@ -1218,3 +1223,16 @@ The streaming busy gate also admits an already-decoded tile required by the
 occupied car, even while the car is held on the loaded side of the boundary.
 Unrelated scenery remains subject to backpressure, and the one-tile publication
 and resident-tile limits still apply.
+
+Highway chunk arrivals also reuse motorway lane plans when street workers publish
+new elevations. Tunnel profiles build their lane envelopes on demand, and terrain
+cuts skip approaches that stay above ground. Lane planning indexes nearby sibling
+segments instead of comparing every pair of sampled stations. Desktop water cuts
+now use the same frame-budgeted queue as mobile, retaining the previous surface
+until the replacement is ready. Ground collision remains synchronous.
+
+`npm --prefix web run test:streaming` includes real nine-tile GWB and Cross Bronx
+replays, checking more than 34,000 lane stations against the original planner,
+profile cache invalidation, and unchanged tunnel cuts. These checks validate
+geometry and work scheduling, not device FPS. Client revision
+`highway-chunk-pacing-66` refreshes the affected browser imports.

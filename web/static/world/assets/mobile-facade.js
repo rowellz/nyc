@@ -5,7 +5,7 @@
 // reduce detail: zooming in must not make an entire distant tower expensive.
 const SURFACE_LOD = `
 float mobileSurfaceDetail(vec3 position, vec2 footprint) {
-  float proximity = 1.0 - smoothstep(72.0, 120.0, distance(cameraPosition, position));
+  float proximity = 1.0 - smoothstep(144.0, 240.0, distance(cameraPosition, position));
   float resolved = 1.0 - smoothstep(0.16, 0.5, max(footprint.x, footprint.y));
   return proximity * resolved;
 }

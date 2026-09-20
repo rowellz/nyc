@@ -23,8 +23,8 @@ assert(readFileSync(new URL('streets-CfYSUqyW.js', assets), 'utf8').includes('e.
 // and desktop's explicit q=mobile (the profile shown in the report).
 const qualitySource = readFileSync(new URL('quality-BuEwAkMy.js', assets), 'utf8');
 for (const [ua, override, expected] of [
-  ['iPhone', undefined, 256], ['iPhone', 'low', 256], ['Android', undefined, 512],
-  ['Desktop', 'mobile', 512], ['Desktop', 'low', 768], ['Desktop', 'medium', 768],
+  ['iPhone', undefined, 384], ['iPhone', 'low', 384], ['Android', undefined, 640],
+  ['Desktop', 'mobile', 640], ['Desktop', 'low', 768], ['Desktop', 'medium', 768],
   ['Desktop', 'high', 768], ['Desktop', 'ultra', 768],
 ]) {
   const scope = vm.createContext({ navigator: { userAgent: ua, platform: ua, maxTouchPoints: ua === 'Desktop' ? 0 : 5, hardwareConcurrency: 4 },
@@ -34,11 +34,11 @@ for (const [ua, override, expected] of [
   const { quality } = scope.l(override);
   assert.equal(quality.drawDistance, expected, `${ua} / ${override} uses its device budget`);
   assert(quality.farDistance >= expected);
-  if (quality.level === 'mobile') assert.equal(quality.farDistance, ua==='iPhone'?1500:2500, 'mobile uses a bounded prebuilt scenery layer');
+  if (quality.level === 'mobile') assert.equal(quality.farDistance, ua==='iPhone'?2500:3500, 'mobile uses a bounded prebuilt scenery layer');
   if (ua === 'iPhone') {
     assert.equal(quality.maxTraffic, 6);
     assert.equal(quality.shadows, false);
-    assert.equal(quality.farDistance, 1500, 'iOS keeps detailed tiles local while extending scenery');
+    assert.equal(quality.farDistance, 2500, 'iOS keeps detailed tiles local while extending scenery');
   }
 }
 {
@@ -73,7 +73,7 @@ function fixture({ ios = true, mobile = true, predictive = true, latency = 0.6, 
       occupied: args[0] === 'tileLoaded' && args[1].key === `${Math.floor(world.focus.x / 256)}_${Math.floor(world.focus.z / 256)}`,
     });
   } },
-    { level: mobile ? 'mobile' : 'high', drawDistance: ios ? 256 : mobile ? 512 : 768, farDistance: ios ? 1500 : mobile ? 2500 : 6000 });
+    { level: mobile ? 'mobile' : 'high', drawDistance: ios ? 384 : mobile ? 640 : 768, farDistance: ios ? 2500 : mobile ? 3500 : 6000 });
   for (let x = -20; x <= 20; x++) for (let z = -10; z <= 10; z++) world.tileSet.add(`${x}_${z}`);
   if (tileData) world.tileSet = new Set(tileData.keys());
   world.index = { tiles: [...world.tileSet] };
@@ -106,8 +106,8 @@ function fixture({ ios = true, mobile = true, predictive = true, latency = 0.6, 
       + events.filter(e => e[0] === 'tileLoaded').length - before <= 1,
     'tile publication and retirement share one lifecycle change per frame on every device');
     if (mobile || ios) assert(world.inFlight.size <= (predictive && !ios ? 2 : 1), 'bounded in-flight memory');
-    if (mobile && !ios && predictive) assert(world.tiles.size <= 28, 'all mobile simulation tiles obey a hard resident cap');
-    if (ios && predictive) assert(world.tiles.size <= 12, 'nearby, ahead and retained tiles share the 12-tile iOS limit');
+    if (mobile && !ios && predictive) assert(world.tiles.size <= 40, 'all mobile simulation tiles obey a hard resident cap');
+    if (ios && predictive) assert(world.tiles.size <= 20, 'nearby, ahead and retained tiles share the 20-tile iOS limit');
   }
   return { world, camera, events, requests, pending, changes, frame, point, get time() { return time; } };
 }
@@ -178,18 +178,18 @@ function assertCoverage(f) {
   }
 }
 
-// iOS fills the local 3x3; movement adds at most one route tile.
+// iOS fills the extended neighborhood; movement adds at most one route tile.
 // The immediate 3x3 must still outrank the additional scene work.
 for (const [dx, dz] of [[1, 0], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]]) {
   const f = fixture({ latency: 0.05 });
   f.camera.x = dx; f.camera.z = dz;
   for (let i = 0; i < 150; i++) await f.frame();
-  const ahead = [...f.world.tiles.values()].filter(t => tileDistance(t.tx, t.tz, 128, 128) > 256);
+  const ahead = [...f.world.tiles.values()].filter(t => tileDistance(t.tx, t.tz, 128, 128) > 384);
   assert(ahead.length <= 1, 'at most one extra scene beyond the mobile neighborhood');
   assertCoverage(f);
-  assert.equal(f.world.tiles.size, 9, 'stationary iOS retains only the local 3x3');
+  assert.equal(f.world.tiles.size, 13, 'stationary iOS extends detailed ground/buildings beyond the local 3x3');
   const tx = dx === 0 ? 0 : 2, tz = dz === 0 ? 0 : (dz < 0 ? -1 : 1) * (dx === 0 ? 2 : 1);
-  assert.equal(f.world.stats.lookAheadMeters, 256);
+  assert.equal(f.world.stats.lookAheadMeters, 384);
   for (let x = -1; x <= 1; x++) for (let z = -1; z <= 1; z++) {
     assert(f.world.tilePriority(x, z) < f.world.tilePriority(tx, tz), 'all local tiles precede speculation');
   }
@@ -197,7 +197,7 @@ for (const [dx, dz] of [[1, 0], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]]) {
     'downloads fill the surrounding neighborhood before distant route tiles');
 }
 
-// A 256 m circle must remain covered at tile edges, including negative
+// A 384 m circle must remain covered at tile edges, including negative
 // coordinates. Exercise retirement across several rows with the smaller cap.
 {
   const f = fixture({ latency: 0.05 });
@@ -209,7 +209,7 @@ for (const [dx, dz] of [[1, 0], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]]) {
     }
     assertCoverage(f);
   }
-  assert(peak > 9 && peak <= 12, 'mobile residency stays bounded during travel');
+  assert(peak > 9 && peak <= 20, 'mobile residency stays bounded during travel');
 }
 
 // Dense scene jobs keep the real main-loop gate closed. A decoded occupied
@@ -429,7 +429,7 @@ for (const options of [{ ios: true, mobile: true }, { ios: false, mobile: false 
     assert(f.world.ready);
   }
   assert(f.world.stats.fetched > peak * 5, 'many generations of tiles load in one session');
-  assert(peak <= (options.ios ? 12 : 260), 'retired tiles do not accumulate across city trips');
+  assert(peak <= (options.ios ? 20 : 260), 'retired tiles do not accumulate across city trips');
   assert(f.events.some(e => e[0] === 'tileUnloaded'));
   console.log(`PASS repeated ${options.ios ? 'mobile' : 'desktop camera'} travel: ${f.world.stats.fetched} tile loads, peak ${peak} resident`);
 }
@@ -449,7 +449,7 @@ console.log('PASS predictive streaming: startup, ahead loads, turns, memory, bac
   assert(f.world.tiles.size>9,'exercise more than the immediate neighborhood');
   for(let i=0;i<400;i++)await f.frame({x:f.point.x+2,z:128+Math.sin(i/60)*150});
   for(let i=0;i<150;i++)await f.frame();
-  assertCoverage(f);assert(f.world.tiles.size<=28);
+  assertCoverage(f);assert(f.world.tiles.size<=40);
   f.world.unloadAll();assert.equal(f.world.tiles.size,0);
 }
 console.log('PASS bounded Android tile rings, travel, occupied-neighborhood priority and unload');

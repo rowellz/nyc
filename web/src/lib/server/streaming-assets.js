@@ -38,10 +38,10 @@ export function streamingAssetTransform(rel, source) {
     // Audio must not overlap an optional factory still allocating after entry.
     replace('he&&!_e&&e-he>=1e4', 'he&&!_e&&e-he>=1e4&&(k.busy??0)===0&&!k.startup?.initializing');
   } else if (rel.endsWith('/quality-BuEwAkMy.js')) {
-    // Full simulation stays local; independently bounded prebuilt scenery
-    // extends visibility without expanding the physics/traffic tile radius.
-    replace('drawDistance:512,farDistance:768', 'drawDistance:512,farDistance:2500');
-    replace('u.farDistance=u.drawDistance=512', 'u.drawDistance=256,u.farDistance=1500');
+    // Keep detailed ground/buildings within a bounded local simulation radius.
+    // Prebuilt scenery supplies the more distant skyline and terrain.
+    replace('drawDistance:512,farDistance:768', 'drawDistance:640,farDistance:3500');
+    replace('u.farDistance=u.drawDistance=512', 'u.drawDistance=384,u.farDistance=2500');
     replace('drawDistance:700,farDistance:3e3', 'drawDistance:768,farDistance:5e3');
     replace('drawDistance:600,farDistance:2500', 'drawDistance:768,farDistance:4e3');
     replace('drawDistance:1e3,farDistance:5e3', 'drawDistance:768,farDistance:6e3');

@@ -1,7 +1,9 @@
 /** Clearance planning across bridge tags and their connected approach roads. */
 import { PEDESTRIAN_HEADROOM, PEDESTRIAN_FLOOR } from './pedestrian-clearance.js';
-import { approachProfile, approachCeiling, tunnelNetwork, setApproachElevations, APPROACH_REACH, MAX_APPROACH_GRADE, PORTAL_DEPTH } from './tunnels.js';
-import { deckEdges } from './edges.js';
+// Match the worker's versioned import: a second module instance loses the
+// shared elevation plan and renders elevated approaches again at ground level.
+import { approachProfile, approachCeiling, tunnelNetwork, setApproachElevations, APPROACH_REACH, MAX_APPROACH_GRADE, PORTAL_DEPTH } from './tunnels.js?v=highway-chunk-pacing-66';
+import { deckEdges } from './edges.js?v=highway-chunk-pacing-66';
 const cache = new WeakMap();
 const VEHICLES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service']);
 const motorway = r => r.cls === 'motorway' || r.cls === 'trunk';

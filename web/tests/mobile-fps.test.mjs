@@ -139,7 +139,7 @@ for (const [ua, touch, override, ratio] of [
   const start = source.indexOf('function le('), end = source.indexOf('function ', start + 9);
   const scope = vm.createContext({ O: () => [], B: 1, b: class {}, g: class {}, o: class {} });
   vm.runInContext(source.slice(start, end), scope);
-  for (const [level, distance] of [['mobile', 96], ['low', 260], ['medium', 380], ['high', 520]]) {
+  for (const [level, distance] of [['mobile', 192], ['low', 260], ['medium', 380], ['high', 520]]) {
     const uniforms = scope.le({ quality: { level }, modules: new Map() }, {});
     assert.equal(uniforms.uDetailDist.value, distance);
   }

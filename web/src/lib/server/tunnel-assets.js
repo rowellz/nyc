@@ -31,7 +31,23 @@ export function tunnelAssetTransform(rel, source) {
     replace('pts.push({...pointAt(record,s,l.base(s,q)),d:from+d})',
       'pts.push({...pointAt(record,s,l.base(s,q)),d:from+d,laneSpan:l.count*l.width})');
     replace('const tables=(links,side,other,paints)=>{\n    let from=0;',
-      'const tables=(links,side,other,paints)=>{\n    const taper=[];let from=0;');
+      `const tables=(links,side,other,paints)=>{
+    // Only sibling segments within GORE_NEAR can win the nearest-point test.
+    // Index their bounds once instead of scanning the entire sampled sibling
+    // for every lane station (quadratic on long interchange ramps).
+    const cells=new Map();
+    for(let i=1;i<other.length;i++){
+      const a=other[i-1],b=other[i];
+      for(let x=Math.floor((Math.min(a.x,b.x)-GORE_NEAR)/GORE_NEAR);x<=Math.floor((Math.max(a.x,b.x)+GORE_NEAR)/GORE_NEAR);x++){
+        for(let z=Math.floor((Math.min(a.z,b.z)-GORE_NEAR)/GORE_NEAR);z<=Math.floor((Math.max(a.z,b.z)+GORE_NEAR)/GORE_NEAR);z++){
+          const key=\`\${x},\${z}\`,bucket=cells.get(key)??[];
+          bucket.push(i);cells.set(key,bucket);
+        }
+      }
+    }
+    const taper=[];let from=0;`);
+    replace('        for(let i=1;i<other.length;i++){',
+      '        for(const i of cells.get(`${Math.floor(p.x/GORE_NEAR)},${Math.floor(p.z/GORE_NEAR)}`)??[]){');
     replace('record.gores[side].push({gaps,paints,end:link?-1:end});',
       'record.gores[side].push({gaps,paints,end:link?-1:end});taper.push({gaps,from,end,length:record.length,laneSpan:l.count*l.width});');
     replace('from+=record.length;\n    }\n  };\n  for(const [left,right] of fans)',

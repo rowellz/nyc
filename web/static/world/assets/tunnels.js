@@ -1,5 +1,5 @@
-import { t as buildScope } from './loading-DS_gLujL.js?v=mobile-chunk-pacing-62';
-import { deckEdges } from './edges.js';
+import { t as buildScope } from './loading-DS_gLujL.js?v=highway-chunk-pacing-66';
+import { deckEdges } from './edges.js?v=highway-chunk-pacing-66';
 import { holesForTile as railHolesForTile, waterHolesForTiles } from './rail/footprints.js?v=station-layout-32';
 
 /** Shared by the geometry worker and traffic. Heights are synthetic: OSM layers
@@ -66,7 +66,12 @@ export function tunnelNetwork(roads) {
   for (const [id, p] of profiles) if (p.approach && Math.min(p.a.approach, p.b.approach) >= APPROACH_REACH) profiles.delete(id);
   // Approaches share their lane envelope with the motorway renderer and traffic.
   // Raw constant-width ribbons overlap at fans and put walls through live lanes.
-  for (const p of profiles.values()) if (p.approach) p.edges = deckEdges(p.road, roads, Math.max(3.2, p.road.width / 2));
+  for (const p of profiles.values()) if (p.approach) {
+    let edges;
+    Object.defineProperty(p, 'edges', { enumerable: true, get() {
+      return edges ??= deckEdges(p.road, roads, Math.max(3.2, p.road.width / 2));
+    } });
+  }
   networkCache.set(roads, profiles);
   return profiles;
 }
@@ -146,9 +151,19 @@ export function worldTunnels(world) {
     || t.approachProfiles !== cached.elevations[i] || t.streetContext !== cached.contexts[i])) {
     // Streets build with complete nearby ways, including tunnels whose owner
     // tiles are not resident. Terrain and support must use that same network.
-    const roads = [...new Map(tiles.flatMap(t => [...(t.streetContext?.roads ?? []), ...t.roads])
+    const sameRoads = cached && tiles.length === cached.tiles.length && tiles.every((t, i) =>
+      t.roads === cached.tiles[i].roads && t.streetContext === cached.contexts[i]);
+    const roads = sameRoads ? cached.roads : [...new Map(tiles.flatMap(t => [...(t.streetContext?.roads ?? []), ...t.roads])
       .map(road => [road.id, road])).values()];
-    cached = { tiles, profiles: tunnelNetwork(roads), contexts: tiles.map(t => t.streetContext) };
+    // Worker elevations arrive after the tile. Keep the expensive lane plan
+    // for unchanged road inputs, but publish fresh profiles to invalidate cuts.
+    const network = tunnelNetwork(roads);
+    const profiles = new Map([...network].map(([id, profile]) => {
+      const copy = Object.create(Object.getPrototypeOf(profile), Object.getOwnPropertyDescriptors(profile));
+      copy.elevation = undefined; copy.samples = null; copy.surface = null;
+      return [id, copy];
+    }));
+    cached = { tiles, roads, profiles, contexts: tiles.map(t => t.streetContext) };
     cached.elevations = tiles.map(t => t.approachProfiles);
     // A worker profiles the whole way for stable interpolation, but owns only
     // its tile. Prefer the owner at each station instead of letting whichever
@@ -259,6 +274,10 @@ function edgePoint(a, side, margin = 0) {
 export function tunnelHoles(profiles, surfaceY = 0) {
   const holes = [];
   for (const p of profiles.values()) {
+    // Only descending approaches intersect the ground. Most of the extended
+    // highway planning halo stays above it and needs no ribbon construction.
+    if (!p.approach || (p.elevation ? p.elevation.every(q => q.h >= 0)
+      : Math.min(p.a.approach, p.b.approach) * APPROACH_GRADE >= PORTAL_DEPTH)) continue;
     const pts = samples(p);
     for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1], b = pts[i];
@@ -282,6 +301,7 @@ export function tunnelHoles(profiles, surfaceY = 0) {
 export function tunnelWaterHoles(profiles) {
   const holes = [], margin = 2;
   for (const p of profiles.values()) {
+    if (p.approach && Math.min(p.a.approach, p.b.approach) * APPROACH_GRADE >= PORTAL_DEPTH) continue;
     let along = 0;
     const hw = Math.max(2, p.road.width / 2, ...samples(p).flatMap(a =>
       [a.left, a.right].map(e => Math.hypot(e[0] - a.x, e[1] - a.z)))) + margin;
@@ -475,7 +495,6 @@ function syncWater(ctx, mesh, profiles, holes) {
   const record = { profiles, signature, job: null };
   waterProfiles.set(mesh, record);
   previous?.job?.cancel();
-  if (ctx.quality?.level !== 'mobile') { recut(mesh, holes); return; }
   if (!holes.length && !terrainBases.has(mesh)) return;
   let scope = waterBuilds.get(ctx);
   if (!scope) { scope = buildScope(ctx); waterBuilds.set(ctx, scope); }
