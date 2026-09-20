@@ -32,5 +32,18 @@ if (!props.includes('fixtureTiles as $fixtureTiles')) {
   props = "import { fixtureTiles as $fixtureTiles } from './fixtures.js';\n" + props;
   writeFileSync(propsPath, props);
 }
+// Validate generated corner furniture as well as its authored parent prop.
+if (!props.includes('furnitureClearance as $furnitureClearance')) {
+  const edits = [
+    ['function*jn(e,t,n,r,i,a,o,s){let c=new Set;', 'function*jn(e,t,n,r,i,a,o,s){const $clearFurniture=$furnitureClearance(e.world,t);let c=new Set;'],
+    ['let l=n.kinds.get(e);l||n.kinds.set(e,l=new It);let u=_(t,i);l.push', 'let u=_(t,i);if(!$clearFurniture(e,u.x,u.z,a,c))return;let l=n.kinds.get(e);l||n.kinds.set(e,l=new It);l.push'],
+  ];
+  for(const [from,to] of edits) {
+    if(props.split(from).length!==2)throw Error(`Expected one furniture anchor: ${from}`);
+    props=props.replace(from,to);
+  }
+  props="import { furnitureClearance as $furnitureClearance } from './fixtures.js';\n"+props;
+  writeFileSync(propsPath,props);
+}
 writeFileSync(new URL('public/world/assets/fixtures.js', root), readFileSync(new URL('src/client/src/streets/fixtures.js', root)));
 console.log('Published roadway clearance for lamps and matching light/collider placement.');

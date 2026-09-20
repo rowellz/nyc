@@ -6,6 +6,7 @@ export const mobilePerformanceAssetPaths = new Set([
   'world/assets/transfer-CN3_6JL-.js',
   'world/assets/character-O1u3Gxpp.js',
   'world/assets/vehicles-_zJz3z3J.js',
+  'world/assets/props-coU--UuE.js', 'world/assets/builder.worker-CU7Og7am.js',
   'world/assets/mobile-SBC7KRMu.js',
   'world/assets/textureRelease-2U-gT89r.js',
   'world/assets/buildings-BDmduZ8y.js',
@@ -21,6 +22,11 @@ export function mobilePerformanceAssetTransform(rel, source) {
     source = source.replace(before, after);
   };
   if (rel.endsWith('/main-D_3aygO4.js')) {
+    source = "import { rendererDiagnostics as $rendererDiagnostics } from './renderer-diagnostics.js';\n" + source;
+    replace('JSON.stringify({geometries:t,textures:n,programs:x.renderer.info.programs?.length??0})',
+      'JSON.stringify({geometries:t,textures:n,programs:x.renderer.info.programs?.length??0,...$rendererDiagnostics(k)})');
+    replace('f.addEventListener(`webglcontextlost`,()=>ve.stop())',
+      'f.addEventListener(`webglcontextlost`,()=>{h(`webgl_context_lost`,JSON.stringify($rendererDiagnostics(k)));ve.stop()})');
     source = "import { createMobileFrameBudget as $createMobileFrameBudget, resizeDrawingBuffer as $resizeDrawingBuffer } from './mobile-frame-budget.js';\n" + source;
     replace('Mu(`streaming tiles`,.85),f.addEventListener',
       'const $mobileFrameBudget=$createMobileFrameBudget(k,x,t.raw.get(`adaptive`)!==`0`&&t.raw.get(`capture`)!==`1`);Mu(`streaming tiles`,.85),f.addEventListener');
@@ -48,6 +54,16 @@ export function mobilePerformanceAssetTransform(rel, source) {
     replace('t.geometry&&t.geometry.dispose()',
       't.isInstancedMesh&&t.dispose(),t.geometry&&t.geometry.dispose()');
   } else if (rel.endsWith('/landmarks-KpQKy0CX.js')) {
+    source = "import { mobileLandmarkShader as $mobileLandmarkShader } from './mobile-facade.js';\n" + source;
+    replace('function et(e){let t=', 'function et(e,$mobile=false){const $pars=$mobile?$mobileLandmarkShader(Qe):Qe;let t=');
+    replace('let a=et(n),o=ot(4739931)', 'let a=et(n,e.quality.level===`mobile`),o=ot(4739931)');
+    replace('${Qe}', '${$pars}');
+    replace('()=>`landmarkFacade12`', '()=>`landmarkFacade13-${$mobile?`mobile`:`desktop`}`');
+    replace('let s=kn(e.quality.level===`mobile`?1024:void 0);s.anisotropy=e.quality.level===`low`?1:4;',
+      'let s=kn(e.quality.level===`mobile`?512:void 0);s.anisotropy=e.quality.level===`mobile`||e.quality.level===`low`?1:4;');
+    source = "import { selectDetailedLandmarks as $selectDetailedLandmarks } from './mobile-build-policy.js';\n" + source;
+    replace('E.landmarks=E.pending=0;for(let t of _){let n=de(t);',
+      'E.landmarks=E.pending=0;const $landmarkSelection=$selectDetailedLandmarks(e,_);if($landmarkSelection)for(const l of _)if(!$landmarkSelection.has(l)&&(l.root||l.job)){A(l);o=true;}for(let t of _){if($landmarkSelection&&!$landmarkSelection.has(t))continue;let n=de(t);');
     // Detailed landmarks follow the local scene. The prebuilt scenery now owns
     // their distant silhouettes instead of constructing full models at 6 km.
     replace('let me=ve,ke=me**2,je=(me+256)**2;',
@@ -131,7 +147,7 @@ export function mobilePerformanceAssetTransform(rel, source) {
     replace('function ue(e,t){let n=', 'function ue(e,t){const $facadeSource=t.mobile?$mobileFacadeShader(se):se;let n=');
     replace('`+se).replace(`#include <normal_fragment_maps>`', '`+$facadeSource).replace(`#include <normal_fragment_maps>`');
     replace('m=ue(d,{textures:!1})', 'm=ue(d,{textures:!1,mobile:t.quality.level===`mobile`})');
-    replace('`facade-v2-${t.textures?`tex`:`proc`}`', '`facade-v3-${t.mobile?`mobile`:t.textures?`tex`:`proc`}`');
+    replace('`facade-v2-${t.textures?`tex`:`proc`}`', '`facade-v4-${t.mobile?`mobile`:t.textures?`tex`:`proc`}`');
     // The filtered wall/flat roof path uses vertex colors and the sign atlas.
     // Do not decode/upload unused facade photos or recompile to the photo path.
     replace('async function U(){H++;', 'async function U(){if(t.quality.level===`mobile`){B=!0;return}H++;');
@@ -148,6 +164,17 @@ export function mobilePerformanceAssetTransform(rel, source) {
     replace('function P(){for(;D.length;)', 'const $buildingContext=t;function P(){for(;D.length;)');
     replace('let t=D.shift();', 'let t=$nextBuildingTile(D,$buildingContext);');
   } else if (rel.endsWith('/vehicles-_zJz3z3J.js')) {
+    // Keep the logical 1024px layout/UVs, painting directly into smaller mobile
+    // canvases. Both livery and emissive maps otherwise allocate 1K per kind.
+    replace('function ne(){let e=document.createElement(`canvas`);return e.width=e.height=M,[e,e.getContext(`2d`)]}',
+      'function ne(size=M){let e=document.createElement(`canvas`);e.width=e.height=size;const g=e.getContext(`2d`);g.scale(size/M,size/M);return[e,g]}');
+    replace('let[r,i]=ne(),[a,o]=ne();', 'let[r,i]=ne(n.textureSize),[a,o]=ne(n.textureSize);');
+    replace('c=he(n,1+mt.indexOf(t)*.173,{doorSplit:',
+      'c=he(n,1+mt.indexOf(t)*.173,{textureSize:this.ctx.quality.level===`mobile`?256:1024,doorSplit:');
+    replace('l.colorSpace=m,l.anisotropy=8,l.generateMipmaps',
+      'l.colorSpace=m,l.anisotropy=r.width<M?1:8,l.generateMipmaps');
+    replace('u.colorSpace=m,u.anisotropy=4,{map:l',
+      'u.colorSpace=m,u.anisotropy=a.width<M?1:4,{map:l');
     // Moving the iPhone parking window used Roads.load(), tearing down every
     // lane and recomputing every highway path twice per resident tile.
     replace('if(n&&$(C,t.camera.position)>64)for(let e of t.world.tiles.values())i.load(e);',
@@ -182,6 +209,17 @@ ${parking}
     replace('            const car = makeCar(`p:${r.id}:${seed}:${slot * 2 + (side === 1 ? 0 : 1)}`, kind, x, ground(this.ctx, x, z), z,',
       '            const carKey = `p:${r.id}:${seed}:${slot * 2 + (side === 1 ? 0 : 1)}`;\n            const car = previous.get(carKey) ?? makeCar(carKey, kind, x, ground(this.ctx, x, z), z,');
     replace('            record.parked.push(car);', '            previous.delete(car.key);\n            record.parked.push(car);');
+  } else if (rel.endsWith('/props-coU--UuE.js')) {
+    replace('n.quality.level===`mobile`?.25:1', 'n.quality.level===`mobile`?.125:1');
+    replace('this.texture.anisotropy=8,this.texture.generateMipmaps',
+      'this.texture.anisotropy=n<1?1:8,this.texture.generateMipmaps');
+  } else if (rel.endsWith('/builder.worker-CU7Og7am.js')) {
+    // Scale the plywood drawing as a whole so permits/posters retain their UV
+    // positions. Do not create a full-size canvas just to downsample it later.
+    replace('function Hi(e=2048,t=512){let{c:n,g:r}=zi(e,t),i=ti(31),a=e/2;',
+      'function Hi(e=2048,t=512,scale=1){let{c:n,g:r}=zi(e*scale,t*scale),i=ti(31),a=e/2;r.scale(scale,scale);');
+    replace('base:await Vr(Vi()),plywood:await Vr(Hi(e.data.mobile?1024:2048))',
+      'base:await Vr(Vi(e.data.mobile?128:512)),plywood:await Vr(Hi(2048,512,e.data.mobile?.25:1))');
   } else if (rel.endsWith('/mobile-SBC7KRMu.js')) {
     source = "import { createMobileProps as $mobileProps } from './mobile-props.js';\nimport { t as $mobileBuildScope } from './loading-DS_gLujL.js';\n" + source;
     const start = source.indexOf('function ae(e){let t=new p;');
@@ -214,6 +252,9 @@ ${parking}
       'update(t){let n=e.camera.position,i=$staticTrees?0:r.uWind.value.length();if(!$staticTrees)for(let e of s)e.windBounds(i);');
     source = "import { terrainWorkerInput as $terrainWorkerInput, emptyTerrainPixels as $emptyTerrainPixels, terrainTexturePixels as $terrainTexturePixels, updateTerrainTexture as $updateTerrainTexture } from './terrain-worker-input.js';\n" + source;
     source = "import { shouldInvalidateMask as $shouldInvalidateMask, markMaskDirty as $markMaskDirty, canBuildMask as $canBuildMask, beginMaskBuild as $beginMaskBuild } from './mobile-build-policy.js';\n" + source;
+    // Share existing terrain textures with scenery; no second texture allocation/upload.
+    replace('uSoilScale:{value:1/n.soil.size}};function c(e)',
+      'uSoilScale:{value:1/n.soil.size}};t.userData.sceneryGround={...o,uWetness:i.uWetness,uSeason:i.uSeason};function c(e)');
     replace('function F(e,t){for(let n=e-1;', 'function F(e,t){const $tx=e,$tz=t;for(let n=e-1;');
     replace('r&&(r.revision=++S,r.job?.cancel(),r.job=o.job(`environment mask ${t}`),x.add(t))',
       'r&&$shouldInvalidateMask(r,$tx,$tz)&&($markMaskDirty(r),r.revision=++S,r.job?.cancel(),r.job=o.job(`environment mask ${t}`),x.add(t))');

@@ -21,7 +21,17 @@ for (const mobile of [false, true]) {
   material.onBeforeCompile(shader, {});
   assert.equal(shader.uniforms.uNight.value, .8);
   shaders.push(shader.fragmentShader);
-  assert(shader.fragmentShader.includes('lodWindowLit('), 'window/night-light layout survives');
+  assert.equal(shader.fragmentShader.includes('lodWindowLit('), !mobile);
+  assert.equal(shader.fragmentShader.includes('mobileWindowLight('), mobile);
+  for (const helper of ['windowLightColorLOD(', 'windowLightColor(', 'windowInterior(']) {
+    assert.equal(shader.fragmentShader.includes(helper), !mobile, `${helper} is desktop-only`);
+  }
+  if (mobile) {
+    assert(shader.fragmentShader.includes('win > 0.001 && lightResolution > 0.001 && litFrac > 0.0'));
+    const light = shader.fragmentShader.slice(shader.fragmentShader.indexOf('vec3 mobileWindowLight('), shader.fragmentShader.indexOf('Surf shadeWall('));
+    assert.equal((light.match(/hash[234]\(/g) ?? []).length, 2, 'at most two occupancy samples per window');
+    assert(!/texture2D|uTime|windowInterior/.test(light), 'stable lights need no texture, animation or interior samples');
+  }
   assert(shader.fragmentShader.includes('Surf shadeSign('), 'sign atlas remains in use');
   assert.equal(shader.fragmentShader.includes('roomInterior('), !mobile);
   assert.equal(shader.fragmentShader.includes('shopInterior('), !mobile);
@@ -59,3 +69,26 @@ void main() {
 }
 `);
 console.log(`PASS served mobile facade: ${shaders[0].length} -> ${shaders[1].length} shader characters, filtered windows/signs, no interiors or facade photo jobs`);
+
+// Custom towers have an independent material and must opt into the same mobile
+// lighting policy at their factory call, not only at a test-only entry point.
+const landmarks = readFileSync(new URL('landmarks-KpQKy0CX.js', assets), 'utf8');
+assert(landmarks.includes('et(n,e.quality.level===`mobile`)'));
+writeFileSync(new URL('landmark-facade-fixture.js', assets), landmarks + '\nexport {et as facade,Ye as uniforms};');
+const landmark = await import(new URL('landmark-facade-fixture.js', assets));
+const sizes = [];
+for (const mobile of [false, true]) {
+  const material = landmark.facade(landmark.uniforms(), mobile);
+  const shader = {uniforms:{},vertexShader:'#include <common>\n#include <begin_vertex>',
+    fragmentShader:'#include <common>\n#include <emissivemap_fragment>'};
+  material.onBeforeCompile(shader);
+  sizes.push(shader.fragmentShader.length);
+  assert.equal(shader.fragmentShader.includes('mobileWindowLight('), mobile);
+  for (const fn of ['windowLit(', 'windowLightColorLOD(', 'farWindowLight(', 'windowInterior(']) {
+    assert.equal(shader.fragmentShader.includes(fn), !mobile, `${fn} is excluded from mobile custom towers`);
+  }
+  assert.equal(material.customProgramCacheKey().includes('mobile'), mobile);
+  material.dispose();
+}
+assert(sizes[1] < sizes[0]);
+console.log(`PASS custom tower lighting: ${sizes[0]} -> ${sizes[1]} shader characters; mobile factory routing and desktop preservation`);

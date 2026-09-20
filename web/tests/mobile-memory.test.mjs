@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { assets } from './sveltekit-assets.mjs';
 import { serveStatic } from '../src/lib/server/static.js';
-import { MOBILE_STREET_BUDGET } from '../static/world/assets/mobile-build-policy.js';
+import { MOBILE_STREET_BUDGET, selectDetailedLandmarks } from '../static/world/assets/mobile-build-policy.js';
 
 const { Z: Group, rt: InstancedMesh, g: BufferGeometry, Pt: Material } =
   await import(new URL('textureRelease-2U-gT89r.js', assets));
@@ -96,23 +96,47 @@ function fixture(level) {
     world: { hasTile: () => true }, physics: { unregisterDeck() {} } };
   const landmark = (id, x, radius = 80) => ({ id, center: [x, 0], radius, owners: new Set(),
     bins: [id], deckKeys: [], root: null, parts: null, job: null, failed: false, colliding: false,
-    *build() { yield; return {}; } });
+    builds:0,*build() { this.builds++;yield; return {}; } });
   const near = landmark('near', 0), far = landmark('far', 2000), bridge = landmark('bridge', 1000, 750);
   const landmarks = [near, far, bridge], bins = new Set(), seats = new Map(landmarks.map(l => [l.id, []]));
-  const sandbox = { e: ctx, T: false, ve: 6000, _: landmarks, E: {}, performance, i: {},
+  const sandbox = { e: ctx, T: false, ve: 6000, _: landmarks, E: {}, performance, i: {}, $selectDetailedLandmarks:selectDetailedLandmarks,
     n: { uNight: {}, uTime: {}, uWet: {} }, u: { update() {}, remove() {}, dispose() {} },
     d: { remove: key => removedColliders.push(key), dispose() {} }, Re: disposeObject,
     v: bins, C: seats, m: new Map(), h: new Map(), p: new Map(), ce: [], y: [], b: [],
     a: material, o: { dispose() {} }, c: null, s: null, t: group, k: x => Math.floor(x / 256),
     M: l => { l.colliding = true; },
     j: l => { l.root = new Group(); l.root.add(furniture()); group.add(l.root);
-      l.parts = {}; bins.add(l.id); seats.get(l.id).push({ x: l.center[0] }); },
+      l.parts = {}; bins.add(l.id); seats.get(l.id)?.push({ x: l.center[0] }); },
   };
   vm.createContext(sandbox);
   const mod = vm.runInContext('(function(){' + source.slice(removeStart, removeEnd)
     + source.slice(lifecycleStart, lifecycleEnd) + ')()', sandbox);
   const settle = () => { for (let i = 0; i < 12; i++) mod.update(1 / 30, i); mod.preRender(); };
-  return { ctx, mod, settle, near, far, bridge, bins, seats };
+  return { ctx, mod, settle, near, far, bridge, bins, seats, landmarks, landmark };
+}
+// Dense blocks must obey the construction cap, not allocate all custom towers
+// first and only hide them after uploading. Owning tiles cannot pin replacements.
+for(const [level,ios,limit] of [['mobile',true,2],['mobile',false,3],['high',false,5]]) {
+  const f=fixture(level);f.ctx.world.ios=ios;
+  const towers=[f.near,...[20,40,60,80].map((x,i)=>f.landmark(`tower-${i}`,x))];
+  f.landmarks.push(...towers.slice(1));
+  for(const tower of towers)tower.owners.add('0_0');
+  f.settle();f.settle();
+  assert.equal(towers.filter(t=>t.root).length,limit,'only admitted custom models get built');
+  assert.equal(towers.reduce((n,t)=>n+t.builds,0),limit,'unselected towers allocate no construction geometry');
+  assert.equal(towers.filter(t=>f.bins.has(t.id)).length,limit,'other buildings retain ordinary facades');
+  assert(f.bridge.root,'bridge decks retain their normal visibility/collision policy');
+  if(level==='mobile') {
+    const park=f.landmark('bryant-park',0);f.landmarks.push(park);f.settle();assert(park.root,'walkable parks are not counted as custom towers');
+    const interrupted=towers.find(t=>!t.root);interrupted.job={next(){throw Error('retired job resumed');}};
+    f.mod.update(1/30,30);assert.equal(interrupted.job,null,'unselected construction jobs release their scratch data');
+    f.ctx.camera.position.x=2000;
+    f.mod.update(1/30,31);assert.equal(f.far.builds,0,'retirement gets its own frame before allocating another tower');
+    f.settle();
+    assert(towers.every(t=>!t.root&&!f.bins.has(t.id)),'even owned distant towers retire and restore their fallbacks');
+    assert(f.far.root);
+  }
+  f.mod.dispose();assert.equal(instanceBuffers.size,0);assert.equal(geometries.size,0);
 }
 for (const level of ['mobile', 'high']) {
   const f = fixture(level); f.settle();

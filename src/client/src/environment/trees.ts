@@ -7,6 +7,8 @@ import { TILE_SIZE, tileKey } from '@shared/geo';
 import { hash2, pointInPolygon, rng } from './geom';
 import { ARCHS, type Arch, type BarkKind, type PbrSet, type TexSet } from './textures';
 import { chainCompile, type SharedUniforms } from './patch';
+import { treePitYaw } from '../streets/fixtures.js';
+import { treeBudget, treeLods, syncSceneryTrees, treeRecords } from './tree-lod.js';
 
 /**
  * Per-species silhouette, in units of tree height (y) and crown width (x/z):
@@ -432,32 +434,18 @@ class Batch {
   }
 }
 
-interface TreeRecord { tree: Tree; form: Form; matrix: THREE.Matrix4; tint: THREE.Color; street: boolean; guard: boolean; pitYaw: number; litter: ReturnType<typeof litterLeaves> }
+interface TreeRecord { tree: Tree; form: Form; matrix: THREE.Matrix4; tint: THREE.Color; street: boolean; guard: boolean; pitYaw: number; litter: ReturnType<typeof litterLeaves>; scenery: boolean }
 
-/** Tree pits run along the curb: the yaw of the nearest street segment within 12 m (0 when none: square-ish park edge). */
-function pitYawFor(tile: Tile, x: number, z: number): number {
-  let best = 12 * 12, yaw = 0;
-  for (const road of tile.roads) {
-    if (road.tunnel) continue;
-    const pts = road.pts;
-    for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dz = b[1] - a[1], l2 = dx * dx + dz * dz;
-      if (!l2) continue;
-      const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / l2));
-      const d = (a[0] + t * dx - x) ** 2 + (a[1] + t * dz - z) ** 2;
-      if (d < best) { best = d; yaw = Math.atan2(-dz, dx); }
-    }
-  }
-  return yaw;
-}
 const PIT_L = 2.4, PIT_W = 1.5;
 /** sidewalk paving height (streets/sidewalk.ts WALK_Y) plus a hair: a pit below the flags is invisible */
 const PIT_Y = 0.15 + 0.006;
 
 export function createTrees(ctx: GameContext, parent: THREE.Group, tex: TexSet, sh: SharedUniforms, setup: (m: THREE.Material) => void) {
   const tiles = new Map<string, TreeRecord[]>();
+  const sceneryTiles = new Map<string, TreeRecord[]>();
+  const budget = treeBudget(ctx.quality, ctx.world.ios);
   const allBatches: Batch[] = [];
-  const batches = new Map<Form, { wood: Batch; leaves: Batch; far: Batch; seeds: Batch | null }>();
+  const batches = new Map<Form, { wood: Batch; leaves: Batch; middle: Batch; farWood: Batch; far: Batch; seeds: Batch | null }>();
   const sun = { value: ctx.time.sunDir };
   const ownedTextures: THREE.Texture[] = [];
   const makeBatch = (g: THREE.BufferGeometry, m: THREE.Material, name: string, shadows = false) => {
@@ -512,10 +500,13 @@ export function createTrees(ctx: GameContext, parent: THREE.Group, tex: TexSet, 
   if (litterMap) ownedTextures.push(litterMap);
   for (const form of FORMS) {
     const proto = prototype(form), arch = archOf(form), bark = tex.bark[SPECS[form].bark];
+    const lod = treeLods(proto, SPECS[form], THREE, merge);
     batches.set(form, {
       wood: makeBatch(proto.wood, new THREE.MeshStandardMaterial({ map: bark.map, normalMap: bark.normal, roughnessMap: bark.rough ?? null, roughness: 0.95 }), `env-tree-${form}-wood`, true),
       leaves: makeBatch(proto.leaves, makeLeaves(tex.leaves[arch], false), `env-tree-${form}-leaves`, true),
-      far: makeBatch(proto.far, makeLeaves(tex.crowns[arch], true), `env-tree-${form}-far`),
+      middle: makeBatch(lod.middle, makeLeaves(tex.leaves[arch], false), `env-tree-${form}-middle`),
+      farWood: makeBatch(lod.wood, new THREE.MeshStandardMaterial({map:bark.map,roughness:.95}), `env-tree-${form}-far-wood`),
+      far: makeBatch(lod.far, makeLeaves(tex.crowns[arch], true), `env-tree-${form}-far`),
       seeds: proto.seeds ? makeBatch(proto.seeds, new THREE.MeshStandardMaterial({ map: seedMap ?? undefined, color: seedMap ? 0xffffff : 0x5a4a2c, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9 }), `env-tree-${form}-seeds`) : null,
     });
   }
@@ -543,7 +534,7 @@ export function createTrees(ctx: GameContext, parent: THREE.Group, tex: TexSet, 
   const lastCamera = new THREE.Vector3(Infinity, Infinity, Infinity);
   const near = (ctx.quality.level === 'low' || ctx.quality.level === 'mobile') ? 65 : ctx.quality.level === 'medium' ? 90 : 120;
   const detail = Math.min(near, 70); // seed balls and litter: the close band only
-  const far = Math.min(800, ctx.quality.drawDistance);
+  const far = budget.distance;
   /** species form: OSM park trees carry no species; Bryant Park's are the pleached plane allees, elsewhere half are planes */
   const formFor = (tree: Tree, park: boolean): Form => {
     const arch = archetype(tree.species);
@@ -553,11 +544,11 @@ export function createTrees(ctx: GameContext, parent: THREE.Group, tex: TexSet, 
     return hash2(tree.x, tree.z, 8) < 0.5 ? 'plane' : 'oak';
   };
   return {
-    addTile(tile: Tile) {
+    addTile(tile: Tile, scenery = false) {
       const records: TreeRecord[] = [];
       for (const tree of tile.trees) {
         if (![tree.x, tree.z, tree.dbh, tree.height].every(Number.isFinite)) continue;
-        const park = tile.parks.some(p => pointInPolygon(tree.x, tree.z, p));
+        const park = (tree as Tree & {park?:boolean}).park ?? tile.parks.some(p => pointInPolygon(tree.x, tree.z, p));
         const form = formFor(tree, park);
         // DBH is inches. Continuous crown growth avoids three repeated size classes;
         // seeded variation also covers OSM park trees whose DBH/height are both 10.
@@ -573,13 +564,14 @@ export function createTrees(ctx: GameContext, parent: THREE.Group, tex: TexSet, 
         const tint = new THREE.Color().setHSL(0.21 + hash2(tree.x, tree.z, 7) * 0.05, 0.25, (plane ? 0.62 : 0.68) + hash2(tree.x, tree.z, 1) * (plane ? 0.14 : 0.2));
         if (!plane && hash2(tree.x, tree.z, 2) < 0.08) tint.setRGB(1.12, 0.95, 0.65);
         records.push({ tree, form, matrix: obj.matrix.clone(), tint, street: !park, guard: hash2(tree.x, tree.z, 3) < 0.5,
-          pitYaw: park ? 0 : pitYawFor(tile, tree.x, tree.z), litter: litterLeaves(tree.x, tree.z, width * SPECS[form].width, form) });
+          pitYaw: scenery || park ? 0 : treePitYaw(tile, tree.x, tree.z), litter: scenery ? [] : litterLeaves(tree.x, tree.z, width * SPECS[form].width, form), scenery });
       }
-      tiles.set(tile.key, records);
+      (scenery ? sceneryTiles : tiles).set(tile.key, records);
       dirty = true;
     },
     removeTile(key: string) { tiles.delete(key); dirty = true; },
     update(t: number) {
+      if (syncSceneryTrees(ctx, this, sceneryTiles)) dirty = true;
       const camera = ctx.camera.position;
       // Wind can change without a distance/LOD rebuild. Keep all views and
       // shadow cascades conservative even on those frames.
@@ -589,11 +581,11 @@ export function createTrees(ctx: GameContext, parent: THREE.Group, tex: TexSet, 
       dirty = false; lastAt = t; lastCamera.copy(camera);
       for (const batch of allBatches) batch.count = 0;
       const drawnLeaves = new Set<string>();
-      for (const records of tiles.values()) for (const r of records) {
+      for (const r of treeRecords(tiles, sceneryTiles, camera, far, budget.count)) {
         const d2 = (r.tree.x - camera.x) ** 2 + (r.tree.z - camera.z) ** 2;
         if (d2 > far * far) continue;
         const b = batches.get(r.form)!;
-        if (d2 <= near * near) {
+        if (!r.scenery && d2 <= near * near) {
           b.wood.add(r.matrix, white);
           b.leaves.add(r.matrix, r.tint);
           if (d2 <= detail * detail) {
@@ -615,7 +607,8 @@ export function createTrees(ctx: GameContext, parent: THREE.Group, tex: TexSet, 
             if (r.guard) guards.add(obj.matrix, white);
           }
         } else {
-          b.far.add(r.matrix, r.tint);
+          b.farWood.add(r.matrix, white);
+          (d2 <= budget.middle * budget.middle ? b.middle : b.far).add(r.matrix, r.tint);
         }
       }
       for (const batch of allBatches) { batch.finish(); batch.windBounds(wind); }
@@ -632,6 +625,8 @@ export function createTrees(ctx: GameContext, parent: THREE.Group, tex: TexSet, 
         const mat = batches.get(form)!.leaves.mat as THREE.MeshStandardMaterial;
         mat.map = cards[archOf(form)];
         mat.needsUpdate = true;
+        const middle = batches.get(form)!.middle.mat as THREE.MeshStandardMaterial;
+        middle.map = cards[archOf(form)]; middle.needsUpdate = true;
       }
     },
     /** swap a bark set (loaded CC0 texture) for every species using that bark kind */
@@ -641,6 +636,8 @@ export function createTrees(ctx: GameContext, parent: THREE.Group, tex: TexSet, 
         const mat = batches.get(form)!.wood.mat as THREE.MeshStandardMaterial;
         mat.map = set.map; mat.normalMap = set.normal; mat.roughnessMap = set.rough;
         mat.needsUpdate = true;
+        const farWood = batches.get(form)!.farWood.mat as THREE.MeshStandardMaterial;
+        farWood.map = set.map; farWood.needsUpdate = true;
       }
     },
     inPit(x: number, z: number): boolean {
@@ -658,6 +655,6 @@ export function createTrees(ctx: GameContext, parent: THREE.Group, tex: TexSet, 
           }
       return false;
     },
-    dispose() { tiles.clear(); for (const batch of allBatches) batch.dispose(); for (const t of ownedTextures) t.dispose(); },
+    dispose() { tiles.clear(); sceneryTiles.clear(); for (const batch of allBatches) batch.dispose(); for (const t of ownedTextures) t.dispose(); },
   };
 }

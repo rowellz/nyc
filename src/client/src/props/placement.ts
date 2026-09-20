@@ -1,4 +1,4 @@
-import { streetLampPlacement } from '../streets/fixtures.js';
+import { streetLampPlacement, furnitureClearance, treePitYaw } from '../streets/fixtures.js';
 /** Tile-owned instance records; geometry and materials are shared by the city-wide renderers. */
 import type { GameContext } from '@/core/context';
 import type { Building, Prop, RoadSegment, Tile } from '@shared/world';
@@ -203,6 +203,7 @@ export function createTileStore(tile: Tile): PropTile {
 export function* placeTileSteps(ctx: GameContext, tile: Tile, store: PropTile, atlas: SignAtlas,
   network: SignalNetwork, poles: Map<number, SignalPole>, nextId: () => number,
   solid?: (kind: string, x: number, y: number, z: number, yaw: number) => void): Generator<void> {
+  const clearFurniture = furnitureClearance(ctx.world, tile);
   const seen = new Set<string>();
   for (const p of tile.props) {
     yield;
@@ -218,9 +219,10 @@ export function* placeTileSteps(ctx: GameContext, tile: Tile, store: PropTile, a
     const y = Number.isFinite(ground) ? ground : 0;
     const point = (x: number, z: number) => ({ x: originX + x * Math.cos(yaw) + z * Math.sin(yaw), z: originZ - x * Math.sin(yaw) + z * Math.cos(yaw) });
     const add = (kind: string, x = 0, h = 0, z = 0, rotation = yaw, data: Rect = [0, 0, 0, 0], scale = 1) => {
+      const pos = point(x, z);
+      if (!clearFurniture(kind, pos.x, pos.z, rotation, scale)) return;
       let list = store.kinds.get(kind);
       if (!list) store.kinds.set(kind, list = new InstanceList());
-      const pos = point(x, z);
       list.push(pos.x, y + h, pos.z, rotation, scale, ...data);
       solid?.(kind, pos.x, y + h, pos.z, rotation);
     };
@@ -430,30 +432,13 @@ function* placeTreeGuards(ctx: GameContext, tile: Tile, store: PropTile,
     if (hash2(tree.x, tree.z, 3) < 0.5) continue;             // environment/trees.ts already guards this one
     if (parks.some(park => pointInPolygon(tree.x, tree.z, park))) continue; // park trees have no pit
     if ((n++ & 31) === 0) yield;
-    const yaw = pitYawFor(tile, tree.x, tree.z);
+    const yaw = treePitYaw(tile, tree.x, tree.z);
     const ground = ctx.physics.groundHeight(tree.x, tree.z);
     const y = Math.max(WALK_Y, Number.isFinite(ground) ? ground : WALK_Y) + 0.004;
     if (!list) store.kinds.set('treeGuard', list = new InstanceList());
     list.push(tree.x, y, tree.z, yaw, 1, 0, 0, 0, 0);
     solid?.('treeGuard', tree.x, y, tree.z, yaw);
   }
-}
-
-/** environment/trees.ts pitYawFor: the pit (and so its guard) lines up with the nearest street. */
-function pitYawFor(tile: Tile, x: number, z: number): number {
-  let best = 12 * 12, yaw = 0;
-  for (const road of tile.roads) {
-    if (road.tunnel) continue;
-    const pts = road.pts;
-    for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1], b = pts[i], dx = b[0] - a[0], dz = b[1] - a[1], l2 = dx * dx + dz * dz;
-      if (!l2) continue;
-      const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / l2));
-      const d = (a[0] + t * dx - x) ** 2 + (a[1] + t * dz - z) ** 2;
-      if (d < best) { best = d; yaw = Math.atan2(-dz, dx); }
-    }
-  }
-  return yaw;
 }
 
 /** Synchronous reference entry point for tests/tools; streaming uses placeTileSteps. */

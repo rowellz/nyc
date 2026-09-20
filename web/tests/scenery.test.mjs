@@ -25,6 +25,9 @@ const empty=(tx=0,tz=0)=>({key:`${tx}_${tz}`,tx,tz,buildings:[],roads:[],water:[
 const square=(x,z,w)=>[[x,z],[x+w,z],[x+w,z+w],[x,z+w]];
 const tile=empty();tile.water=[[square(80,80,96),square(112,112,32)]];
 tile.buildings=[{id:1,height:50,footprint:[square(10,10,30)]},{id:2,height:8,footprint:[square(190,10,20)]}];
+tile.parks=[[square(0,0,32)]];
+tile.trees=[{x:10,z:10,dbh:20,height:16,species:'London plane'},{x:40,z:10,dbh:8,height:9,species:'ginkgo'},
+  {x:NaN,z:10,dbh:8,height:9,species:'ginkgo'}];
 tile.roads=[{id:1,cls:'primary',width:10,pts:[[0,50],[256,50]]},{id:2,cls:'residential',width:6,pts:[[0,60],[256,60]]},
   {id:3,cls:'primary',tunnel:true,width:10,pts:[[0,70],[256,70]]}];
 {
@@ -44,6 +47,8 @@ tile.roads=[{id:1,cls:'primary',width:10,pts:[[0,50],[256,50]]},{id:2,cls:'resid
       for(let i=0;i<layer.position.length;i+=3)assert(Math.hypot(...layer.position.slice(i,i+3).map((v,j)=>v-layer.bounds.center[j]))<=layer.bounds.radius+1e-4);
     }
     assert.equal(decoded.key,c.key);assert.equal(decoded.tier,c.tier);
+    assert.deepEqual(decoded.treeTiles,c.treeTiles,'tree records survive worker binary transport');
+    assert.deepEqual(decoded.treeTiles[0].trees.map(t=>t.park),[true,false],'park forms and valid street trees reach distant chunks');
     c.layers.forEach((layer,i)=>{
       assert.deepEqual([...decoded.layers[i].index],layer.index);
       assert.deepEqual(decoded.layers[i].features,layer.features);
@@ -82,6 +87,37 @@ tile.roads=[{id:1,cls:'primary',width:10,pts:[[0,50],[256,50]]},{id:2,cls:'resid
     assert.equal((await service('world/world/lod/99_99.mid.bin')).status,404);
     assert.equal(await service('world/world/lod/../../secret'),null);
   }finally{await rm(directory,{recursive:true,force:true});}
+}
+// Both proxy tiers must inherit the actual detailed baker's palette, including
+// per-building variation, reclassified row houses and independently colored roofs.
+{
+  const styles=await import(new URL('styles-CD9VAM0e.js',assets));
+  const roofs=await import(new URL('builder-Ct8y1lc-.js',assets));
+  const sample=empty();
+  sample.buildings=['brick','brownstone','limestone','castiron','prewar-office','glass','concrete','modern-brick','industrial','civic','shed']
+    .flatMap((style,i)=>Array.from({length:4},(_,j)=>({id:1000+i*4+j,style,height:24,floors:6,bldgClass:'C0',footprint:[square(i*20,j*30,12)]})));
+  for(const tier of ['mid','far']) {
+    const layer=compileScenery('0_0',[sample],tier,tools).layers.find(l=>l.kind==='buildings');
+    for(const feature of layer.features) {
+      const building=sample.buildings.find(b=>b.id===feature.id),seed=styles.p(building.id);
+      const wall=styles.i(building,seed).tint,roof=roofs.i(seed,roofs.r(seed));
+      for(const vertex of layer.index.slice(feature.start,feature.start+feature.count)) {
+        const expected=layer.normal[vertex*3+1]===127?roof:wall;
+        for(let c=0;c<3;c++) assert(Math.abs(layer.color[vertex*3+c]/255-expected[c])<=.5/255+1e-7,`${tier} ${building.style} color channel ${c}`);
+      }
+    }
+  }
+}
+// Classifying parks must preserve land area, park holes and coastal water cuts.
+{
+  const sample=empty();sample.parks=[[square(0,0,128),square(16,16,16)]];
+  sample.water=[[square(64,0,128)]];
+  const faces=landFaces(sample,tools.inside,true);
+  const area=ring=>Math.abs(ring.reduce((s,p,i)=>s+p[0]*ring[(i+1)%ring.length][1]-ring[(i+1)%ring.length][0]*p[1],0))/2;
+  assert.equal(faces.reduce((sum,f)=>sum+area(f),0),256*256-128*128);
+  assert.equal(faces.filter(f=>f.grass).reduce((sum,f)=>sum+area(f),0),64*128-16*16);
+  const ground=compileScenery('0_0',[sample],'mid',tools).layers.find(l=>l.kind==='ground');
+  assert(ground.color.some((c,i)=>i%3===1&&c===255),'parks reach the shader as grass');
 }
 function fixture({bytes=1000,requests=2,triangles=Infinity}={}) {
   let time=0,changes=0;
@@ -129,7 +165,17 @@ function fixture({bytes=1000,requests=2,triangles=Infinity}={}) {
   f.stream.dispose();
 }
 {
-  const {nearSceneryCoverage}=await import(new URL('scenery.js',assets));
+  const {nearSceneryCoverage,createScenery}=await import(new URL('scenery.js',assets));
+  const {Z:Group}=await import(new URL('textureRelease-2U-gT89r.js',assets));
+  for(const [level,ios,expected] of [['mobile',false,[625,2500]],['mobile',true,[375,1500]],['high',false,[180,700]]]) {
+    const fog={isFog:true,near:180,far:700};
+    const context={quality:{level,farDistance:2500},world:{ios},worldGroup:new Group(),scene:{fog}};
+    const scenery=createScenery(context);
+    assert.deepEqual([fog.near,fog.far],expected,'near and far mobile objects use one atmosphere');
+    scenery.dispose();
+    assert.deepEqual([fog.near,fog.far],[180,700],'disposing scenery restores the original fog');
+    assert.equal(context.worldGroup.children.length,0);
+  }
   const coverage=nearSceneryCoverage({children:[{name:'buildings',visible:true,children:[{name:'bld-0_0',visible:true}]},
     {name:'streets',visible:true,children:[{name:'streets:1_0',visible:false}]},
     {name:'environment',visible:true,children:[{name:'env-ground-0_0',visible:true}]}]});

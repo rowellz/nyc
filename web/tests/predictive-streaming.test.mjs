@@ -106,7 +106,7 @@ function fixture({ ios = true, mobile = true, predictive = true, latency = 0.6, 
       + events.filter(e => e[0] === 'tileLoaded').length - before <= 1,
     'tile publication and retirement share one lifecycle change per frame on every device');
     if (mobile || ios) assert(world.inFlight.size <= (predictive && !ios ? 2 : 1), 'bounded in-flight memory');
-    if (ios && predictive) assert(world.tiles.size <= 16, 'nearby, ahead and retained tiles share the 16-tile iOS limit');
+    if (ios && predictive) assert(world.tiles.size <= 12, 'nearby, ahead and retained tiles share the 12-tile iOS limit');
   }
   return { world, camera, events, requests, pending, changes, frame, point, get time() { return time; } };
 }
@@ -208,7 +208,7 @@ for (const [dx, dz] of [[1, 0], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]]) {
     }
     assertCoverage(f);
   }
-  assert(peak > 9 && peak <= 16, 'mobile residency stays bounded during travel');
+  assert(peak > 9 && peak <= 12, 'mobile residency stays bounded during travel');
 }
 
 // Dense scene jobs keep the real main-loop gate closed. A decoded occupied
@@ -428,7 +428,7 @@ for (const options of [{ ios: true, mobile: true }, { ios: false, mobile: false 
     assert(f.world.ready);
   }
   assert(f.world.stats.fetched > peak * 5, 'many generations of tiles load in one session');
-  assert(peak <= (options.ios ? 16 : 260), 'retired tiles do not accumulate across city trips');
+  assert(peak <= (options.ios ? 12 : 260), 'retired tiles do not accumulate across city trips');
   assert(f.events.some(e => e[0] === 'tileUnloaded'));
   console.log(`PASS repeated ${options.ios ? 'mobile' : 'desktop camera'} travel: ${f.world.stats.fetched} tile loads, peak ${peak} resident`);
 }

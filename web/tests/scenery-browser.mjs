@@ -21,8 +21,11 @@ const level=process.env.SCENERY_QUALITY??'mobile';
 const ios=process.env.SCENERY_IOS==='1';
 const html=`<body style="margin:0"><script type="module">
 import {WebGLRenderer} from '/world/assets/main-D_3aygO4.js';
-import {Zn as Scene,Ut as PerspectiveCamera,Z as Group,$ as HemisphereLight,z as DirectionalLight,w as Color} from '/world/assets/textureRelease-2U-gT89r.js';
+import {Zn as Scene,Ut as PerspectiveCamera,Z as Group,$ as HemisphereLight,z as DirectionalLight,w as Color,g as BufferGeometry,h as BufferAttribute,kt as Mesh} from '/world/assets/textureRelease-2U-gT89r.js';
 import {createScenery} from '/world/assets/scenery.js';
+import {createTreesTest,leafRecipe,crownRecipe,finishRecipe} from '/world/assets/environment-WQwLg8tn.js';
+import {createFacadeTest,createFacadeUniformsTest} from '/world/assets/buildings-BDmduZ8y.js';
+import {createLandmarkFacadeTest,createLandmarkUniformsTest} from '/world/assets/landmarks-KpQKy0CX.js';
 window.errors=[];const report=console.error;console.error=(...args)=>{window.errors.push(args.map(String).join(' '));report(...args)};
 const renderer=new WebGLRenderer({antialias:true,preserveDrawingBuffer:true});renderer.setSize(960,640);document.body.appendChild(renderer.domElement);
 const scene=new Scene();scene.background=new Color(0x9ab2c5);scene.add(new HemisphereLight(0xffffff,0x666666,2));const light=new DirectionalLight(0xffffff,2);light.position.set(100,300,100);scene.add(light);
@@ -32,6 +35,46 @@ const ctx={quality:{level:${JSON.stringify(level)},farDistance:${ios?1500:2500}}
 window.__ready=true;const lod=createScenery(ctx,built);
 function frame(){lod.update();renderer.render(scene,camera);requestAnimationFrame(frame)}frame();
 window.inspect=()=>({stats:lod.stats,triangles:renderer.info.render.triangles,calls:renderer.info.render.calls,errors:window.errors,basic:lod.group.children.every(c=>c.children.every(m=>m.material.isMeshBasicMaterial))});
+// Isolate window emission on a known facade: most wall pixels must retain their
+// color, roofs must not emit, and unresolved windows must fade away.
+window.wallColors=()=>{
+  const lights=scene.children.filter(c=>c.isLight),intensities=lights.map(l=>l.intensity);
+  lights.forEach(l=>l.intensity*=.04);
+  const fixture=new Scene();fixture.background=new Color(0);
+  fixture.add(new HemisphereLight(0xffffff,0x666666,.08));
+  const geometry=new BufferGeometry();
+  geometry.setAttribute('position',new BufferAttribute(new Float32Array([464,0,0,560,0,0,560,64,0,464,64,0]),3));
+  geometry.setAttribute('normal',new BufferAttribute(new Float32Array([0,0,1,0,0,1,0,0,1,0,0,1]),3));
+  geometry.setAttribute('color',new BufferAttribute(new Float32Array(Array.from({length:4},()=>[.55,.25,.18]).flat()),3));
+  geometry.setAttribute('aOwner',new BufferAttribute(new Float32Array(4),1));
+  geometry.setIndex([0,1,2,0,2,3]);
+  const material=lod.group.children.flatMap(c=>c.children).find(m=>m.userData.kind==='buildings').material;
+  const mesh=new Mesh(geometry,material);fixture.add(mesh);
+  const view=new PerspectiveCamera(65,1.5,.1,10000);view.position.set(512,32,120);view.lookAt(512,32,0);
+  const snapshot=daylight=>{
+    ctx.time.daylight=daylight;lod.update();material.userData.lodCoverage.value=new Float32Array(16);
+    renderer.render(fixture,view);
+    const gl=renderer.getContext(),pixels=new Uint8Array(960*640*4);
+    gl.readPixels(0,0,960,640,gl.RGBA,gl.UNSIGNED_BYTE,pixels);return pixels;
+  };
+  const difference=(a,b)=>{
+    let wall=0,changed=0;
+    for(let i=0;i<a.length;i+=4){
+      if(a[i]+a[i+1]+a[i+2]>0)wall++;
+      if(Math.max(...[0,1,2].map(c=>Math.abs(a[i+c]-b[i+c])))>1)changed++;
+    }
+    return {wall,changed};
+  };
+  const windows=difference(snapshot(1),snapshot(0));
+  geometry.attributes.normal.array.set([0,1,0,0,1,0,0,1,0,0,1,0]);geometry.attributes.normal.needsUpdate=true;
+  const roof=difference(snapshot(1),snapshot(0));
+  geometry.attributes.normal.array.set([0,0,1,0,0,1,0,0,1,0,0,1]);geometry.attributes.normal.needsUpdate=true;
+  view.position.z=2200;
+  const distant=difference(snapshot(1),snapshot(0));
+  geometry.dispose();
+  ctx.time.daylight=1;lights.forEach((l,i)=>l.intensity=intensities[i]);lod.update();renderer.render(scene,camera);
+  return {windows,roof,distant};
+};
 window.handoff=()=>{const root=new Group();root.name='buildings';const mesh=new Group();mesh.name='bld-0_0';root.add(mesh);worldGroup.add(root);lod.update();
 const proxies=lod.group.children.flatMap(c=>c.children).filter(m=>m.userData.kind==='buildings'&&m.userData.tiles.includes('0_0'));
 if(!proxies.length)throw Error('missing proxy');if(!proxies.every(m=>m.userData.coverage[m.userData.tiles.indexOf('0_0')]===1))throw Error('near mesh did not cover proxy');
@@ -52,6 +95,8 @@ for(let i=0;i<5;i++){
 return samples;
 };
 window.finish=()=>{lod.dispose();renderer.render(scene,camera);return{children:worldGroup.children.length,geometries:renderer.info.memory.geometries};};
+${readFileSync(new URL('./tree-browser-fixture.js',import.meta.url),'utf8')}
+${readFileSync(new URL('./facade-browser-fixture.js',import.meta.url),'utf8')}
 </script>`;
 const server=createServer((req,res)=>{
   try{
@@ -62,6 +107,9 @@ const server=createServer((req,res)=>{
     if(!path.startsWith('/world/assets/')){res.writeHead(404);res.end();return;}
     const name=path.slice('/world/assets/'.length);let source=readFileSync(new URL(name,assets),'utf8');
     if(name==='main-D_3aygO4.js')source+='\nexport {ea as WebGLRenderer};';
+    if(name==='buildings-BDmduZ8y.js')source+='\nexport {ue as createFacadeTest,le as createFacadeUniformsTest};';
+    if(name==='landmarks-KpQKy0CX.js')source+='\nexport {et as createLandmarkFacadeTest,Ye as createLandmarkUniformsTest};';
+    if(name==='environment-WQwLg8tn.js')source+='\nexport {qt as createTreesTest,ct as leafRecipe,lt as crownRecipe,mt as finishRecipe};';
     if(name==='index-DQv-X5z6.js')source=source.replace('z().catch(e=>','Promise.resolve().catch(e=>');
     res.setHeader('content-type','text/javascript');res.end(source);
   }catch(error){res.writeHead(404);res.end(String(error));}
@@ -95,6 +143,36 @@ try{
   assert.equal(result.basic,level==='mobile','only mobile uses the cheaper vertex-lit shader');
   if(level==='mobile')assert(result.stats.triangles<=160000,'mobile resident triangles stay bounded');
   assert(result.triangles>1000);assert(result.calls<=27,'merged chunks use at most three draw calls each');
+  const colors=await evaluate('window.wallColors()');
+  assert(colors.windows.wall>1000&&colors.windows.changed>100,JSON.stringify(colors));
+  assert(colors.windows.changed/colors.windows.wall<.2,'lit windows leave most wall pixels unchanged');
+  assert(colors.roof.wall>1000&&colors.roof.changed===0,'roofs never receive window lights');
+  assert(colors.distant.wall>0&&colors.distant.changed===0,'subpixel windows fade without a whole-wall glow');
+  const trees=await evaluate('window.testTrees()');
+  assert(Math.abs(trees.pitDirection[0]-trees.pitDirection[1])<1e-6,'rendered pit follows the diagonal sidewalk');
+  if(trees.guardDirection)assert.deepEqual(trees.guardDirection,trees.pitDirection,'guard and pit share the same orientation');
+  for(const [band,name] of [['near','leaves'],['middle','middle'],['far','far'],['extended','far'],['fallback','far']]) {
+    assert.equal(trees[band].batches['env-tree-plane-'+name],1,JSON.stringify(trees[band]));
+  }
+  assert(trees.middle.triangles<trees.near.triangles/2,'middle trees use a bounded subset of real leaf clusters');
+  assert(trees.far.triangles<trees.middle.triangles/4,'far trees stay cheap');
+  assert.equal(trees.far.batches['env-tree-plane-far-wood'],1,'far crowns retain their trunks');
+  assert.deepEqual(trees.unloaded.batches,{});assert.equal(trees.remaining,0,'tree batches retire cleanly');
+  const treeCount=Object.entries(trees.streamed.batches).filter(([name])=>/-(leaves|middle|far)$/.test(name)).reduce((sum,[,n])=>sum+n,0);
+  assert(treeCount>10&&treeCount<=(ios?2000:level==='mobile'?4000:10000),'real scenery populates bounded tree instances');
+  for(const [band,shot] of Object.entries(trees.shots))writeFileSync(`${tmpdir()}/nyc-trees-${level}-${band}.png`,Buffer.from(shot.split(',')[1],'base64'));
+  assert.deepEqual(await evaluate('window.errors'),[],'all tree LOD shaders compile');
+  const facade=await evaluate('window.testFacadeLights()');
+  for(const type of ['homes','offices','landmark']){
+    assert.equal(facade[type].day,0,'window lights turn off during daylight');
+    assert(facade[type].night>1000&&facade[type].night<120000,JSON.stringify(facade));
+    assert(facade[type].warm>100&&facade[type].cool>100,JSON.stringify(facade));
+    assert(facade[type].stable,'mobile window lights do not animate or flicker');
+  }
+  for(const face of ['party','roof','unresolved'])assert.equal(facade[face],0,`${face} never receives window glow`);
+  assert.equal(facade.landmarkUnresolved,0,'custom towers lose subpixel window glow');
+  assert.deepEqual(await evaluate('window.errors'),[],'mobile facade shader compiles');
+  console.log('PASS WebGL mobile window lights: sparse warm/cool windows, daylight, stable occupancy, blank walls, roofs and subpixel fade');
   assert(await evaluate('window.handoff()'));
   const shot=await call('Page.captureScreenshot',{format:'png'});
   const screenshot=process.env.SCENERY_SCREENSHOT??`${tmpdir()}/nyc-scenery.png`;

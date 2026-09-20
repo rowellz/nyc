@@ -185,8 +185,9 @@ a **256 m radius**, Android uses **512 m**, and desktop presets use **768 m**.
 The immediate 3×3 tiles are always included.
 Distance is measured to tile edges, so tiles intersecting the radius are included.
 Prebuilt visual scenery extends beyond those detailed, simulated tiles.
-The mobile atmosphere keeps its 180–700 m near-scene fog; distant scenery has
-its own fade to the horizon color over its larger range.
+Mobile scenery and nearby meshes share one fog range: 375–1,500 m on iOS
+and 625–2,500 m on the other mobile presets, keeping the detail boundary from
+becoming a sudden change in haze.
 Mobile keeps the simplified roads and existing device-specific effects budgets.
 Detailed landmarks also use the local tile range, measured from their approximate edge
 so nearby bridge spans remain visible. Distant landmarks release after an extra
@@ -194,8 +195,16 @@ tile of hysteresis once their owning tiles unload. Distant building landmarks
 use the prebuilt scenery instead. Landmark cleanup releases instanced furniture buffers as well
 as geometry; shared materials live until the landmark module is disposed.
 
-iOS allows up to **16 resident tiles** to accommodate the local 3×3, one
-additional route tile and three recently used tiles. `IOS_STREAMING` in
+On iOS, at most two custom architectural landmarks are constructed near the
+camera (128 m from their approximate edge); other mobile presets allow three
+within 192 m. Existing models get a small distance preference to avoid churn.
+Unselected models and unfinished construction jobs retire before another model
+starts allocating. Their ordinary building facades/colliders remain the fallback;
+parks, bridges and structures without a building replacement retain their normal
+rules. This bounds simultaneous custom models, not their total memory in bytes.
+
+iOS allows up to **12 resident tiles** to accommodate the local 3×3, one
+additional route tile, one recently used tile and retirement overlap. `IOS_STREAMING` in
 `predictive-streaming.js` holds its resident and request limits. The immediate
 surrounding nine tiles take priority over farther work; startup waits for only
 those nine before expanding.
@@ -238,6 +247,20 @@ scene-construction latency.
 Run `cd web && npm run test:memory` for repeated landmark travel and resource
 disposal checks against the served client.
 
+### Street furniture placement
+
+Signs, litter baskets and other sidewalk furniture are checked against surface
+road widths, intersection roadbed polygons and parking areas. Generated stop signs,
+baskets, meters and bike-dock pieces are checked at their final position and
+orientation, including their ground footprint. Unsafe pieces are omitted before
+creating meshes or colliders; clear existing positions are retained. Ground
+furniture can remain beneath elevated roads, and flush manholes/grates keep their
+road positions. Local road arrivals recheck neighboring furniture; iOS sends the
+same roadbed and road-context data to its placement worker and fallback.
+Run `node web/tests/road-fixtures.test.mjs` for the West 177th Street replay,
+source/bundle agreement, traffic islands, grade separation and worker invalidation.
+`node tools/patch-fixtures.mjs` republishes the shared planner and placement hooks.
+
 ### Distant scenery
 
 `scenery-compiler.js` prepares two render-only meshes per 1,024 m chunk from the
@@ -270,7 +293,13 @@ The client fetches compressed binary geometry, with normals and colors already
 prepared, instead of fetching every world tile into the old skyline worker.
 A dedicated worker fetches, decompresses, validates and measures the geometry,
 then transfers the buffers to the animation thread without copying them.
-Each chunk uses at most three draw calls and no colliders, shadows or textures.
+Each chunk uses at most three draw calls with no colliders or shadows.
+Building walls and roofs use the detailed baker's per-building palettes; filtered
+window marks retain facade contrast. Mobile vertex lighting follows the scene's
+sun and hemisphere colors and intensities. Ground preserves park outlines and
+water holes, sharing the nearby asphalt, concrete and grass albedo textures,
+world-space variation, season and wetness without extra texture uploads.
+Scan bands with matching surfaces and straight sides are merged to limit geometry.
 Publication/retirement is paced to one chunk per frame; under detailed-scene
 pressure, publication is limited to twice per second so driving cannot starve
 scenery indefinitely. Abandoned requests are cancelled, failures retry, and replaced
@@ -315,11 +344,28 @@ resize the drawing buffer once and retain the selected ratio after rotation.
 
 Mobile buildings use the existing filtered facade layout at every distance,
 with the room/shop interior and parallax code removed and a flat roof material.
-Window layout, shopfront bands, signs and night lights remain. The filtered
-facades use vertex colors, so mobile skips unused facade photo fetches/uploads
+Window layout, shopfront bands, signs and night lights remain. Mobile
+window lights use one occupancy hash for homes and two for offices,
+reusing those samples for warm/cool color instead of the desktop's multi-level
+occupancy, color and interior shading. Solid wall pixels and daytime skip the
+light calculation; unresolved lights fade away instead of tinting entire walls.
+This reduces shader work without adding textures, geometry or scene lights.
+Custom landmarks use a separate facade material; its mobile window lighting
+now follows the same cheap occupancy path, including the day/coverage checks
+and subpixel fade. Ordinary-building shader changes alone do not affect those towers.
+The browser regression renders dense home/office facades to check night/day,
+stable light colors, blank party walls, roofs and the subpixel fade.
+The filtered facades use vertex colors, so mobile skips unused facade photo fetches/uploads
 and the subsequent photo-material compilation. This trades close-up surface
 detail and some sharpness for less GPU work.
 The served import revision changes so Safari fetches the updated code.
+The existing five-second iOS `renderer_memory` telemetry now also reports the
+client revision, quality, tile count, game position, draw calls, triangles and
+resident scene attribute bytes by module, deduplicating shared buffers.
+`webgl_context_lost` reports the same snapshot before stopping the render loop.
+These are diagnostic counters, not Safari process-memory measurements; an OS
+termination may still happen without a context-loss event. With `VERBOSE=1`,
+the local server logs these alongside startup stages.
 
 Mobile trees are static: their near-leaf and distant-crown vertex shaders omit
 wind lean, sway and flutter, and skip per-frame wind-bound updates. Desktop
@@ -328,6 +374,17 @@ leaf lighting and tile arrival/removal still update normally. This removes four
 wind sine evaluations per leaf vertex, but keeps the same geometry and textures;
 it does not materially reduce resident tree memory. `npm run test:fps` checks
 both shader variants and the tree instance lifecycle.
+
+Trees also stream with the lightweight scenery chunks, reaching 1,200 m on
+mobile, 800 m on iOS, and 2,000 m on desktop (within the preset's scenery range).
+The closest 4,000 / 2,000 / 10,000 trees respectively can be instanced. A middle
+LOD keeps up to 40 clusters from the detailed leaf geometry through 220 / 150 /
+320 m; the farther crowns retain cheap trunks and horizontal canopy cards for
+overhead views. Species, size, tint and leaf textures stay shared across LODs.
+Detailed tiles replace matching scenery trees without duplicates, and retiring
+a scenery chunk releases its tree records. `npm run test:scenery-browser` checks
+these LODs in WebGL. Run `node tools/patch-trees.mjs` after editing the shared
+tree LOD helper or updating the mirrored tree renderer.
 
 Run `cd web && npm run test:fps` for frame-rate replays, slow/fast recovery,
 iOS free camera/low mode, orientation, buffer allocations, the simplified
@@ -472,6 +529,15 @@ reallocating meshes when a kind gains or loses a single prop. Run
 per-frame work, cancellation and instance reuse checks.
 Run `cd web && npm run test:textures` for texture dimensions, a dense-building
 queue replay, cancellation, upload limits and static-serving checks.
+
+Mobile procedural atlases also use smaller source canvases: Times Square screens
+512×512 (previously 1024×1024), prop signs/ads 512×512 (previously 1024×1024),
+and each vehicle kind's color and emissive maps 256×256 (previously 1024×1024).
+The full prop worker paints scaffolding plywood at 512×128 and metal grime at
+128×128. Atlas layouts stay in their original drawing coordinates, scaled into
+the smaller canvases, preserving UV placement without a full-size temporary.
+Desktop texture sizes are unchanged; the lightweight iPhone prop renderer
+already uses untextured materials for its simplified furniture.
 
 For remaining iPhone stalls, record an actual device through
 [Safari remote Web Inspector](https://webkit.org/web-inspector/enabling-web-inspector/)

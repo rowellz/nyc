@@ -104,8 +104,8 @@ export function createMobileProps(ctx, deps) {
     if (!worker || !missing.length) { request.job.run(commit(request)); return; }
     const message = { id: request.id, props: missing };
     if (workerRevision !== revision) {
-      message.tiles = [...ctx.world.tiles.values()].map(({ key, tx, tz, roads, buildings, water }) =>
-        ({ key, tx, tz, roads, buildings: buildings.map(b => ({ footprint: b.footprint })), water }));
+      message.tiles = [...ctx.world.tiles.values()].map(({ key, tx, tz, roads, buildings, water, roadbeds, parking, streetContext }) =>
+        ({ key, tx, tz, roads, roadbeds, parking, streetContext: streetContext && { roads: streetContext.roads }, buildings: buildings.map(b => ({ footprint: b.footprint })), water }));
       workerRevision = revision;
     }
     try { worker.postMessage(message); } catch { fail(); }

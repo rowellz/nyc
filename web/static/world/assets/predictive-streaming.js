@@ -2,9 +2,9 @@
 // Replace its scheduling policy without changing those lifetime contracts.
 import { installTileRequests } from './tile-requests.js';
 const TILE = 256;
-// iOS keeps the local 3x3, one route tile and up to three retained tiles.
+// iOS keeps the local 3x3, one route tile and one recently used tile.
 // Leave a little retirement overlap while keeping geometry/physics bounded.
-const IOS_STREAMING = Object.freeze({ maxTiles: 16, requests: 1 });
+const IOS_STREAMING = Object.freeze({ maxTiles: 12, requests: 1 });
 const FAST_TRAVEL_SPEED = 24;
 const keyOf = (tx, tz) => `${tx}_${tz}`;
 const distance = (tx, tz, x, z) => Math.hypot(
@@ -179,14 +179,14 @@ export function configureStreaming(world, camera) {
       candidates.sort((a, b) => a.dist - b.dist);
       for (const p of candidates.slice(0, this.ios ? 1 : mobile ? 3 : 10)) wanted.set(p.key, p);
     }
-    // Keep up to three recently used tiles within the resident budget.
+    // Keep one recently used tile on iOS, up to three on other phones.
     // A brief turn or boundary crossing should reuse its scene and colliders.
     for (const key of wanted.keys()) lastWanted.set(key, now);
     const retained = mobile ? new Set([...this.tiles.values()]
       .filter(tile => !wanted.has(tile.key) && now - (lastWanted.get(tile.key) ?? -Infinity) < 6
         && distance(tile.tx, tile.tz, fx, fz) <= Math.max(this.drawDistance + TILE, Math.hypot(aheadX, aheadZ)))
       .sort((a, b) => distance(a.tx, a.tz, fx, fz) - distance(b.tx, b.tz, fx, fz))
-      .slice(0, 3).map(tile => tile.key)) : new Set();
+      .slice(0, this.ios ? 1 : 3).map(tile => tile.key)) : new Set();
     retiring = [];
     for (const [key, tile] of this.tiles) {
       if (wanted.has(key) || retained.has(key)) continue;

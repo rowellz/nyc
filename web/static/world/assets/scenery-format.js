@@ -34,6 +34,10 @@ export function decodeScenery(buffer) {
   if (size > 1048576 || size + 4 > buffer.byteLength) throw Error('Invalid scenery header');
   const chunk = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 4, size)));
   if (chunk.version !== SCENERY_VERSION || chunk.tiles.length > 16) throw Error('Unsupported scenery');
+  if (chunk.treeTiles && (!Array.isArray(chunk.treeTiles) || chunk.treeTiles.length > 16
+    || chunk.treeTiles.some(tile => !chunk.tiles.includes(tile.key) || !Array.isArray(tile.trees)
+      || tile.trees.some(tree => ![tree.x,tree.z,tree.height,tree.dbh].every(Number.isFinite)
+        || typeof tree.species !== 'string' || typeof tree.park !== 'boolean')))) throw Error('Invalid scenery trees');
   const start = (4 + size + 3) & ~3;
   chunk.layers = chunk.layers.map(layer => {
     if (!['buildings', 'roads', 'ground'].includes(layer.kind)) throw Error('Invalid scenery layer');

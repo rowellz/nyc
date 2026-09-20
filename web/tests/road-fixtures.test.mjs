@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import vm from 'node:vm';
-import { lampPlanner, roadFootprints, streetLampPlacement } from '../../public/world/assets/fixtures.js';
+import { lampPlanner, roadFootprints, streetLampPlacement, furnitureClearance, furniturePlanner, fixtureTiles } from '../../public/world/assets/fixtures.js';
 const road = (id, pts, extra = {}) => ({ id, pts, cls: 'motorway', width: 16, bridge: true, layer: 1, oneway: true, ...extra });
 const main = road(1, [[-120, 0], [120, 0]]);
 const cross = road(2, [[0, -120], [0, 120]], { layer: 3 });
@@ -36,7 +36,7 @@ const served = readFileSync(new URL('../../public/world/assets/props-coU--UuE.js
 const start = served.indexOf('function*jn('), end = served.indexOf('function ', start);
 for (const [name, code, fn] of [['source', source, 'placeTileSteps'], ['served', served.slice(start, end), 'jn']]) {
   class InstanceList { records = []; push(...args) { this.records.push(args); } }
-  const sandbox = { streetLampPlacement, $streetLampPlacement: streetLampPlacement, InstanceList, It: InstanceList,
+  const sandbox = { furnitureClearance, $furnitureClearance: furnitureClearance, streetLampPlacement, $streetLampPlacement: streetLampPlacement, InstanceList, It: InstanceList,
     hash01: () => 0.1, L: () => 0.1, LAMP_HEAD_LOCAL: { x: 0, y: 10, z: -2.4 }, B: { x: 0, y: 10, z: -2.4 } };
   vm.createContext(sandbox); vm.runInContext(code + `\nglobalThis.place = ${fn}`, sandbox);
   const store = { kinds: new Map(), lights: [], steam: [] }, colliders = [], queries = [];
@@ -95,3 +95,84 @@ mobileSandbox.g = true;
 vm.runInContext('w();', mobileSandbox);
 assert.deepEqual(mobileSandbox.r.get('street_lamp').records[0].pos, [moved.x, 0.15, moved.z]);
 console.log('PASS served iOS fallback places lamps at clear edges and refreshes when road tiles change');
+
+// Local junctions are often much wider than their centerline ribbons.
+const square = (x0,z0,x1,z1) => [[x0,z0],[x1,z0],[x1,z1],[x0,z1]];
+const junction = { ...tile, roads:[road(10,[[-60,0],[60,0]],{cls:'residential',bridge:false,width:8,layer:0}),
+  road(11,[[0,-60],[0,60]],{cls:'residential',bridge:false,width:8,layer:0})], roadbeds:[[square(-12,-12,12,12)]], parking:[] };
+const junctionWorld={tiles:new Map([[junction.key,junction]])};
+const clearFurniture=furnitureClearance(junctionWorld,junction);
+for(const kind of ['street_sign','traffic_signal','trash_can','hydrant','citibike_dock']) {
+  assert.equal(streetLampPlacement(junctionWorld,junction,{kind,x:10,z:10,yaw:0}),null,`${kind}: reject broad intersection asphalt outside the centerlines`);
+  const sidewalk={kind,x:16,z:16,yaw:0};
+  assert.equal(streetLampPlacement(junctionWorld,junction,sidewalk),sidewalk,`${kind}: keep existing clear sidewalk positions`);
+}
+assert.equal(clearFurniture('wireBasket',12.3,10),false,'the whole basket clears the curb, not just its center');
+assert.equal(clearFurniture('stopSign',10,10),false,'generated stop signs use the same junction check');
+assert.equal(clearFurniture('manhole',0,0),true,'flush road hardware stays on the road');
+assert.equal(furniturePlanner([], [{roadbeds:[[square(-20,-20,20,20),square(-3,-3,3,3)]]}])('trash_can',0,0),true,'retain furniture on a traffic island');
+assert.equal(furniturePlanner([main,cross])('trash_can',0,0),true,'elevated roads do not erase ground-level furniture');
+assert.equal(furniturePlanner([{...junction.roads[0],tunnel:true}])('trash_can',0,0),true,'tunnels do not erase ground-level furniture');
+const pieces=[road(12,[[0,0],[10,0]],{cls:'residential',bridge:false,layer:0,width:4}),road(12,[[20,0],[30,0]],{cls:'residential',bridge:false,layer:0,width:4})];
+assert.equal(furniturePlanner(pieces)('trash_can',5,0),false,'first piece of a repeated road ID survives');
+assert.equal(furniturePlanner(pieces)('trash_can',25,0),false,'second piece of a repeated road ID survives');
+// Crossing roadbed through a long model: all model corners lie outside the road.
+assert.equal(furniturePlanner([], [{roadbeds:[[square(-.1,-5,.1,5)]]}])('bench',0,0),false);
+const adjacent={...junction,key:'1_0',tx:1,props:[{kind:'trash_can',x:260,z:10,yaw:0}],roads:[]};
+junctionWorld.tiles.set(adjacent.key,adjacent);
+assert(fixtureTiles(junctionWorld,junction).includes(adjacent),'local-road arrivals rebuild neighboring furniture');
+
+// Run actual generated sign accessories and bike docks around the reported
+// West 177th Street / Cabrini Boulevard area, not just authored prop centers.
+const westTiles=[];
+for(let x=12;x<=15;x++)for(let z=-42;z<=-40;z++){
+  const key=`${x}_${z}`;
+  try{westTiles.push(JSON.parse(gunzipSync(readFileSync(new URL(`../../public/world/world/tiles/${key}.json.gz`,import.meta.url)))));}catch(e){if(e.code!=='ENOENT')throw e;}
+}
+const westWorld={tiles:new Map(westTiles.map(t=>[t.key,t])),roadsNear:()=>westTiles.flatMap(t=>t.roads)};
+let rejected=0,kept=0,accessories=0;
+for(const cityTile of westTiles.filter(t=>t.tz===-41&&[13,14].includes(t.tx))) {
+  class InstanceList { records=[];push(...args){this.records.push(args);} }
+  const relevant=new Set(['street_sign','trash_can','citibike_dock','phone_booth','bus_stop']);
+  const selected={...cityTile,props:cityTile.props.filter(p=>relevant.has(p.kind))};
+  const clear=furnitureClearance(westWorld,cityTile);
+  for(const p of selected.props) {if(streetLampPlacement(westWorld,cityTile,p))kept++;else rejected++;}
+  const sandbox={furnitureClearance,streetLampPlacement,InstanceList,hash01:()=>.1,signName:s=>s,
+    BLADE_X0:.08,BLADE_W:1.15,AVENUE_CLASSES:new Set(['primary','secondary']),signalApproach:()=>null,
+    dressTileSteps:function*(){}};
+  vm.createContext(sandbox);
+  vm.runInContext(source+'\nplaceTreeGuards=function*(){};placeTrashBagSteps=function*(){};globalThis.place=placeTileSteps;',sandbox);
+  const store={kinds:new Map(),lights:[],steam:[],signs:[],signals:[]},colliders=[];
+  const ctx={world:westWorld,physics:{groundHeight:()=>.15}};
+  const atlas=new Proxy({}, {get:()=>()=>[0,0,0,0]});
+  for(const _ of sandbox.place(ctx,selected,store,atlas,{},new Map(),()=>1,(...args)=>colliders.push(args))){}
+  // The bundled generator must apply the same final-position rule as the source.
+  Object.assign(sandbox,{$furnitureClearance:furnitureClearance,$streetLampPlacement:streetLampPlacement,
+    It:InstanceList,L:()=>.1,en:s=>s,Xt:()=>null,nn:.08,tn:1.15,Cn:new Set(['primary','secondary']),$:sandbox.roadNear,
+    On:function*(){},Sn:function*(){}});
+  vm.runInContext(served.slice(start,end)+'\nMn=function*(){};globalThis.bundled=jn;',sandbox);
+  const bundledStore={kinds:new Map(),lights:[],steam:[],signs:[],signals:[]};
+  for(const _ of sandbox.bundled(ctx,selected,bundledStore,atlas,{},new Map(),()=>1)){}
+  assert.deepEqual([...bundledStore.kinds].map(([kind,list])=>[kind,list.records]),[...store.kinds].map(([kind,list])=>[kind,list.records]),'source and bundled furniture positions match');
+  for(const [kind,list] of store.kinds)for(const [x,y,z,yaw,scale] of list.records){
+    assert(clear(kind,x,z,yaw,scale),`${cityTile.key}: ${kind} overlaps motor traffic at ${x},${z}`);accessories++;
+  }
+  for(const [kind,x,y,z,yaw] of colliders)assert(clear(kind,x,z,yaw),'collision uses the same accepted positions');
+}
+assert(rejected>0&&kept>0&&accessories>0);
+console.log(`PASS West 177th Street furniture: ${rejected} unsafe sources omitted, ${kept} kept; ${accessories} generated pieces clear road surfaces`);
+
+// iOS worker and synchronous fallback receive the same roadbed/context data.
+{
+  let result;
+  const worker=readFileSync(new URL('../static/world/assets/mobile-props.worker.js',import.meta.url),'utf8').replace(/^import .*\n/gm,'');
+  const scope={streetLampPlacement,self:{postMessage:data=>result=data}};
+  vm.createContext(scope);vm.runInContext(worker,scope);
+  const props=[{kind:'trash_can',x:10,z:10,yaw:0},{kind:'trash_can',x:16,z:16,yaw:0}];
+  scope.self.onmessage({data:{id:1,tiles:[junction],props}});
+  assert(!result.error,result.error);assert.equal(result.placements[0],null);assert.equal(result.placements[1].x,16);
+  const changed={...junction,roadbeds:[[square(-20,-20,20,20)]]};
+  scope.self.onmessage({data:{id:2,tiles:[changed],props}});
+  assert(result.placements.every(p=>p===null),'changed roadbeds invalidate cached worker placements');
+}
+console.log('PASS street furniture worker/fallback agreement and roadbed invalidation');
