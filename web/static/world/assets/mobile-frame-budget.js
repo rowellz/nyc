@@ -1,9 +1,9 @@
 /** Resolution changes are infrequent: resizing a WebGL back buffer costs a frame.
  * Use presentation intervals, not JS execution time (GPU work is asynchronous).
  */
-export function createResolutionController(initialRatio, apply) {
+export function createResolutionController(initialRatio, apply, options = {}) {
   const ceiling = initialRatio;
-  const floor = Math.min(ceiling, 0.65);
+  const floor = Math.min(ceiling, options.floor ?? 0.65);
   let ratio = ceiling, last = null, warmup = 0, elapsed = 0, frames = 0, fast = 0, cooldown = 0;
   function reset() { last = null; warmup = 0; elapsed = 0; frames = 0; fast = 0; }
   return (now, active = true) => {
@@ -15,21 +15,22 @@ export function createResolutionController(initialRatio, apply) {
     if (dt <= 0 || dt > 250) { reset(); return; }
     warmup += dt;
     cooldown = Math.max(0, cooldown - dt);
-    if (warmup < 3000 || cooldown > 0) return;
+    if (warmup < (options.warmupMs ?? 3000) || cooldown > 0) return;
     elapsed += dt;
     frames++;
-    if (elapsed < 2000) return;
+    if (elapsed < (options.windowMs ?? 2000)) return;
     const average = elapsed / frames;
-    fast = average < 18 ? fast + elapsed : 0;
+    options.report?.(average);
+    fast = average < (options.fastMs ?? 18) ? fast + elapsed : 0;
     let next = ratio;
-    if (average > 23) next = Math.max(floor, Math.round((ratio - 0.1) * 100) / 100);
+    if (average > (options.slowMs ?? 23)) next = Math.max(floor, Math.round((ratio - 0.1) * 100) / 100);
     else if (fast >= 10000) next = Math.min(ceiling, Math.round((ratio + 0.05) * 100) / 100);
     elapsed = 0; frames = 0;
     if (next === ratio) return;
     apply(next);
     ratio = next;
     fast = 0;
-    cooldown = 3000;
+    cooldown = options.cooldownMs ?? 3000;
   };
 }
 
@@ -43,6 +44,9 @@ export function createMobileFrameBudget(ctx, bundle, enabled = true) {
   const sample = createResolutionController(ctx.quality.pixelRatio, ratio => {
     bundle.applyPixelRatio(ratio);
     ctx.quality.pixelRatio = bundle.renderer.getPixelRatio();
+  }, {
+    ...(ctx.world?.ios ? {floor:.5,warmupMs:1500,windowMs:1000,cooldownMs:1500,slowMs:35,fastMs:24} : {}),
+    report:ms=>{ctx.mobileFrameMs=Math.round(ms*10)/10;},
   });
   return (now, ready) => sample(now, ready && !document.hidden && !ctx.state.menuOpen
     && (ctx.state.screenshotMode || !ctx.net.interrupted) && !ctx.startup?.initializing && !ctx.composer);

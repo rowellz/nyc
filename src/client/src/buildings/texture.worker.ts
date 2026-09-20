@@ -8,7 +8,7 @@ self.onmessage = async (event: MessageEvent<{ id: number; url: string }>) => {
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${url}`);
     bitmap = await createImageBitmap(await response.blob(), { imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
     // Mobile maps use a quarter of the pixels of the existing 512px variants.
-    const scale = url.includes('/assets/textures-mobile/') ? Math.min(1, 256 / Math.max(bitmap.width, bitmap.height)) : 1;
+    const scale = Math.min(1, (url.includes('/assets/textures-mobile/') ? 256 : 1920) / Math.max(bitmap.width, bitmap.height));
     const width = Math.max(1, Math.round(bitmap.width * scale));
     const height = Math.max(1, Math.round(bitmap.height * scale));
     const canvas = new OffscreenCanvas(width, height);

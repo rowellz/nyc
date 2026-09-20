@@ -319,13 +319,13 @@ export interface NameTag {
   sprite: THREE.Sprite;
   texture: THREE.CanvasTexture;
   material: THREE.SpriteMaterial;
-  set(name: string, score: number): void;
+  set(name: string): void;
   dispose(): void;
 }
 
 const TAG_W = 512, TAG_H = 96;
 
-export function createNameTag(name: string, score: number): NameTag {
+export function createNameTag(name: string): NameTag {
   const canvas = document.createElement('canvas');
   canvas.width = TAG_W;
   canvas.height = TAG_H;
@@ -339,8 +339,8 @@ export function createNameTag(name: string, score: number): NameTag {
   sprite.center.set(0.5, 0);
   sprite.renderOrder = 10;
   let lastKey = '';
-  const draw = (n: string, s: number) => {
-    const key = `${n}|${s}`;
+  const draw = (n: string) => {
+    const key = n;
     if (key === lastKey) return;
     lastKey = key;
     const g = canvas.getContext('2d')!;
@@ -348,12 +348,7 @@ export function createNameTag(name: string, score: number): NameTag {
     g.font = '600 44px "Helvetica Neue", Helvetica, Arial, sans-serif';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    const scoreText = s > 0 ? `  ${s.toLocaleString()}` : '';
-    g.font = '600 44px "Helvetica Neue", Helvetica, Arial, sans-serif';
-    const nameW = g.measureText(n).width;
-    g.font = '500 30px "Helvetica Neue", Helvetica, Arial, sans-serif';
-    const scoreW = g.measureText(scoreText).width;
-    const total = nameW + scoreW;
+    const total = g.measureText(n).width;
     const x0 = TAG_W / 2 - total / 2;
     // soft pill behind
     g.fillStyle = 'rgba(0,0,0,0.42)';
@@ -365,14 +360,9 @@ export function createNameTag(name: string, score: number): NameTag {
     g.shadowColor = 'rgba(0,0,0,0.8)';
     g.shadowBlur = 6;
     g.fillText(n, x0, TAG_H / 2 + 2);
-    if (scoreText) {
-      g.font = '500 30px "Helvetica Neue", Helvetica, Arial, sans-serif';
-      g.fillStyle = '#ffd166';
-      g.fillText(scoreText, x0 + nameW, TAG_H / 2 + 4);
-    }
     texture.needsUpdate = true;
   };
-  draw(name, score);
+  draw(name);
   return {
     sprite,
     texture,

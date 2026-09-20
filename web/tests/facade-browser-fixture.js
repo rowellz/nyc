@@ -56,3 +56,50 @@ window.testFacadeLights=()=>{
   geometry.dispose();material.dispose();landmarkMaterial.dispose();renderer.render(new Scene(),view);
   return results;
 };
+
+// Read the actual GPU LOD weight at a point on a 400 m wall. Looking at a
+// remote floor must not promote it; moving the camera to that floor must.
+window.testFacadeSurfaceLod=()=>{
+  const fixture=new Scene(),view=new PerspectiveCamera(65,1.5,.1,2000);
+  const geometry=new BufferGeometry();
+  geometry.setAttribute('position',new BufferAttribute(new Float32Array([-200,0,0,200,0,0,200,400,0,-200,400,0]),3));
+  geometry.setAttribute('normal',new BufferAttribute(new Float32Array([0,0,1,0,0,1,0,0,1,0,0,1]),3));
+  geometry.setAttribute('uv',new BufferAttribute(new Float32Array([0,0,400,0,400,400,0,400]),2));
+  for(const [name,values] of [
+    ['color',[.7,.66,.6]],['aInfo',[400,3.2,4*65536+1234,0]],['aWall',[400,0,3.5,0]],
+    ['aStyle',[1]],['aParam',[3.2,3,1.5,2]],['aParam2',[0,.35,0,0]],['aLmSeed',[1234]],
+  ])geometry.setAttribute(name,new BufferAttribute(new Float32Array(Array(4).fill(values).flat()),values.length));
+  geometry.setIndex([0,1,2,0,2,3]);
+  const mesh=new Mesh(geometry);fixture.add(mesh);
+  const results={};
+  for(const landmark of [false,true]){
+    const material=landmark?createLandmarkFacadeTest(createLandmarkUniformsTest(),true)
+      :createFacadeTest(createFacadeUniformsTest({modules:new Map(),quality:{level:'mobile'}},null),{textures:false,mobile:true});
+    const compile=material.onBeforeCompile;
+    material.onBeforeCompile=(shader,...args)=>{
+      compile(shader,...args);
+      shader.fragmentShader=shader.fragmentShader.replace('#include <dithering_fragment>',`
+        float weight = mobileSurfaceDetail(vWPos, fwidth(${landmark?'vFuv':'vUvM'}));
+        gl_FragColor = vec4(weight, 1.0-weight, 0.0, 1.0);
+      `);
+    };
+    material.customProgramCacheKey=()=>`surface-lod-probe-${landmark}`;
+    mesh.material=material;
+    const sample=(cameraY,targetY,z=24,x=0)=>{
+      view.position.set(x,cameraY,z);view.lookAt(0,targetY,0);
+      renderer.render(fixture,view);
+      const gl=renderer.getContext(),pixel=new Uint8Array(4);
+      gl.readPixels(480,320,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
+      return [...pixel];
+    };
+    results[landmark?'landmark':'ordinary']={
+      street:sample(8,8),upperFromStreet:sample(8,200),
+      flying:sample(200,200),lowerFromAir:sample(200,8),crown:sample(380,380),
+      horizontal:sample(200,200,24,200),transition:sample(200,200,96),
+      outside:sample(200,200,124),
+    };
+    material.dispose();
+  }
+  geometry.dispose();renderer.render(new Scene(),view);
+  return results;
+};

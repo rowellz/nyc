@@ -1,7 +1,8 @@
 import {platformSignInfo,combineSignInfo,paintSign,boardPosition} from './signs.js?v=station-layout-32';
 import {panelMesh,wallPanel} from './enclosure.js?v=station-layout-32';
 import { g as BufferGeometry, h as BufferAttribute, kt as Mesh, Z as Group,
-  Pt as MeshStandardMaterial, At as MeshBasicMaterial, y as CanvasTexture } from '../textureRelease-2U-gT89r.js?v=station-layout-32';
+  Pt as MeshStandardMaterial, At as MeshBasicMaterial, y as CanvasTexture,
+  rt as InstancedMesh, Ot as Matrix4 } from '../textureRelease-2U-gT89r.js?v=mobile-chunk-pacing-62';
 import { route as defaultRoute, routeById, layout, sample, stationAt, railPassageVolumes, splitStationSegments, PLATFORM_LENGTH, TRAIN_CARS, CAR_LENGTH, CAR_SPACING } from './network.js?v=station-layout-32';
 import { supportPlanner } from '../supports.js';
 import {appendAccessGeometry,platformOpening,platformStairAt,hubs,accessPassageVolumes,stationDestinations,transfers,accessesByStation} from './access.js?v=station-layout-32';
@@ -16,6 +17,18 @@ const framedRoof=(a,b,min,max,y)=>[framedPoint(a,min,y),framedPoint(b,min,y),fra
 // vertices; no per-sleeper colliders, lights, or independently allocated meshes.
 export class Builder {
   constructor() { this.layers = new Map(); this.collision = { position: [], index: [] }; }
+  // Sleepers sit in ballast and have no collision. Their visible top is enough
+  // on mobile; avoid five hidden box faces for every tie along every track.
+  plate(p,width,length,material,y=0,offset=0) {
+    let layer=this.layers.get(material);
+    if(!layer){layer={position:[],index:[]};this.layers.set(material,layer);}
+    const base=layer.position.length/3;
+    for(const [x,z] of [[-1,-1],[1,-1],[1,1],[-1,1]]) {
+      const across=x*width/2+offset,along=z*length/2;
+      layer.position.push(p.x-p.dz*across+p.dx*along,p.y+y,p.z+p.dx*across+p.dz*along);
+    }
+    layer.index.push(base,base+1,base+2,base,base+2,base+3);
+  }
   box(p, width, height, length, material, y=0, offset=0, solid=false, slope=0) {
     if (!(width>0 && height>0 && length>0)) return;
     const verts=[];
@@ -68,7 +81,7 @@ export function materials() {
   };
 }
 
-export function buildTrack(segments, roads = [], route=defaultRoute) {
+export function buildTrack(segments, roads = [], route=defaultRoute, mobile=false) {
   segments=splitStationSegments(route,segments).flatMap(([a,b])=>{
     const cuts=route.stations.flatMap(station=>{const h=hubs.get(station.key);return h?[h.start,h.end]:[];}).filter(s=>s>a.s&&s<b.s).sort((a,b)=>a-b);
     const points=[a,...cuts.map(s=>({...sample(route,s),structure:a.structure})),b];return points.slice(1).map((p,i)=>[points[i],p]);
@@ -102,7 +115,10 @@ export function buildTrack(segments, roads = [], route=defaultRoute) {
       if(route.island)b.span(ta,tc,3,.32,'ballast',-.3,0,true);
       // Offset the shared endpoint frames, including the branch junction.
       for(const rail of [-.7175,.7175])b.span(shift(a,track+rail),shift(c,track+rail),.075,.15,'steel');
-      for(let s=Math.ceil(a.s/.8)*.8;s<c.s;s+=.8)b.box(sample(route,s),2.6,.16,.22,'sleeper',-.14,track);
+      for(let s=Math.ceil(a.s/.8)*.8;s<c.s;s+=.8) {
+        if(mobile)b.plate(sample(route,s),2.6,.22,'sleeper',-.06,track);
+        else b.box(sample(route,s),2.6,.16,.22,'sleeper',-.14,track);
+      }
       if(route.island&&p.y>=.3)b.span(ta,tc,3,.6,'steel',-.7,0,true);
     }
     if(station) {
@@ -291,7 +307,7 @@ export function stationSign(station,materialSet,route=routeById.get(station.rout
   return {group,dispose(){for(const material of Object.values(signMaterials)){material.map.dispose();material.dispose();}}};
 }
 
-export function trainModel(materialSet,kind='subway') {
+export function trainModel(materialSet,kind='subway',instanced=false) {
   const body=new Builder(),doors=Array.from({length:4},()=>new Builder());
   const origin={x:0,y:0,z:0,dx:0,dz:1};
   body.box(origin,2.85,0.28,CAR_LENGTH,'body',1.15);
@@ -320,12 +336,19 @@ export function trainModel(materialSet,kind='subway') {
   const shared=[body.build(materialSet),...doors.map(b=>b.build(materialSet))];
   return {
     create() {
-      const root=new Group(),cars=[];
-      for(let i=0;i<TRAIN_CARS;i++) {
-        const car=new Group(),panels=shared.slice(1).map(g=>g.clone());
-        car.add(shared[0].clone(),...panels);root.add(car);cars.push({car,panels});
+      const root=new Group(),cars=[],batches=[];
+      root.name=`rail-train-${kind}`;
+      if(instanced)for(let part=0;part<shared.length;part++)for(const source of shared[part].children) {
+        const mesh=new InstancedMesh(source.geometry,source.material,TRAIN_CARS);
+        root.add(mesh);batches.push({mesh,part});
       }
-      return {root,cars};
+      for(let i=0;i<TRAIN_CARS;i++) {
+        const car=new Group(),panels=shared.slice(1).map(g=>instanced?new Group():g.clone());
+        if(instanced)car.add(...panels);
+        else car.add(shared[0].clone(),...panels);
+        root.add(car);cars.push({car,panels});
+      }
+      return {root,cars,batches,dispose(){for(const {mesh} of batches)mesh.dispose();root.removeFromParent();}};
     },
     place(train,state,direction,dt,route=defaultRoute,trackOffset=direction*2,doorSide=direction) {
       train.open=(train.open??0)+(Number(state.doors)-(train.open??0))*Math.min(1,dt*4);
@@ -338,6 +361,20 @@ export function trainModel(materialSet,kind='subway') {
         panels.forEach((panel,j)=>panel.position.z=(j%2?1:-1)*train.open*0.66
           *Number((j<2?-1:1)===doorSide));
       });
+      // Five cars share each body/door draw. Transform-only nodes retain the
+      // original curvature, grades and independently sliding door panels.
+      if(train.batches.length) {
+        for(const {car,panels} of train.cars){car.updateMatrix();for(const panel of panels)panel.updateMatrix();}
+        const matrix=new Matrix4();
+        for(const {mesh,part} of train.batches) {
+          train.cars.forEach(({car,panels},i)=>{
+            matrix.copy(car.matrix);if(part)matrix.multiply(panels[part-1].matrix);
+            mesh.setMatrixAt(i,matrix);
+          });
+          mesh.instanceMatrix.needsUpdate=true;
+          mesh.computeBoundingSphere();
+        }
+      }
     },
     dispose(){shared.forEach(g=>g.traverse(o=>o.geometry?.dispose()));},
   };

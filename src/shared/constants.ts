@@ -31,20 +31,7 @@ export const PLAYER_RUN_SPEED = 6.0; // m/s
 export const PLAYER_HEIGHT = 1.8;
 export const PLAYER_RADIUS = 0.35;
 
-/** Score. Server is the only thing that writes score. */
-export const SCORE = {
-  KILL: 100,
-  ASSIST: 25,
-  SURVIVE_PER_MINUTE: 2,
-  DISTANCE_DRIVEN_PER_KM: 5,
-  DISTANCE_WALKED_PER_KM: 3,
-  NEIGHBORHOOD_DISCOVERED: 25,
-  LANDMARK_DISCOVERED: 50,
-  LANDMARK_FIRST_FINDER: 250,
-  WEAPON_FIRST_PICKUP: 10,
-} as const;
-
-/** Landmarks: discovery bonus + "first to find" bonus. World meters computed from real coordinates. */
+/** Landmarks: discovery and first-finder announcements. World meters computed from real coordinates. */
 export const LANDMARKS: { id: string; name: string; x: number; z: number; radius: number }[] = [
   { id: 'times-square', name: 'Times Square', ...lonLatToXZ(-73.98565, 40.75797), radius: 90 },
   { id: 'empire-state', name: 'Empire State Building', ...lonLatToXZ(-73.98566, 40.74844), radius: 90 },

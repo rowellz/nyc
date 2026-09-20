@@ -187,3 +187,37 @@ function fixture({bytes=1000,requests=2,triangles=Infinity}={}) {
   assert.equal(ios.bytes,8*1024*1024);assert.equal(ios.distance,1500);assert.equal(ios.triangles,80000);
 }
 console.log('PASS scenery binary format, coastline holes, tiers, production serving, bounded streaming, teleports, cancellation and visible-mesh handoff');
+
+// CPU backing arrays, copied draw indices and GPU uploads all count as resident.
+{
+  const {prepareSceneryGeometry,compactSceneryIndex}=await import('../static/world/assets/scenery-format.js');
+  const sample=empty();sample.buildings=[{id:1,height:30,footprint:[square(0,0,20)]},{id:2,height:50,footprint:[square(40,0,20)]}];
+  const chunk=prepareSceneryGeometry(decodeScenery(encodeScenery(compileScenery('0_0',[sample],'mid',tools))));
+  assert.equal(chunk.residentBytes,chunk.byteLength+chunk.gpuBytes);assert(chunk.gpuBytes>0);
+  const layer=chunk.layers.find(l=>l.kind==='buildings');layer.sourceIndex=layer.index;
+  const original=layer.index.slice(),coverage=new Float32Array(16);
+  assert.equal(compactSceneryIndex(layer,coverage,new Set()),original.length);
+  coverage[0]=1;assert.equal(compactSceneryIndex(layer,coverage,new Set()),0,'covered owners submit no triangles');
+  coverage[0]=0;
+  const count=compactSceneryIndex(layer,coverage,new Set([1]));
+  assert.equal(count,original.length-layer.features[0].count,'built landmark is removed from submissions');
+  assert.equal(compactSceneryIndex(layer,coverage,new Set()),original.length,'retired landmarks restore proxy');
+  assert.deepEqual(layer.renderIndex,original);
+}
+{
+  let time=0;const requests=[],published=[];
+  const stream=createSceneryStream({budget:{distance:1000,middle:500,chunks:2,requests:1,bytes:100,
+    triangles:100,decodeBytes:30,peakBytes:190},now:()=>time,
+    fetchChunk:(key,tier)=>new Promise(resolve=>requests.push({key,tier,resolve})),
+    publish:data=>{published.push(data);return data},remove:()=>{}});
+  stream.setManifest({chunks:[{key:'0_0'}]});
+  stream.update(0,0);assert.equal(stream.stats.reservedBytes,90);
+  requests.shift().resolve({byteLength:70,residentBytes:140,triangles:80});await Promise.resolve();
+  time+=100;stream.update(0,0);assert.equal(published.length,0,'GPU copy exceeds resident cap');
+  assert.equal(requests[0].tier,'far','oversized mid falls back immediately');
+  requests.shift().resolve({byteLength:30,residentBytes:60,triangles:40});await Promise.resolve();
+  time+=100;stream.update(0,0);assert.equal(stream.stats.bytes,60);
+  assert.equal(stream.stats.downgraded,1);assert.equal(stream.stats.reservedBytes,60);
+  stream.dispose();assert.equal(stream.stats.reservedBytes,0);
+}
+console.log('PASS scenery CPU/GPU accounting, decode reservations, coarse fallback and hidden-geometry compaction');

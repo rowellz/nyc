@@ -81,8 +81,10 @@ export function makeGrimeTexture(size = 512, seed = 7): THREE.CanvasTexture<HTML
  * Sheet A carries the POST NO BILLS stencil, sheet B the laminated DOB permit + contractor band, so a
  * per-bay u offset (instance aData.x) breaks the repeat along the shed. 1 sheet = 2.44 m x 1.22 m.
  */
-export function makePlywoodTexture(w = 2048, h = 512): THREE.CanvasTexture<HTMLCanvasElement | OffscreenCanvas> {
-  const { c, g } = canvas(w, h);
+export function makePlywoodTexture(w = 2048, h = 512, scale = 0.25): THREE.CanvasTexture<HTMLCanvasElement | OffscreenCanvas> {
+  // Keep the artwork's coordinates while painting directly into a smaller texture.
+  const { c, g } = canvas(w * scale, h * scale);
+  g.scale(scale, scale);
   const r = rng(31);
   const sw = w / 2;
   g.fillStyle = '#1f4a2c';
@@ -395,7 +397,7 @@ export function makeBasketTexture(): THREE.CanvasTexture<HTMLCanvasElement | Off
 export const PED_FRAMES = 32; // 0 = walk, 1 = steady hand, 2 = flashing hand blank, 3..31 = countdown 29..1 with hand
 
 /** pedestrian signal frames laid out horizontally: white walking man, orange hand, hand + countdown digits */
-export function makePedTexture(frame = 96): THREE.CanvasTexture<HTMLCanvasElement | OffscreenCanvas> {
+export function makePedTexture(frame = 60): THREE.CanvasTexture<HTMLCanvasElement | OffscreenCanvas> {
   const { c, g } = canvas(frame * PED_FRAMES, frame);
   g.fillStyle = '#0a0a0a';
   g.fillRect(0, 0, c.width, c.height);

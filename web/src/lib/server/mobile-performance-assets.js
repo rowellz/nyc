@@ -1,6 +1,6 @@
 /** Mobile scheduling/texture fixes applied only by the SvelteKit service. */
 export const mobilePerformanceAssetPaths = new Set([
-  'world/assets/main-D_3aygO4.js', 'world/assets/quality-BuEwAkMy.js',
+  'world/assets/main-D_3aygO4.js', 'world/assets/quality-BuEwAkMy.js', 'world/assets/index-DQv-X5z6.js',
   'world/assets/loading-DS_gLujL.js', 'world/assets/streets-CfYSUqyW.js',
   'world/assets/tile.worker-Ai2ZdmRL.js', 'world/assets/texture.worker-CaHoFbYF.js',
   'world/assets/transfer-CN3_6JL-.js',
@@ -10,7 +10,7 @@ export const mobilePerformanceAssetPaths = new Set([
   'world/assets/mobile-SBC7KRMu.js',
   'world/assets/textureRelease-2U-gT89r.js',
   'world/assets/buildings-BDmduZ8y.js',
-  'world/assets/landmarks-KpQKy0CX.js',
+  'world/assets/landmarks-KpQKy0CX.js', 'world/assets/builder.worker-D9_Czkt3.js',
   'world/assets/geom-8zUJB5A-.js',
   'world/assets/environment-WQwLg8tn.js', 'world/assets/textures.worker--LU96PcS.js',
 ]);
@@ -21,7 +21,11 @@ export function mobilePerformanceAssetTransform(rel, source) {
     if (source.split(before).length !== 2) throw new Error(`Mobile performance override anchor changed in ${rel}: ${before}`);
     source = source.replace(before, after);
   };
-  if (rel.endsWith('/main-D_3aygO4.js')) {
+  if (rel.endsWith('/index-DQv-X5z6.js')) {
+    // A 160-character slice cut the JSON before FPS, triangles and budgets.
+    replace('detail:t.slice(0,160)', 'detail:t.slice(0,e===`renderer_memory`||e===`webgl_context_lost`?4096:160)');
+  } else if (rel.endsWith('/main-D_3aygO4.js')) {
+    replace('n()&&at(a),a.outputColorSpace', 'at(a),a.outputColorSpace');
     source = "import { rendererDiagnostics as $rendererDiagnostics } from './renderer-diagnostics.js';\n" + source;
     replace('JSON.stringify({geometries:t,textures:n,programs:x.renderer.info.programs?.length??0})',
       'JSON.stringify({geometries:t,textures:n,programs:x.renderer.info.programs?.length??0,...$rendererDiagnostics(k)})');
@@ -39,12 +43,18 @@ export function mobilePerformanceAssetTransform(rel, source) {
     // direct-render resolution controller. Use the mobile atmosphere on both.
     replace('c&&e===`atmosphere`?', 'v.level===`mobile`&&e===`atmosphere`?');
   } else if (rel.endsWith('/quality-BuEwAkMy.js')) {
+    replace('shadowMapSize:4096', 'shadowMapSize:1920');
+    replace('shadowMapSize:2048', 'shadowMapSize:1920');
     // The iOS override discarded q=low. Start with fewer shaded pixels and
     // retain low's stricter ceiling throughout adaptive recovery.
-    replace('u.pixelRatio=i(1,innerWidth,innerHeight)', 'u.pixelRatio=i(e===`low`?.75:.85,innerWidth,innerHeight)');
+    replace('u.pixelRatio=i(1,innerWidth,innerHeight)', 'u.pixelRatio=i(e===`low`?.65:.75,innerWidth,innerHeight)');
     replace('u.pixelRatio=i(e===`low`?.75:n.dpr,innerWidth,innerHeight)', 'u.pixelRatio=i(e===`low`?.75:.85,innerWidth,innerHeight)');
     replace('u.shadows=!t()&&e!==`low`', 'u.shadows=!1');
   } else if (rel.endsWith('/textureRelease-2U-gT89r.js')) {
+    // Keep the existing iOS upload budget, and cap image textures on desktop too.
+    replace('function rl(e){let t=e.image;', 'function rl(e){const limit=Zc?512:1920;let t=e.image;');
+    replace('Math.max(t.width,t.height)<=512', 'Math.max(t.width,t.height)<=limit');
+    replace('let n=512/Math.max(t.width,t.height)', 'let n=limit/Math.max(t.width,t.height)');
     source = "import { prepareSceneTextures as $prepareSceneTextures } from './texture-preflight.js';\n" + source;
     replace('let r=new Set,i=e=>{e instanceof B&&!r.has(e)&&(r.add(e),rl(e))};e.traverse(e=>{let t=e.material;for(let e of Array.isArray(t)?t:t?[t]:[]){Object.values(e).forEach(i);let t=e.uniforms;if(t)for(let e of Object.values(t))Array.isArray(e.value)?e.value.forEach(i):i(e.value)}}),n(e,t)',
       '$prepareSceneTextures(e,rl),n(e,t)');
@@ -54,11 +64,13 @@ export function mobilePerformanceAssetTransform(rel, source) {
     replace('t.geometry&&t.geometry.dispose()',
       't.isInstancedMesh&&t.dispose(),t.geometry&&t.geometry.dispose()');
   } else if (rel.endsWith('/landmarks-KpQKy0CX.js')) {
-    source = "import { mobileLandmarkShader as $mobileLandmarkShader } from './mobile-facade.js';\n" + source;
-    replace('function et(e){let t=', 'function et(e,$mobile=false){const $pars=$mobile?$mobileLandmarkShader(Qe):Qe;let t=');
+    replace('var en=2048,', 'var en=1920,');
+    source = "import { mobileLandmarkShader as $mobileLandmarkShader, mobileLandmarkMain as $mobileLandmarkMain } from './mobile-facade.js';\n" + source;
+    replace('function et(e){let t=', 'function et(e,$mobile=false){const $pars=$mobile?$mobileLandmarkShader(Qe):Qe,$main=$mobile?$mobileLandmarkMain($e):$e;let t=');
     replace('let a=et(n),o=ot(4739931)', 'let a=et(n,e.quality.level===`mobile`),o=ot(4739931)');
     replace('${Qe}', '${$pars}');
-    replace('()=>`landmarkFacade12`', '()=>`landmarkFacade13-${$mobile?`mobile`:`desktop`}`');
+    replace('${$e}', '${$main}');
+    replace('()=>`landmarkFacade12`', '()=>`landmarkFacade14-${$mobile?`mobile`:`desktop`}`');
     replace('let s=kn(e.quality.level===`mobile`?1024:void 0);s.anisotropy=e.quality.level===`low`?1:4;',
       'let s=kn(e.quality.level===`mobile`?512:void 0);s.anisotropy=e.quality.level===`mobile`||e.quality.level===`low`?1:4;');
     source = "import { selectDetailedLandmarks as $selectDetailedLandmarks } from './mobile-build-policy.js';\n" + source;
@@ -135,7 +147,29 @@ export function mobilePerformanceAssetTransform(rel, source) {
       'return t===`mobile`&&(f.anisotropy=$streetBudget.anisotropy),c.normal.dispose(),c.rough.dispose(),console.info(`[streets] procedural textures');
     // Keep the drawn manhole in the atlas without fetching/compositing two photos.
     replace('let t=await Gn(),n;', 'let t=e.data.quality===`mobile`?{}:await Gn(),n;');
+  } else if (rel.endsWith('/builder.worker-D9_Czkt3.js')) {
+    source = "import { compactBuildingGeometry as $compactBuildingGeometry } from './mobile-building-lod.js';\n" + source;
+    replace('function xe(e){', 'function xe(e){const $mobile=e.mobile===true,$details=new Set(e.detailedIds??[]);');
+    replace('let e=ge(t.ring,.28);', 'let e=(!$mobile||$details.has($buildingId))?ge(t.ring,.28):null;');
+    replace('l.cap([t.ring,...t.holes],n,e)', 'l.cap([t.ring,...t.holes],$mobile&&!$details.has($buildingId)?t.top:n,e)');
+    replace('for(let t of e.buildings){let e=f.get(t.id);', 'for(let t of e.buildings){const $buildingId=t.id;let e=f.get(t.id);');
+    replace('let t=xe(r);self.postMessage', 'let t=xe(r);if(r.mobile)$compactBuildingGeometry(t);self.postMessage');
   } else if (rel.endsWith('/buildings-BDmduZ8y.js')) {
+    source = "import { createBuildingDetailController as $createBuildingDetailController } from './mobile-building-lod.js';\n" + source;
+    replace('function N(e){let n=e.tile;', 'const $buildingDetail=$createBuildingDetailController(t);b.bytes=0;function N(e){let n=e.tile;');
+    replace('return{key:n.key,tx:n.tx,tz:n.tz,buildings:n.buildings', 'return{...$buildingDetail.input(e),key:n.key,tx:n.tx,tz:n.tz,buildings:n.buildings');
+    replace('update(e,n){te(),A(d.uStyle.value', 'update(e,n){$buildingDetail.update(v,r=>{r.job=i.job(`buildings:${r.key}`);D.push(r);P()});te(),A(d.uStyle.value');
+    replace('new h(i.normal,3)', 'new h(i.normal,3,i.normal.BYTES_PER_ELEMENT===1)');
+    replace('new h(i.color,3)', 'new h(i.color,3,i.color.BYTES_PER_ELEMENT===1)');
+    replace('_=n.normal[t*3],v=n.normal[t*3+2]', '_=n.normal[t*3]/(n.normal.BYTES_PER_ELEMENT===1?127:1),v=n.normal[t*3+2]/(n.normal.BYTES_PER_ELEMENT===1?127:1)');
+    // Hold the visible predecessor until the replacement is ready; collision
+    // retains identical walls/roofs and is rebuilt by the existing commit job.
+    replace('let a=performance.now(),s=new p;', 'let $reuseCollision=r.colliderDone===true,a=performance.now(),s=new p;');
+    replace('yield,yield*R(r)', 'yield,$reuseCollision||(yield*R(r))');
+    replace('n.add(c),r.mesh=c,r.built=i', '(()=>{if(r.mesh){n.remove(r.mesh);r.mesh.geometry.dispose();b.verts-=r.mesh.geometry.getAttribute(`position`).count;b.tris-=r.mesh.geometry.drawRange.count/3;b.bytes-=r.built?.byteLength??0}})(),n.add(c),b.bytes+=i.byteLength??0,r.storefronts=void 0,r.mesh=c,r.built=i');
+    replace('r.built=null,r.grid=null,b.tiles=v.size', 'b.bytes-=r.built?.byteLength??0,r.built=null,r.grid=null,b.tiles=v.size');
+    replace('c.castShadow=!0,c.receiveShadow=!0', 'c.castShadow=t.quality.shadows,c.receiveShadow=t.quality.shadows');
+
     source = "import { holdGeometrySlot as $holdGeometrySlot } from './geometry-residency.js';\n" + source;
     replace('e.data.tile?t.job?.run(L(t,e.data.tile))',
       'e.data.tile?($holdGeometrySlot(n,t.job,$buildingWorkerCount===1,()=>E.includes(n)&&P()),t.job?.run(L(t,e.data.tile)))');
@@ -147,7 +181,7 @@ export function mobilePerformanceAssetTransform(rel, source) {
     replace('function ue(e,t){let n=', 'function ue(e,t){const $facadeSource=t.mobile?$mobileFacadeShader(se):se;let n=');
     replace('`+se).replace(`#include <normal_fragment_maps>`', '`+$facadeSource).replace(`#include <normal_fragment_maps>`');
     replace('m=ue(d,{textures:!1})', 'm=ue(d,{textures:!1,mobile:t.quality.level===`mobile`})');
-    replace('`facade-v2-${t.textures?`tex`:`proc`}`', '`facade-v4-${t.mobile?`mobile`:t.textures?`tex`:`proc`}`');
+    replace('`facade-v2-${t.textures?`tex`:`proc`}`', '`facade-v5-${t.mobile?`mobile`:t.textures?`tex`:`proc`}`');
     // The filtered wall/flat roof path uses vertex colors and the sign atlas.
     // Do not decode/upload unused facade photos or recompile to the photo path.
     replace('async function U(){H++;', 'async function U(){if(t.quality.level===`mobile`){B=!0;return}H++;');
@@ -210,16 +244,18 @@ ${parking}
       '            const carKey = `p:${r.id}:${seed}:${slot * 2 + (side === 1 ? 0 : 1)}`;\n            const car = previous.get(carKey) ?? makeCar(carKey, kind, x, ground(this.ctx, x, z), z,');
     replace('            record.parked.push(car);', '            previous.delete(car.key);\n            record.parked.push(car);');
   } else if (rel.endsWith('/props-coU--UuE.js')) {
-    replace('n.quality.level===`mobile`?.25:1', 'n.quality.level===`mobile`?.125:1');
+    replace('n.quality.level===`mobile`?.25:1', 'n.quality.level===`mobile`?.125:1920/4096');
     replace('this.texture.anisotropy=8,this.texture.generateMipmaps',
       'this.texture.anisotropy=n<1?1:8,this.texture.generateMipmaps');
   } else if (rel.endsWith('/builder.worker-CU7Og7am.js')) {
+    // 32 signal frames fit in 1920 pixels at 60 pixels per frame.
+    replace('function Gi(e=96)', 'function Gi(e=60)');
     // Scale the plywood drawing as a whole so permits/posters retain their UV
     // positions. Do not create a full-size canvas just to downsample it later.
     replace('function Hi(e=2048,t=512){let{c:n,g:r}=zi(e,t),i=ti(31),a=e/2;',
-      'function Hi(e=2048,t=512,scale=1){let{c:n,g:r}=zi(e*scale,t*scale),i=ti(31),a=e/2;r.scale(scale,scale);');
+      'function Hi(e=2048,t=512,scale=.25){let{c:n,g:r}=zi(e*scale,t*scale),i=ti(31),a=e/2;r.scale(scale,scale);');
     replace('base:await Vr(Vi()),plywood:await Vr(Hi(e.data.mobile?1024:2048))',
-      'base:await Vr(Vi(e.data.mobile?128:512)),plywood:await Vr(Hi(2048,512,e.data.mobile?.25:1))');
+      'base:await Vr(Vi(e.data.mobile?128:512)),plywood:await Vr(Hi(2048,512,e.data.mobile?.125:.25))');
   } else if (rel.endsWith('/mobile-SBC7KRMu.js')) {
     source = "import { createMobileProps as $mobileProps } from './mobile-props.js';\nimport { t as $mobileBuildScope } from './loading-DS_gLujL.js';\n" + source;
     const start = source.indexOf('function ae(e){let t=new p;');
@@ -278,9 +314,11 @@ ${parking}
   } else {
     source = "import { mobileTextureSize as $mobileTextureSize } from './mobile-build-policy.js';\n" + source;
     if (rel.endsWith('/texture.worker-CaHoFbYF.js')) {
-      replace('256/Math.max(r.width,r.height)', '$mobileTextureSize(n)/Math.max(r.width,r.height)');
+      replace('n.includes(`/assets/textures-mobile/`)?Math.min(1,256/Math.max(r.width,r.height)):1',
+        'Math.min(1,(n.includes(`/assets/textures-mobile/`)?$mobileTextureSize(n):1920)/Math.max(r.width,r.height))');
     } else {
-      replace('256/Math.max(n.width,n.height)', '$mobileTextureSize(t)/Math.max(n.width,n.height)');
+      replace('t.includes(`/assets/textures-mobile/`)?Math.min(1,256/Math.max(n.width,n.height)):1',
+        'Math.min(1,(t.includes(`/assets/textures-mobile/`)?$mobileTextureSize(t):1920)/Math.max(n.width,n.height))');
     }
   }
   return source;

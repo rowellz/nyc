@@ -13,7 +13,9 @@ for (const [mobile, width, height, expected, street = false, building = false] o
   [true, 512, 256, [128, 64]],
   [true, 256, 512, [64, 128]],
   [true, 128, 64, [128, 64]],
-  [false, 2048, 1024, [2048, 1024]],
+  [false, 2048, 1024, [1920, 960]],
+  [false, 1024, 4096, [480, 1920]],
+  [false, 1920, 1080, [1920, 1080]],
   [true, 512, 512, [64, 64], true],
   [true, 512, 256, [64, 32], true],
   [true, 64, 32, [64, 32], true],
@@ -21,7 +23,7 @@ for (const [mobile, width, height, expected, street = false, building = false] o
   [true, 512, 256, [64, 32], false, true],
   [true, 256, 512, [32, 64], false, true],
   [true, 64, 32, [64, 32], false, true],
-  [false, 2048, 1024, [2048, 1024], false, true],
+  [false, 2048, 1024, [1920, 960], false, true],
 ]) {
   const originalUrl = `https://example.test/world/assets/${mobile ? 'textures-mobile' : 'textures'}/brick/color.jpg${street ? '?streetMobile=1' : ''}`;
   const url = building ? buildingTextureUrl(originalUrl) : originalUrl;

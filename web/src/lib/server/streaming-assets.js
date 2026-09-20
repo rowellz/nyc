@@ -1,6 +1,6 @@
 /** Schedule the mirrored client's tiles and street builds using the same route priority. */
 export const streamingAssetPaths = new Set(['world/assets/main-D_3aygO4.js', 'world/assets/streets-CfYSUqyW.js',
-  'world/assets/quality-BuEwAkMy.js', 'world/assets/buildings-BDmduZ8y.js']);
+  'world/assets/quality-BuEwAkMy.js', 'world/assets/buildings-BDmduZ8y.js', 'world/assets/vehicles-_zJz3z3J.js']);
 
 export function streamingAssetTransform(rel, source) {
   if (!streamingAssetPaths.has(rel)) return source;
@@ -49,7 +49,17 @@ export function streamingAssetTransform(rel, source) {
   } else if (rel.endsWith('/buildings-BDmduZ8y.js')) {
     source = "import { createScenery as $createScenery } from './scenery.js';\n" + source;
     replace('x=t.quality.farDistance>t.quality.drawDistance?Ee(t,d,y):null', 'x=$createScenery(t,y)');
+  } else if (rel.endsWith('/vehicles-_zJz3z3J.js')) {
+    source = "import { guardDriving as $guardDriving, releaseDrivingGuard as $releaseDrivingGuard } from './driving-streaming.js';\n" + source;
+    replace('fixed(e){if(!this.body.isValid())return;',
+      'fixed(e){if(!this.body.isValid())return;if($guardDriving(this,e,Z[this.car.kind]))return;');
+    replace('dispose(){this.ctx.physics.world.removeVehicleController(this.controller)',
+      'dispose(){$releaseDrivingGuard(this);this.ctx.physics.world.removeVehicleController(this.controller)');
   } else {
+    // A visible mesh/grid does not imply its staged collider upload has finished.
+    replace('t.walkCollision=null,t.collider=!1}', 't.walkCollision=null,t.collider=!1,t.collisionReady=!1}');
+    replace('n.collider=!0,yield}}catch(e)', 'n.collider=!0,yield}n.collisionReady=!0}catch(e)');
+    replace('surfaceAt(e,t){', 'collisionReady(key){return N.get(key)?.collisionReady===true},surfaceAt(e,t){');
     replace('o=i*i+a*a;o<r&&(n=t,r=o)',
       'o=e.world.tilePriority?.(t.tile.tx,t.tile.tz)??i*i+a*a;o<r&&(n=t,r=o)');
   }

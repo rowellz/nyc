@@ -5,9 +5,8 @@
  * server it used to be welded to. Nothing here knows about http, SvelteKit or
  * `ws` connection setup: it takes an object that can `send()` and `close()`, and
  * the transport is wired up in net.js. Behaviour — the handshake, the 70 m/s
- * clamp, area-of-interest snapshots, hitscan combat, the safe zone, scoring —
- * is a faithful port of the reconstructed server, so the recovered client and
- * the 38 protocol conformance checks cannot tell the two apart.
+ * clamp, area-of-interest snapshots, hitscan combat, the safe zone —
+ * follows the recovered client contract, without points or player rankings.
  *
  * Everything is in-memory: restarting the container resets all progress.
  */
@@ -128,11 +127,6 @@ export function createWorld(options = {}) {
     return `guest-${Math.floor(Math.random() * 9000 + 1000)}`;
   }
 
-  function addScore(p, delta, reason) {
-    p.profile.score += delta;
-    send(p, { t: 'score', score: p.profile.score, delta, reason });
-  }
-
   function applyDamage(shooter, victim, damage, headshot, at, seq, weapon) {
     const absorbed = Math.min(victim.armor, Math.floor(damage * 0.5));
     victim.armor -= absorbed;
@@ -146,8 +140,6 @@ export function createWorld(options = {}) {
     victim.dead = true;
     victim.state.flags |= P.StateFlag.Dead;
     broadcast({ t: 'death', victimId: victim.id, killerId: shooter.id, killerName: shooter.name, weapon });
-    shooter.profile.kills++;
-    addScore(shooter, C.SCORE.KILL, 'kill');
   }
 
   function shoot(p, msg) {
@@ -206,23 +198,6 @@ export function createWorld(options = {}) {
     send(p, { t: 'respawned', x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw, protectedUntil: p.protectedUntil, inventory: p.inventory });
   }
 
-  /** Top `limit` profiles by score, with an `online` flag. Shared by the
-   *  leaderboard control message and the /world/api/status route. */
-  function leaderboard(limit) {
-    const online = new Set([...players.values()].map((x) => x.profile));
-    return [...byToken.values()]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-      .map((prof, i) => ({ rank: i + 1, name: prof.name, score: prof.score, kills: prof.kills, online: online.has(prof) }));
-  }
-
-  function sendLeaderboard(p) {
-    const entries = leaderboard(20);
-    const you = entries.find((e) => e.name === p.name)
-      || { rank: 0, name: p.name, score: p.profile.score, kills: p.profile.kills, online: true };
-    send(p, { t: 'leaderboard', entries, you, online: players.size });
-  }
-
   function checkDiscovery(p) {
     for (const l of C.LANDMARKS) {
       if (p.discovered.has(l.id)) continue;
@@ -230,9 +205,7 @@ export function createWorld(options = {}) {
       p.discovered.add(l.id);
       const first = !discoveredGlobally.has(l.id);
       discoveredGlobally.add(l.id);
-      const delta = C.SCORE.LANDMARK_DISCOVERED + (first ? C.SCORE.LANDMARK_FIRST_FINDER : 0);
-      addScore(p, delta, 'landmark');
-      send(p, { t: 'discover', kind: 'landmark', name: l.name, first, delta });
+      send(p, { t: 'discover', kind: 'landmark', name: l.name, first });
     }
   }
 
@@ -271,7 +244,7 @@ export function createWorld(options = {}) {
         }
         token = crypto.randomBytes(24).toString('base64url');
         // msg.name / msg.email / msg.newsletter are deliberately NOT stored.
-        profile = { name: publicHandle(), score: 0, kills: 0 };
+        profile = { name: publicHandle() };
         byToken.set(token, profile);
       }
 
@@ -290,7 +263,7 @@ export function createWorld(options = {}) {
         inventory: startingInventory(), state: P.emptyState(),
         joinedAt: Date.now(), lastSeen: Date.now(), lastStateAt: Date.now(),
         protectedUntil: serverTime() + C.SPAWN_PROTECTION_SECONDS,
-        known: new Set(), discovered: new Set(), scoreAcc: 0,
+        known: new Set(), discovered: new Set(),
       };
       Object.assign(player.state, {
         id, x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw,
@@ -304,10 +277,10 @@ export function createWorld(options = {}) {
         health: player.health, armor: player.armor, dead: false, vehicle: null,
         serverTime: serverTime(), dayFraction: dayFraction(), dayLength: C.DAY_LENGTH_SECONDS,
         weather, spawn, safeZone: C.SAFE_ZONE, protectedUntil: player.protectedUntil,
-        score: profile.score, inventory: player.inventory, playersOnline: players.size, era: 'present',
+        inventory: player.inventory, playersOnline: players.size, era: 'present',
       });
       if (ADMIN) send(player, { t: 'adminState', admin: true, flying: false });
-      broadcast({ t: 'join', id, name: player.name, score: profile.score }, player);
+      broadcast({ t: 'join', id, name: player.name }, player);
       broadcast({ t: 'online', count: players.size });
       log(`[net] ${player.name} (#${id}) joined - ${players.size} online`);
     }
@@ -360,7 +333,6 @@ export function createWorld(options = {}) {
         case 'shoot': return shoot(player, msg);
         case 'melee': return melee(player, msg);
         case 'respawn': return respawn(player);
-        case 'leaderboard': return sendLeaderboard(player);
         case 'switchWeapon': {
           if (player.inventory.weapons.some((w) => w.id === msg.w)) {
             player.inventory.current = msg.w;
@@ -451,11 +423,6 @@ export function createWorld(options = {}) {
       if (now - p.lastSeen > 30000) { p.ws.terminate?.(); continue; }
       if (p.dead) continue;
       checkDiscovery(p);
-      p.scoreAcc += dt;
-      if (p.scoreAcc >= 60) {
-        p.scoreAcc -= 60;
-        addScore(p, C.SCORE.SURVIVE_PER_MINUTE, 'survival');
-      }
     }
 
     // Area-of-interest snapshots + lazily-sent names, per protocol.ts.
@@ -469,7 +436,7 @@ export function createWorld(options = {}) {
         near.push(q.state);
         if (q !== p && !p.known.has(q.id)) {
           p.known.add(q.id);
-          unknown.push({ id: q.id, name: q.name, score: q.profile.score });
+          unknown.push({ id: q.id, name: q.name });
         }
       }
       if (unknown.length) send(p, { t: 'names', players: unknown });
@@ -519,13 +486,12 @@ export function createWorld(options = {}) {
       landmarks: C.LANDMARKS.length,
       landmarksDiscovered: [...discoveredGlobally],
       players: [...players.values()].map((q) => ({
-        id: q.id, name: q.name, score: q.profile.score, kills: q.profile.kills,
+        id: q.id, name: q.name,
         dead: q.dead, protected: protectedNow(q),
         x: Math.round(q.state.x), z: Math.round(q.state.z), y: Math.round(q.state.y * 10) / 10,
         inSafeZone: inSafeZone(q.state),
         onlineSeconds: Math.round((Date.now() - q.joinedAt) / 1000),
       })),
-      leaderboard: leaderboard(10),
     };
   }
 

@@ -27,6 +27,9 @@ for (const mobile of [false, true]) {
     assert.equal(shader.fragmentShader.includes(helper), !mobile, `${helper} is desktop-only`);
   }
   if (mobile) {
+    assert(shader.fragmentShader.includes('distance(cameraPosition, position)'), 'surface LOD includes camera altitude');
+    assert(shader.fragmentShader.includes('if (detail <= 0.0) return coarse;'), 'distant wall fragments skip detailed shading');
+    assert(shader.fragmentShader.includes('S.alb = mix(coarse.alb, S.alb, detail)'), 'transition blends instead of popping');
     assert(shader.fragmentShader.includes('win > 0.001 && lightResolution > 0.001 && litFrac > 0.0'));
     const light = shader.fragmentShader.slice(shader.fragmentShader.indexOf('vec3 mobileWindowLight('), shader.fragmentShader.indexOf('Surf shadeWall('));
     assert.equal((light.match(/hash[234]\(/g) ?? []).length, 2, 'at most two occupancy samples per window');
@@ -58,6 +61,7 @@ precision highp float;
 precision highp int;
 #define varying in
 #define texture2D texture
+uniform vec3 cameraPosition;
 ${mobileFacadeShader(scope.se)}
 out vec4 result;
 void main() {
@@ -84,6 +88,8 @@ for (const mobile of [false, true]) {
   material.onBeforeCompile(shader);
   sizes.push(shader.fragmentShader.length);
   assert.equal(shader.fragmentShader.includes('mobileWindowLight('), mobile);
+  assert.equal(shader.fragmentShader.includes('mobileLmDetail = mobileSurfaceDetail(vWPos, fwidth(vFuv))'), mobile);
+  assert.equal(shader.fragmentShader.includes('if (mobileLmDetail <= 0.0) return 0.5;'), mobile, 'distant landmarks skip procedural noise');
   for (const fn of ['windowLit(', 'windowLightColorLOD(', 'farWindowLight(', 'windowInterior(']) {
     assert.equal(shader.fragmentShader.includes(fn), !mobile, `${fn} is excluded from mobile custom towers`);
   }

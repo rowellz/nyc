@@ -38,7 +38,7 @@ export function createRenderer(canvas: HTMLCanvasElement, quality: Quality, opts
     // 'default' lets Chrome fail over to software; we want to know when we don't have a GPU
     failIfMajorPerformanceCaveat: false,
   });
-  if (isIOS()) prepareTextureUploads(renderer);
+  prepareTextureUploads(renderer);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1;

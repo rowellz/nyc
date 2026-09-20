@@ -30,21 +30,22 @@ function routeEntry(tx, tz, x, z, dx, dz) {
 }
 
 // The main loop normally stops publication when sixteen scene jobs are busy.
-// Allow only an already-decoded, missing occupied tile through that gate: its
-// roads should not wait for unrelated buildings to finish. The streamer still
-// enforces one publication per frame and its resident-tile limit.
+// Allow decoded occupied/required driving tiles through that gate: a car held
+// at the boundary cannot enter its missing tile to make it occupied. The
+// streamer still enforces one publication per frame and its resident-tile limit.
 export function canCommitSceneTile(ctx, world) {
   const limit = world.stats?.fastTravel ? (world.mobile || world.ios ? 6 : 10) : 16;
   if ((ctx.busy ?? 0) < limit) return true;
   const key = keyOf(Math.floor(world.focus.x / TILE), Math.floor(world.focus.z / TILE));
-  return !world.tiles.has(key) && world.landed.some(({ p, id }) =>
-    p.key === key && world.inFlight.get(key) === id);
+  return world.landed.some(({ p, id }) => !world.tiles.has(p.key)
+    && (p.key === key || world.drivingRequired?.has(p.key)) && world.inFlight.get(p.key) === id);
 }
 
 export function configureStreaming(world, camera) {
   const cancelObsoleteRequests = installTileRequests(world);
   const mobile = world.mobile || world.ios;
   const mobileRequestLimit = world.ios ? IOS_STREAMING.requests : 2;
+  const residentLimit = world.ios ? IOS_STREAMING.maxTiles : mobile ? 28 : Infinity;
   const originalUpdate = world.update;
   const originalUnloadAll = world.unloadAll;
   const direction = world.focus.clone();
@@ -62,6 +63,7 @@ export function configureStreaming(world, camera) {
     const { x, z } = world.focus;
     const d = distance(tx, tz, x, z);
     if (tx === Math.floor(x / TILE) && tz === Math.floor(z / TILE)) return -2 * TILE;
+    if (world.drivingRequired?.has(keyOf(tx, tz))) return -1.75 * TILE + Math.min(d, TILE) / 4;
     if (d < TILE / 2) return -TILE + d;
     if (Math.hypot(aheadX, aheadZ) > 0) {
       const lead = Math.hypot(aheadX, aheadZ);
@@ -92,7 +94,7 @@ export function configureStreaming(world, camera) {
     } else { vx = vz = 0; }
     sample = { x: focus.x, z: focus.z, time: wall };
     const speed = Math.hypot(vx, vz);
-    this.stats.fastTravel = !nearOnly && speed > FAST_TRAVEL_SPEED;
+    this.stats.fastTravel = !nearOnly && (speed > FAST_TRAVEL_SPEED || this.stats.drivingWaiting === true);
     camera.getWorldDirection(direction);
     const facing = Math.hypot(direction.x, direction.z);
     const nearReach = this.ios ? TILE : this.drawDistance;
@@ -114,8 +116,9 @@ export function configureStreaming(world, camera) {
     // Make one available for a missing occupied tile even if scene jobs prevent
     // publishing those neighbors. Requeue the lower-priority reply for later.
     const requestLimit = mobile ? mobileRequestLimit : this.initialBurst ? 6 : 2;
-    if (!this.tiles.has(key) && !this.inFlight.has(key)
-      && this.inFlight.size >= requestLimit && this.queue.some(p => p.key === key) && this.landed.length) {
+    const needed = [key, ...(this.drivingRequired ?? [])].find(key =>
+      !this.tiles.has(key) && !this.inFlight.has(key) && this.queue.some(p => p.key === key));
+    if (needed && this.inFlight.size >= requestLimit && this.landed.length) {
       this.landed.sort((a, b) => this.tilePriority(a.p.tx, a.p.tz) - this.tilePriority(b.p.tx, b.p.tz));
       const { p, id } = this.landed.pop();
       if (this.inFlight.get(p.key) === id) {
@@ -124,11 +127,12 @@ export function configureStreaming(world, camera) {
         this.queue.sort((a, b) => this.tilePriority(a.tx, a.tz) - this.tilePriority(b.tx, b.tz));
       }
     }
-    const urgent = commitAllowed && !this.tiles.has(key) && this.landed.some(reply => reply.p.key === key);
+    const urgent = commitAllowed && this.landed.some(reply => !this.tiles.has(reply.p.key)
+      && reply.p.key === key);
     const sceneDue = !this.stats.fastTravel || wall >= nextSceneChange;
     // Once there is room, do not drain a whole retirement queue before showing
     // the occupied tile. Cleanup resumes on subsequent frames.
-    const hasRoom = !this.ios || this.tiles.size < IOS_STREAMING.maxTiles;
+    const hasRoom = this.tiles.size < residentLimit;
     const canPublish = commitAllowed && this.landed.length > 0 && hasRoom;
     // Alternate cleanup and publication when both have work. A long retirement
     // queue must not hold the route hostage; iOS still retires first at its cap.
@@ -137,7 +141,7 @@ export function configureStreaming(world, camera) {
     const before = this.tiles.size;
     if (retire !== undefined) this.unload(retire);
     else if (commitAllowed && (sceneDue || urgent)
-      && (!this.ios || this.tiles.size < IOS_STREAMING.maxTiles)) this.commitLanded();
+      && this.tiles.size < residentLimit) this.commitLanded();
     if (this.tiles.size !== before) {
       retiredLast = retire !== undefined;
       nextSceneChange = wall + travelSceneInterval;
@@ -153,6 +157,10 @@ export function configureStreaming(world, camera) {
       const key = keyOf(tx, tz);
       if (this.tileSet.has(key)) wanted.set(key, { key, tx, tz, dist: this.tilePriority(tx, tz) });
     };
+    for (const key of this.drivingRequired ?? []) {
+      const [tx, tz] = key.split('_').map(Number);
+      add(tx, tz);
+    }
     const radius = this.nearOnly ? 1 : this.ios ? Math.ceil(this.drawDistance / TILE) : this.loadRadius;
     for (let tx = ftx - radius; tx <= ftx + radius; tx++) {
       for (let tz = ftz - radius; tz <= ftz + radius; tz++) {
@@ -179,6 +187,10 @@ export function configureStreaming(world, camera) {
       candidates.sort((a, b) => a.dist - b.dist);
       for (const p of candidates.slice(0, this.ios ? 1 : mobile ? 3 : 10)) wanted.set(p.key, p);
     }
+    // Leave room for retained tiles and one replacement. Density must not let
+    // Android accumulate an unbounded ring of geometry and physics either.
+    if(mobile) wanted=new Map([...wanted].sort((a,b)=>a[1].dist-b[1].dist)
+      .slice(0,residentLimit-(this.ios?2:4)));
     // Keep one recently used tile on iOS, up to three on other phones.
     // A brief turn or boundary crossing should reuse its scene and colliders.
     for (const key of wanted.keys()) lastWanted.set(key, now);
@@ -252,6 +264,8 @@ export function configureStreaming(world, camera) {
     nextSceneChange = 0;
     retiredLast = false;
     this.stats.fastTravel = false;
+    this.drivingRequired = undefined;
+    this.stats.drivingWaiting = false;
     originalUnloadAll.call(this);
   };
   return world;

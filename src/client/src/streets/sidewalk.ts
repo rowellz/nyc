@@ -9,7 +9,7 @@
 import type { Pt, Ring } from '@shared/world';
 import { GroundBuilder, type TileEnv } from './builders';
 import { carriagewayIndex } from './carriageway.js';
-import { GRID_DIR, STREET, clipConvex, clipPolylineToRect, dir4, edgeOnRect, hash2, indexPolygons, pointInAny, ringBBox, signedArea, subtractConvex, triangulate, yawToDir, type IndexedPolygon, type NearestSample } from './geom2d';
+import { GRID_DIR, STREET, clipConvex, clipPolylineToRect, dir4, edgeOnRect, hash2, pointInAny, ringBBox, signedArea, subtractConvex, triangulate, yawToDir, type BBox, type NearestSample } from './geom2d';
 import { KIND } from './materials';
 
 export const WALK_Y = 0.15;
@@ -68,12 +68,27 @@ interface PolyState {
   rings: RingState[];
   kind: number;
   rand: number;
-  /** paving that already owns this ground: triangles whose centroid falls inside are not emitted */
-  under?: IndexedPolygon[];
+  /** Earlier paving owns the overlap; subtract its triangles, respecting polygon holes. */
+  under?: PavingCut[];
   /** roadway this paving may not cover: the slab is trimmed to it and curbed on the trim */
   road?: Carriageway;
   /** curb runs the trim created (filled by emitTop, emitted by emitCurbs) */
   cuts?: CurbEdge[];
+}
+
+interface PavingCut {
+  bb: BBox;
+  triangles: Ring[];
+}
+
+function pavingCut(poly: Ring[]): PavingCut | null {
+  const tri = triangulate(poly);
+  if (!tri) return null;
+  const triangles: Ring[] = [];
+  for (let i = 0; i < tri.tris.length; i += 3) {
+    triangles.push(tri.tris.slice(i, i + 3).map(v => [tri.verts[v * 2], tri.verts[v * 2 + 1]]));
+  }
+  return { bb: ringBBox(poly[0]), triangles };
 }
 
 function outward(r: RingState, i: number): [number, number, number] {
@@ -83,7 +98,7 @@ function outward(r: RingState, i: number): [number, number, number] {
   return [(dz / len) * r.sign, (-dx / len) * r.sign, len];
 }
 
-function prepare(env: TileEnv, poly: Ring[], kind: number, rand: number, fallback = false, under?: IndexedPolygon[], road?: Carriageway): PolyState | null {
+function prepare(env: TileEnv, poly: Ring[], kind: number, rand: number, fallback = false, under?: PavingCut[], road?: Carriageway): PolyState | null {
   const rings: RingState[] = [];
   for (let ri = 0; ri < poly.length; ri++) {
     const ring = poly[ri];
@@ -274,13 +289,21 @@ function emitTop(env: TileEnv, gb: GroundBuilder, p: PolyState): void {
   const corner = (i: number): number => vertex(tri.verts[i * 2], tri.verts[i * 2 + 1]);
   for (let i = 0; i < tri.tris.length; i += 3) {
     const a = tri.tris[i], b = tri.tris[i + 1], c = tri.tris[i + 2];
-    if (p.under) {
-      const cx = (tri.verts[a * 2] + tri.verts[b * 2] + tri.verts[c * 2]) / 3;
-      const cz = (tri.verts[a * 2 + 1] + tri.verts[b * 2 + 1] + tri.verts[c * 2 + 1]) / 3;
-      if (pointInAny(cx, cz, p.under)) continue;
+    const subject: Ring = [a, b, c].map(v => [tri.verts[v * 2], tri.verts[v * 2 + 1]]);
+    let parts = [subject];
+    if (p.under?.length) {
+      const bb = ringBBox(subject);
+      for (const cut of p.under) {
+        if (cut.bb.maxX <= bb.minX || cut.bb.minX >= bb.maxX || cut.bb.maxZ <= bb.minZ || cut.bb.minZ >= bb.maxZ) continue;
+        for (const triangle of cut.triangles) {
+          parts = parts.flatMap(part => subtractConvex(part, triangle));
+          if (!parts.length) break;
+        }
+        if (!parts.length) break;
+      }
     }
-    const parts = p.road ? p.road.clip([a, b, c].map((v) => [tri.verts[v * 2], tri.verts[v * 2 + 1]] as Pt)) : null;
-    if (!parts) {
+    if (p.road) parts = parts.flatMap(part => p.road!.clip(part) ?? [part]);
+    if (parts.length === 1 && parts[0] === subject) {
       gb.tri(corner(a), corner(b), corner(c));
       continue;
     }
@@ -294,7 +317,7 @@ function emitTop(env: TileEnv, gb: GroundBuilder, p: PolyState): void {
         if (Math.abs((u[0] - o[0]) * (w[1] - o[1]) - (w[0] - o[0]) * (u[1] - o[1])) < 1e-7) continue;
         gb.tri(vs[0], vs[k], vs[k + 1]);
       }
-      cutCurbs(p, part);
+      if (p.road) cutCurbs(p, part);
     }
   }
 }
@@ -522,11 +545,17 @@ export function* buildSidewalks(env: TileEnv, gb: GroundBuilder, out: SidewalkRe
   // every fragment, which is what turns the 1.52 m flag grid into a patchwork of half-joints. The
   // sidewalk layer is what the frontage photographs as (refs/_sheets/fifth-42nd 3, 4), so it owns the
   // overlap and the plaza keeps only the ground no sidewalk already claims.
-  const paved = indexPolygons(tile.sidewalks);
+  // Index the full polygons before ramp notches: later paving must not fill a curb cut.
+  // Center-only tests miss partial overlaps and also discard valid paving outside the sidewalk.
+  const paved = tile.sidewalks.map(pavingCut).filter((cut): cut is PavingCut => cut !== null);
   const addOver = (list: Ring[][], kind: number, trim?: Carriageway) => {
     for (const poly of list) {
-      const st = prepare(env, poly, kind, hash2(env.seed + 7, k++), false, paved.length ? paved : undefined, trim);
-      if (st) polys.push(st);
+      const st = prepare(env, poly, kind, hash2(env.seed + 7, k++), false, paved.slice(), trim);
+      if (st) {
+        polys.push(st);
+        const cut = pavingCut(poly);
+        if (cut) paved.push(cut);
+      }
     }
   };
   addOver(tile.medians, KIND.flags, road);

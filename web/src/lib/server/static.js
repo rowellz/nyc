@@ -21,6 +21,7 @@ import { streetContextAssetPaths, streetContextAssetTransform } from './street-c
 import { precompressedResponse } from './precompressed.js';
 import { railAssetPaths, railAssetTransform } from './rail-assets.js';
 import { createSceneryService } from './scenery.js';
+import { scoreFreeAssetPaths, scoreFreeAssetTransform } from './score-free-assets.js';
 
 /**
  * In development nothing is cached. The mirrored client is patched in place (see
@@ -110,6 +111,10 @@ export async function serveStatic(relPath, options = {}) {
 
   if (options.transform || ext === '.js' || ext === '.html') {
     let body = await fs.promises.readFile(file, 'utf8');
+    if (scoreFreeAssetPaths.has(rel)) {
+      body = scoreFreeAssetTransform(rel, body);
+      headers['cache-control'] = 'no-store';
+    }
     if (tunnelAssetPaths.has(rel)) {
       body = tunnelAssetTransform(rel, body);
       headers['cache-control'] = 'no-store';

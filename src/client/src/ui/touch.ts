@@ -29,7 +29,6 @@ export class TouchControls {
 #nyc[data-touch="active"] .chip {font-size:10px;padding:2px 4px;letter-spacing:.02em}
 #nyc[data-touch="active"] .stats {display:none}
 #nyc[data-touch="active"] .tr {right:12px;top:max(12px,env(safe-area-inset-top))}
-#nyc[data-touch="active"] .score-val {font-size:30px}
 #nyc[data-touch="active"] .online {font-size:10px}
 #nyc[data-touch="active"] .tc {top:168px;left:12px;right:12px;transform:none;gap:3px}
 #nyc[data-touch="active"] .banner {font-size:10px;padding:5px 8px;max-width:100%;text-align:center}

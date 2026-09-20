@@ -106,6 +106,7 @@ function fixture({ ios = true, mobile = true, predictive = true, latency = 0.6, 
       + events.filter(e => e[0] === 'tileLoaded').length - before <= 1,
     'tile publication and retirement share one lifecycle change per frame on every device');
     if (mobile || ios) assert(world.inFlight.size <= (predictive && !ios ? 2 : 1), 'bounded in-flight memory');
+    if (mobile && !ios && predictive) assert(world.tiles.size <= 28, 'all mobile simulation tiles obey a hard resident cap');
     if (ios && predictive) assert(world.tiles.size <= 12, 'nearby, ahead and retained tiles share the 12-tile iOS limit');
   }
   return { world, camera, events, requests, pending, changes, frame, point, get time() { return time; } };
@@ -440,3 +441,36 @@ for (const file of ['main-D_3aygO4.js', 'streets-CfYSUqyW.js', 'quality-BuEwAkMy
   assert.equal(await response.text(), readFileSync(new URL(file, assets), 'utf8'));
 }
 console.log('PASS predictive streaming: startup, ahead loads, turns, memory, backpressure, teleports, retries, serving');
+
+// Dense mobile view rings must leave space for retention and incoming tiles.
+{
+  const f=fixture({ios:false,mobile:true,latency:.01});
+  for(let i=0;i<150;i++)await f.frame();
+  assert(f.world.tiles.size>9,'exercise more than the immediate neighborhood');
+  for(let i=0;i<400;i++)await f.frame({x:f.point.x+2,z:128+Math.sin(i/60)*150});
+  for(let i=0;i<150;i++)await f.frame();
+  assertCoverage(f);assert(f.world.tiles.size<=28);
+  f.world.unloadAll();assert.equal(f.world.tiles.size,0);
+}
+console.log('PASS bounded Android tile rings, travel, occupied-neighborhood priority and unload');
+
+// A car must get its next collision tile BEFORE entering it, even when a
+// decoded unrelated neighbor holds every request slot behind scene backpressure.
+for (const options of [{}, { ios: false }, { ios: false, mobile: false }]) {
+  const f = fixture({ ...options, latency: .1 });
+  for (let i = 0; i < 60; i++) await f.frame({ busy: 24 });
+  assert.deepEqual([...f.world.tiles.keys()], ['0_0']);
+  assert(f.world.landed.length > 0);
+  const target = f.world.queue.find(p => Math.abs(p.tx) <= 1 && Math.abs(p.tz) <= 1);
+  assert(target, 'an unrequested driving destination remains');
+  f.world.drivingRequired = new Set(['0_0', target.key]);
+  f.world.lastPlan = -Infinity;
+  assert(f.world.tilePriority(target.tx, target.tz) < f.world.tilePriority(0, -2));
+  for (let i = 0; i < 60; i++) await f.frame({ busy: 24 });
+  assert(f.world.tiles.has(target.key), 'car route bypasses backlog while player remains in loaded tile');
+  assert.equal(f.world.tiles.size, 2, 'speculative ahead scenery does not bypass the busy gate');
+  assert.equal(f.point.x, 128, 'priority survives a stationary streaming hold');
+  f.world.unloadAll();
+  assert.equal(f.world.drivingRequired, undefined);
+}
+console.log('PASS driving collision requests: priority, decoder-slot recovery and publication before entry');

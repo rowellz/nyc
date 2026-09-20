@@ -12,7 +12,7 @@ import { signedArea } from './geom';
 import { FIFTEEN_HUNDRED_BROADWAY_BIN, TIMES_SQUARE_AXIS, TWO_TIMES_SQUARE_BIN } from './data';
 
 export const ATLAS_CELLS = 4; // 4x4 cells
-export const ATLAS_SIZE = 2048;
+export const ATLAS_SIZE = 1920;
 /** atlas cell of the news strip every scrolling ribbon shows (designed to tile horizontally) */
 export const TICKER_CELL = 14;
 /** atlas cell the Nasdaq cylinder's slideshow starts on */

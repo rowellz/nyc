@@ -58,13 +58,14 @@ const landmarks = source('landmarks-KpQKy0CX.js');
 for (const level of ['mobile', 'high']) {
   canvases = [];
   const cells = [];
-  const scope = vm.createContext({ document, en: 2048, O: Texture, d: 'srgb', n: 1, m: 2, v: 3,
+  const atlasSize = Number(/var en=(\d+),/.exec(landmarks)[1]);
+  const scope = vm.createContext({ document, en: atlasSize, O: Texture, d: 'srgb', n: 1, m: 2, v: 3,
     On: [(_g, size) => cells.push(size)], nn: Array.from({ length: 16 }, () => ({ setRGB() {} })),
     e: { quality: { level } },
   });
   vm.runInContext(between(landmarks, 'function kn(', 'var An=class'), scope);
   const atlas = vm.runInContext(between(landmarks, 'let s=kn(', 'let c=null;') + 's', scope);
-  const size = level === 'mobile' ? 512 : 2048;
+  const size = level === 'mobile' ? 512 : 1920;
   assert.equal(atlas.image.width, size);
   assert.equal(atlas.image.height, size);
   assert.deepEqual(cells, Array(16).fill(size / 4), 'all ad cells use the same normalized layout');
@@ -80,8 +81,8 @@ for (const level of ['mobile', 'high']) {
   vm.runInContext(between(props, 'var ve=class', 'rectOf(e)') + 'drawFixed(){}};', scope);
   const scale = between(props, 'n.quality.level===`mobile`?', '),h=new he');
   const atlas = vm.runInContext(`new ve(null,()=>true,${scale})`, scope);
-  assert.equal(atlas.canvas.width, level === 'mobile' ? 512 : 4096);
-  assert.deepEqual(atlas.canvas.scales[0], level === 'mobile' ? [.125, .125] : [1, 1]);
+  assert.equal(atlas.canvas.width, level === 'mobile' ? 512 : 1920);
+  assert.deepEqual(atlas.canvas.scales[0], level === 'mobile' ? [.125, .125] : [1920 / 4096, 1920 / 4096]);
 }
 
 // Run the real prop worker's texture generation and transfer, omitting only
@@ -99,8 +100,13 @@ for (const mobile of [true, false]) {
   const { base, plywood } = reply.textures;
   assert.equal(base.image.width, mobile ? 128 : 512);
   assert.equal(base.image.height, mobile ? 128 : 512);
-  assert.equal(plywood.image.width, mobile ? 512 : 2048);
-  assert.equal(plywood.image.height, mobile ? 128 : 512);
+  assert.equal(plywood.image.width, mobile ? 256 : 512);
+  assert.equal(plywood.image.height, mobile ? 64 : 128);
   assert.equal(plywood.image.data.byteLength, plywood.image.width * plywood.image.height * 4);
+  assert.equal(reply.textures.ped.image.width, 1920);
+  assert.equal(reply.textures.ped.image.height, 60);
+  for (const texture of Object.values(reply.textures)) {
+    assert(Math.max(texture.image.width, texture.image.height) <= 1920);
+  }
 }
 console.log('PASS mobile vehicle, Times Square, sign and scaffolding texture allocations, layouts and worker transfers');

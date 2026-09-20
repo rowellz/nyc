@@ -10,7 +10,6 @@ const CONTROLS: [string, string][] = [
   ['E', 'enter / exit vehicle · pick up'],
   ['F', 'horn / siren'],
   ['R', 'reload'],
-  ['Tab', 'leaderboard'],
   ['M', 'map'],
 ];
 

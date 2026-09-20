@@ -1,3 +1,4 @@
+import { t as buildScope } from './loading-DS_gLujL.js?v=mobile-chunk-pacing-62';
 import { deckEdges } from './edges.js';
 import { holesForTile as railHolesForTile, waterHolesForTiles } from './rail/footprints.js?v=station-layout-32';
 
@@ -312,6 +313,15 @@ export function tunnelWaterHoles(profiles) {
 /** Subtract convex approach footprints from triangles, interpolating every
  * attribute. Used for both rendered paving and the actual ground collider. */
 export function cutGround(attributes, indices, holes, heightRange = [-0.5, 0.3]) {
+  const steps = cutGroundSteps(attributes, indices, holes, heightRange);
+  let step;
+  do { step = steps.next(); } while (!step.done);
+  return step.value;
+}
+
+/** The water plane spans the city: a single triangle can intersect hundreds of
+ * holes. Yield within polygon subtraction, not just between input triangles. */
+export function* cutGroundSteps(attributes, indices, holes, heightRange = [-0.5, 0.3]) {
   if (!holes.length) return null;
   const entries = Object.entries(attributes), posSlot = entries.findIndex(([name]) => name === 'position');
   const bounds = holes.map(r => ({ r, minX: Math.min(...r.map(p => p[0])), maxX: Math.max(...r.map(p => p[0])), minZ: Math.min(...r.map(p => p[1])), maxZ: Math.max(...r.map(p => p[1])) }));
@@ -330,17 +340,21 @@ export function cutGround(attributes, indices, holes, heightRange = [-0.5, 0.3])
     }
     return out;
   };
+  let operations = 0;
   for (let i = 0; i < indices.length; i += 3) {
+    if (++operations % 32 === 0) yield;
     let pieces = [[point(indices[i]), point(indices[i + 1]), point(indices[i + 2])]];
     const xyz = pieces[0].map(v => v[posSlot]);
     const minX = Math.min(...xyz.map(p => p[0])), maxX = Math.max(...xyz.map(p => p[0])), minZ = Math.min(...xyz.map(p => p[2])), maxZ = Math.max(...xyz.map(p => p[2]));
     for (const h of bounds) {
       if (h.maxX < minX || h.minX > maxX || h.maxZ < minZ || h.minZ > maxZ || xyz.some(p => p[1] > heightRange[1] || p[1] < heightRange[0])) continue;
-      pieces = pieces.flatMap(poly => {
+      const remaining = [];
+      for (const poly of pieces) {
+        if (++operations % 32 === 0) yield;
         // Earlier cuts create pieces far from this hole. Do not subdivide
         // those pieces along the infinite extensions of its clipping edges.
         if (poly.every(v => v[posSlot][0] < h.minX) || poly.every(v => v[posSlot][0] > h.maxX)
-          || poly.every(v => v[posSlot][2] < h.minZ) || poly.every(v => v[posSlot][2] > h.maxZ)) return [poly];
+          || poly.every(v => v[posSlot][2] < h.minZ) || poly.every(v => v[posSlot][2] > h.maxZ)) { remaining.push(poly); continue; }
         const outside = [];
         let inside = poly;
         for (let j = 0; j < h.r.length && inside.length >= 3; j++) {
@@ -349,10 +363,12 @@ export function cutGround(attributes, indices, holes, heightRange = [-0.5, 0.3])
           if (part.length >= 3) outside.push(part);
           inside = clip(inside, a, b, 1);
         }
-        return outside;
-      });
+        for (const part of outside) remaining.push(part);
+      }
+      pieces = remaining;
     }
     for (const poly of pieces) {
+      if (++operations % 32 === 0) yield;
       const base = output[posSlot].length / 3;
       for (const v of poly) v.forEach((attr, j) => output[j].push(...attr));
       for (let j = 1; j + 1 < poly.length; j++) index.push(base, base + j, base + j + 1);
@@ -449,6 +465,62 @@ function recut(mesh, holes) {
 }
 
 const waterProfiles = new WeakMap();
+const waterBuilds = new WeakMap();
+function syncWater(ctx, mesh, profiles, holes) {
+  // Tile/profile identity changes even when the visible cutouts are identical.
+  // Canonicalize ordering so unrelated arrivals never rebuild the whole sea.
+  const signature = holes.map(ring => JSON.stringify(ring)).sort().join(';');
+  const previous = waterProfiles.get(mesh);
+  if (previous?.signature === signature) { previous.profiles = profiles; return; }
+  const record = { profiles, signature, job: null };
+  waterProfiles.set(mesh, record);
+  previous?.job?.cancel();
+  if (ctx.quality?.level !== 'mobile') { recut(mesh, holes); return; }
+  if (!holes.length && !terrainBases.has(mesh)) return;
+  let scope = waterBuilds.get(ctx);
+  if (!scope) { scope = buildScope(ctx); waterBuilds.set(ctx, scope); }
+  const attached = () => {
+    let root = mesh;
+    while (root.parent) root = root.parent;
+    return root === ctx.scene;
+  };
+  const job = record.job = scope.job('water cutouts');
+  job.run((function* () {
+    let next, published = false;
+    try {
+      let base = terrainBases.get(mesh);
+      if (!base) { base = mesh.geometry.clone(); terrainBases.set(mesh, base); }
+      const steps = cutGroundSteps(base.attributes, base.index.array, holes);
+      let result;
+      do {
+        if (!attached()) return;
+        result = steps.next();
+        if (!result.done) yield;
+      } while (!result.done);
+      next = base.clone();
+      const cut = result.value;
+      if (cut) {
+        const Attribute = next.getAttribute('position').constructor;
+        for (const [name, a] of Object.entries(cut.attributes)) {
+          next.setAttribute(name, new Attribute(a.array, a.itemSize));
+          yield;
+        }
+        next.setIndex(new Attribute(cut.index, 1));
+        next.computeBoundingSphere();
+        yield;
+      }
+      if (!attached()) return;
+      mesh.geometry.dispose(); mesh.geometry = next;
+      published = true;
+    } finally {
+      if (!published) {
+        next?.dispose();
+        if (waterProfiles.get(mesh) === record) waterProfiles.delete(mesh);
+      }
+      record.job = null;
+    }
+  })());
+}
 const terrainStates = new WeakMap();
 /** Rebuild from original surfaces, so streamed neighbours can reveal or remove
  * portals without accumulating holes. The collider gets the very same cuts. */
@@ -479,8 +551,8 @@ export function syncTunnelTerrain(ctx, tile = null) {
     state.tiles.set(current.key, { tile: current, ground, signature, cut: local.length > 0, colliderReady });
   }
   const water = ctx.scene.getObjectByName('env-water');
-  if (water && waterProfiles.get(water) !== profiles) {
-    recut(water, [...tunnelWaterHoles(profiles), ...waterHolesForTiles(ctx.world.tiles.values())]); waterProfiles.set(water, profiles);
+  if (water && waterProfiles.get(water)?.profiles !== profiles) {
+    syncWater(ctx, water, profiles, [...tunnelWaterHoles(profiles), ...waterHolesForTiles(ctx.world.tiles.values())]);
   }
 }
 

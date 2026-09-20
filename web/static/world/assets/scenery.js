@@ -1,5 +1,5 @@
 import { g as BufferGeometry, h as BufferAttribute, kt as Mesh, Z as Group, Pt as MeshStandardMaterial, At as MeshBasicMaterial, ar as Sphere, Or as Vector3 } from './textureRelease-2U-gT89r.js';
-import { SCENERY_VERSION } from './scenery-format.js';
+import { SCENERY_VERSION, compactSceneryIndex } from './scenery-format.js';
 import { createSceneryStream, sceneryBudget } from './scenery-stream.js';
 import { createSceneryTransport } from './scenery-transport.js';
 
@@ -156,10 +156,17 @@ outgoingLight+=lamp*windows*.65*uLodNight;
     for (const mesh of handle.children) {
       const { coverage, kind, tiles }=mesh.userData;
       for (let i=0;i<tiles.length;i++) coverage[i]=ready[kind].has(tiles[i])?1:0;
+      if(mobile) compactMesh(mesh);
     }
+  }
+  function compactMesh(mesh) {
+    const count=compactSceneryIndex(mesh.userData,mesh.userData.coverage,builtLandmarks);
+    mesh.geometry.setDrawRange(0,count);
+    mesh.geometry.index.needsUpdate=true;
   }
   function syncLandmarks(handle) {
     for(const mesh of handle.children) {
+      if(mobile){compactMesh(mesh);continue;}
       const {features,sourceIndex}=mesh.userData;
       if(!features.length)continue;
       const index=mesh.geometry.index.array;
@@ -187,11 +194,12 @@ outgoingLight+=lamp*windows*.65*uLodNight;
         mesh.castShadow=mesh.receiveShadow=false;
         // The skyline mirror hides near meshes, so keep their proxies in that pass.
         mesh.onBeforeRender=(_renderer,_scene,camera)=>{mesh.material.userData.lodCoverage.value=camera===ctx.camera?coverage:uncovered;};
-        mesh.userData={coverage,kind:layer.kind,tiles:chunk.tiles,features:layer.features,sourceIndex:layer.index};
+        mesh.userData={coverage,kind:layer.kind,tiles:chunk.tiles,features:layer.features,
+          sourceIndex:layer.index,renderIndex:layer.renderIndex,owner:layer.owner};
         root.add(mesh);
       }
       syncHandle(root,nearSceneryCoverage(ctx.worldGroup));
-      syncLandmarks(root);
+      if(!mobile)syncLandmarks(root);
       group.add(root);
       for(const tile of root.userData.treeTiles) treeTiles.set(tile.key,tile);
       return root;
@@ -203,7 +211,7 @@ outgoingLight+=lamp*windows*.65*uLodNight;
     for (const mesh of root.children) { mesh.geometry.dispose(); mesh.material.dispose(); }
   }
   const stream=createSceneryStream({budget,publish,remove,fetchChunk:(key,tier,signal)=>
-    transport.load(`${url}/${key}.${tier}.bin?v=${manifest.revision}`,key,tier,signal)});
+    transport.load(`${url}/${key}.${tier}.bin?v=${manifest.revision}`,key,tier,signal,budget.decodeBytes)});
   return {
     group,stats,
     syncLandmarks() {for(const rec of stream.resident.values())syncLandmarks(rec.handle);},

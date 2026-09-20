@@ -110,7 +110,7 @@ export class NetClientImpl implements NetClient {
   private sendAcc = 0;
   private pingAcc = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private names = new Map<number, { name: string; score: number }>();
+  private names = new Map<number, { name: string }>();
   private disposed = false;
   private loggedFailure = false;
   private tmpO = new THREE.Vector3();
@@ -351,7 +351,6 @@ export class NetClientImpl implements NetClient {
         r = {
           id: s.id,
           name: meta?.name ?? `Player ${s.id}`,
-          score: meta?.score ?? 0,
           prev: { ...s },
           next: { ...s },
           prevTime: serverTime - 1 / 15,
@@ -427,7 +426,6 @@ export class NetClientImpl implements NetClient {
         st.safeZone = { ...msg.safeZone };
         st.era = msg.era;
         st.online = msg.playersOnline;
-        local.score = msg.score;
         local.inventory = msg.inventory;
         local.protectedUntil = msg.protectedUntil;
         local.dead = msg.dead;
@@ -481,12 +479,11 @@ export class NetClientImpl implements NetClient {
         break;
       }
       case 'join':
-        this.names.set(msg.id, { name: msg.name, score: msg.score });
+        this.names.set(msg.id, { name: msg.name });
         if (msg.id !== st.local.id) {
           const r = st.remotes.get(msg.id);
           if (r) {
             r.name = msg.name;
-            r.score = msg.score;
           }
           ev.emit('playerJoined', msg.id, msg.name);
         }
@@ -498,11 +495,10 @@ export class NetClientImpl implements NetClient {
         break;
       case 'names':
         for (const p of msg.players) {
-          this.names.set(p.id, { name: p.name, score: p.score });
+          this.names.set(p.id, { name: p.name });
           const r = st.remotes.get(p.id);
           if (r) {
             r.name = p.name;
-            r.score = p.score;
           }
         }
         break;
@@ -549,16 +545,6 @@ export class NetClientImpl implements NetClient {
         ev.emit('localRespawn');
         break;
       }
-      case 'score':
-        if (this.status !== 'welcomed') break;
-        st.local.score = msg.score;
-        ev.emit('score', msg);
-        break;
-      case 'leaderboard':
-        st.leaderboard = msg.entries;
-        st.online = msg.online;
-        ev.emit('leaderboard', msg);
-        break;
       case 'pickups':
         for (const id of msg.remove) {
           const p = st.pickups.get(id);
@@ -613,7 +599,7 @@ export class NetClientImpl implements NetClient {
         break;
       case 'discover':
         ev.emit('discover', msg);
-        ev.emit('feed', msg.first ? `You are the first to find ${msg.name} (+${msg.delta})` : `Discovered ${msg.name} (+${msg.delta})`, 'discover');
+        ev.emit('feed', msg.first ? `You are the first to find ${msg.name}` : `Discovered ${msg.name}`, 'discover');
         break;
       case 'welcomeRefused':
         this.admissionRefusal = { reason: msg.reason, retryAt: Date.now() + Math.max(60, Math.min(300, Number(msg.retryAfterS) || 60)) * 1000 };
@@ -726,5 +712,5 @@ export function interpolate(r: RemotePlayer, renderTime: number): void {
 
 export function makeRemote(id: number, name: string, s: PlayerState = emptyState()): RemotePlayer {
   const now = performance.now() / 1000;
-  return { id, name, score: 0, prev: { ...s }, next: { ...s }, prevTime: now, nextTime: now, render: { ...s }, lastSeen: now };
+  return { id, name, prev: { ...s }, next: { ...s }, prevTime: now, nextTime: now, render: { ...s }, lastSeen: now };
 }

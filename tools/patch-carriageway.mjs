@@ -6,6 +6,12 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const path = root + 'public/world/assets/tile.worker-Ai2ZdmRL.js';
 const original = readFileSync(path, 'utf8');
 let code = original;
+// Keep exact clipping consistent with source, including vertices on the cut line.
+const geom = readFileSync(root + 'src/client/src/streets/geom2d.ts', 'utf8');
+const splitSource = geom.slice(geom.indexOf('function splitConvex('), geom.indexOf('/** Exact convex clipping;'));
+const splitStart = code.indexOf('function tr('), splitEnd = code.indexOf('function nr(', splitStart);
+if (splitStart < 0 || splitEnd <= splitStart || !splitSource) throw new Error('Cannot find convex split boundaries');
+code = code.slice(0, splitStart) + stripTypeScriptTypes(splitSource).replace('function splitConvex(', 'function tr(') + code.slice(splitEnd);
 if (!code.includes('carriagewayIndex as $carriagewayIndex')) {
   code = "import { carriagewayIndex as $carriagewayIndex, pathHalfWidth as $pathHalfWidth } from './carriageway.js';\n" + code;
 }

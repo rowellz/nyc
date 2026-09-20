@@ -1,9 +1,9 @@
 /**
  * HUD DOM: every element is created once; setters compare against the last value so a frame with nothing
- * new touches nothing (no layout thrash). Anchors: tl feed/toasts, tr score, bl minimap/bars/location,
+ * new touches nothing (no layout thrash). Anchors: tl feed/toasts, tr online count, bl minimap/bars/location,
  * br weapon/speed, centre crosshair + prompt.
  */
-export type ToastKind = 'info' | 'score' | 'discover' | 'warn';
+export type ToastKind = 'info' | 'discover' | 'warn';
 export type FeedKind = 'kill' | 'system' | 'discover';
 
 const FEED_MAX = 6;
@@ -42,8 +42,6 @@ export class Hud {
   readonly center: HTMLDivElement;
   readonly minimapSlot: HTMLDivElement;
   private feedEl: HTMLDivElement;
-  private scoreVal: HTMLDivElement;
-  private popsEl: HTMLDivElement;
   private onlineEl: HTMLDivElement;
   private healthBar: HTMLDivElement;
   private healthValue: HTMLSpanElement;
@@ -69,9 +67,6 @@ export class Hud {
   private clickHint: HTMLDivElement;
 
   // last-values so we only write the DOM on change
-  private lastScoreShown = -1;
-  private scoreTarget = 0;
-  private scoreShown = 0;
   private lastOnline = -1;
   private lastHealth = -1;
   private lastArmor = -1;
@@ -92,11 +87,7 @@ export class Hud {
     this.feedEl = el('div', 'feed', this.tl);
 
     this.tr = el('div', 'hud tr', root);
-    el('div', 'score-label', this.tr).textContent = 'Score';
-    this.scoreVal = el('div', 'score-val num', this.tr);
-    this.scoreVal.textContent = '0';
     this.onlineEl = el('div', 'online', this.tr);
-    this.popsEl = el('div', 'pops', this.tr);
 
     this.tc = el('div', 'hud tc', root);
 
@@ -141,35 +132,6 @@ export class Hud {
 
     this.bc = el('div', 'hud bc', root);
     this.promptEl = el('div', 'prompt hidden', this.bc);
-  }
-
-  /** per frame: score count-up */
-  update(dt: number): void {
-    if (this.scoreShown !== this.scoreTarget) {
-      const d = this.scoreTarget - this.scoreShown;
-      const step = Math.abs(d) < 2 ? d : d * Math.min(1, dt * 7);
-      this.scoreShown = Math.abs(d) < 2 ? this.scoreTarget : this.scoreShown + step;
-      const shown = Math.round(this.scoreShown);
-      if (shown !== this.lastScoreShown) {
-        this.lastScoreShown = shown;
-        this.scoreVal.textContent = shown.toLocaleString('en-US');
-      }
-    }
-  }
-
-  setScore(score: number, instant = false): void {
-    this.scoreTarget = score;
-    if (instant) this.scoreShown = score - 0.5; // forces one write
-  }
-
-  popScore(delta: number, reason: string): void {
-    if (!delta) return;
-    const p = el('div', 'pop', this.popsEl);
-    p.innerHTML = `${delta > 0 ? '+' : ''}${delta.toLocaleString('en-US')}<small></small>`;
-    (p.lastElementChild as HTMLElement).textContent = prettyReason(reason);
-    if (delta < 0) p.style.color = '#ff6a6a';
-    setTimeout(() => p.remove(), 1900);
-    while (this.popsEl.children.length > 4) this.popsEl.firstElementChild?.remove();
   }
 
   setOnline(n: number): void {
@@ -345,8 +307,4 @@ export class Hud {
   setVisible(v: boolean): void {
     for (const a of [this.tl, this.tr, this.bl, this.br, this.bc, this.center]) a.style.opacity = v ? '1' : '0';
   }
-}
-
-function prettyReason(r: string): string {
-  return (r || '').replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim();
 }

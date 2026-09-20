@@ -1,6 +1,6 @@
 /**
  * UI / game-state cues, synthesized live (rare, tonal): pickup chime, hit marker, kill confirm,
- * death sting, discovery jingle (subway "bing-bong" bell timbre), score tick, spawn-protection
+ * death sting, discovery jingle (subway "bing-bong" bell timbre), spawn-protection
  * warning, safe zone enter/exit, update banner ping.
  */
 import type { GameContext } from '@/core/context';
@@ -58,9 +58,6 @@ export class UiSynth {
     tone(this.ac, this.dest, at(t, 900), { freq: 830.6, peak: 0.34, tau: 0.35, dur: 1.2, partials: BELL }); // bong
     if (first) tone(this.ac, this.dest, at(t, 1250), { freq: 1318.5, peak: 0.26, tau: 0.5, dur: 1.5, partials: BELL });
   }
-  scoreTick(): void {
-    tone(this.ac, this.dest, this.now, { freq: 1500, peak: 0.12, tau: 0.02, dur: 0.06, type: 'triangle' });
-  }
   protectionWarning(): void {
     const t = this.now;
     tone(this.ac, this.dest, t, { freq: 660, peak: 0.25, tau: 0.06, dur: 0.14, type: 'triangle', lp: 2500 });
@@ -82,7 +79,6 @@ export class UiSynth {
 
 export class UiAudio extends UiSynth {
   private offs: (() => void)[] = [];
-  private lastScore = 0;
   private wasProtected = false;
   private warned = false;
   private inSafe: boolean | null = null;
@@ -100,17 +96,7 @@ export class UiAudio extends UiSynth {
     }));
     this.offs.push(ev.on('localDeath', () => this.deathSting()));
     this.offs.push(ev.on('discover', (m) => this.discovery(m.first)));
-    this.offs.push(ev.on('score', (m) => {
-      if (m.delta > 0 && m.reason !== 'kill' && m.reason !== 'discover') this.scoreTick();
-    }));
     this.offs.push(ev.on('versionAvailable', () => this.bannerPing()));
-  }
-
-  override scoreTick(): void {
-    const now = performance.now();
-    if (now - this.lastScore < 700) return;
-    this.lastScore = now;
-    super.scoreTick();
   }
 
   update(): void {

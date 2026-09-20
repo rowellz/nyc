@@ -12,7 +12,7 @@
   let stale = $state(false);
 
   const found = $derived(new Set(status?.landmarksDiscovered ?? []));
-  const players = $derived([...(status?.players ?? [])].sort((a, b) => b.score - a.score));
+  const players = $derived([...(status?.players ?? [])].sort((a, b) => a.name.localeCompare(b.name)));
 
   onMount(() => {
     const poll = async () => {
@@ -77,43 +77,18 @@
 
     <div class="columns">
       <div class="card">
-        <h2>Leaderboard</h2>
-        {#if status.leaderboard.length === 0}
-          <p class="faint small" style="margin:0">Nobody has joined since boot.</p>
-        {:else}
-          <table>
-            <thead>
-              <tr><th>#</th><th>Handle</th><th>Score</th><th>Kills</th><th></th></tr>
-            </thead>
-            <tbody>
-              {#each status.leaderboard as e (e.name)}
-                <tr>
-                  <td class="num faint">{e.rank}</td>
-                  <td class="mono">{e.name}</td>
-                  <td class="num">{e.score}</td>
-                  <td class="num">{e.kills}</td>
-                  <td>{#if e.online}<span class="pill pill-live">online</span>{/if}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {/if}
-      </div>
-
-      <div class="card">
         <h2>In the city now</h2>
         {#if players.length === 0}
           <p class="faint small" style="margin:0">The streets are empty. <a href="/play">Go for a walk</a>.</p>
         {:else}
           <table>
             <thead>
-              <tr><th>Handle</th><th>Score</th><th>Position</th><th>For</th><th></th></tr>
+              <tr><th>Handle</th><th>Position</th><th>For</th><th></th></tr>
             </thead>
             <tbody>
               {#each players as p (p.id)}
                 <tr>
                   <td class="mono">{p.name}</td>
-                  <td class="num">{p.score}</td>
                   <td class="num faint">{p.x}, {p.z}</td>
                   <td class="num faint">{duration(p.onlineSeconds)}</td>
                   <td>

@@ -1,8 +1,8 @@
 /**
- * Headless protocol conformance: 41 checks driving a client through the real
+ * Headless protocol conformance checks driving a client through the real
  * binary codec, the way client/src/core/net.ts does — handshake, ping/pong,
  * snapshot round-trip, the speed clamp, AOI culling, safe-zone immunity,
- * damage/death/scoring, respawn, leaderboard, token reconnect.
+ * damage/death, respawn, score-free status, token reconnect.
  *
  * Needs the service running:
  *
@@ -200,8 +200,7 @@ const waitFor = async (api, t, ms = 3000) => {
   check(!!health, 'victim received health updates', health ? `hp=${health.health}` : '');
   const death = a.msgs.find((m) => m.t === 'death');
   check(!!death, 'death broadcast', death ? `${death.killerName} killed #${death.victimId}` : '');
-  const score = a.msgs.filter((m) => m.t === 'score').pop();
-  check(!!score && score.score >= 100, 'kill scored 100', score ? `score=${score.score}` : '');
+  check(!a.msgs.some((m) => m.t === 'score'), 'kills and discovery award no score');
 
   log('\n=== 9. respawn ===');
   b.ws.send(JSON.stringify({ t: 'respawn' }));
@@ -209,11 +208,15 @@ const waitFor = async (api, t, ms = 3000) => {
   check(!!resp, 'respawned message');
   check(!!resp && Math.hypot(resp.x, resp.z) < 200, 'respawn at a Bryant Park spawn point');
 
-  log('\n=== 10. leaderboard ===');
+  log('\n=== 10. score-free status ===');
   a.ws.send(JSON.stringify({ t: 'leaderboard' }));
-  const lb = await waitFor(a, 'leaderboard');
-  check(!!lb && Array.isArray(lb.entries) && lb.entries.length >= 2, 'leaderboard entries');
-  check(!!lb && lb.online === 2, 'online count', lb ? String(lb.online) : '');
+  await sleep(200);
+  check(!a.msgs.some((m) => m.t === 'leaderboard'), 'retired leaderboard request is ignored');
+  const status = await fetch(URL.replace('ws:', 'http:').replace('/ws', '/api/status')).then((r) => r.json());
+  check(!('leaderboard' in status) && status.players.every((p) => !('score' in p) && !('kills' in p)), 'status has no scores or rankings');
+  check(status.playersOnline === 2, 'online count', String(status.playersOnline));
+  check([a, b].every((c) => !('score' in c.welcome)), 'welcome has no score');
+  check(a.msgs.filter((m) => m.t === 'names').every((m) => m.players.every((p) => !('score' in p))), 'player names carry no score');
 
   log('\n=== 11. token reconnect ===');
   b.ws.close();
@@ -222,6 +225,7 @@ const waitFor = async (api, t, ms = 3000) => {
   b2.pos = { x: b2.welcome.spawn.x, z: b2.welcome.spawn.z };
   check(b2.welcome.restored === true, 'token restored the profile');
   check(b2.welcome.name === b.welcome.name, 'handle persisted across reconnect', b2.welcome.name);
+  check(!('score' in b2.welcome), 'reconnected profile has no score');
   const leave = await waitFor(a, 'leave');
   check(!!leave, 'leave broadcast on disconnect');
 

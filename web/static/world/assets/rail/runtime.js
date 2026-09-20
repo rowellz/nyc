@@ -1,9 +1,10 @@
-import { Z as Group } from '../textureRelease-2U-gT89r.js?v=station-layout-32';
-import { route, routes, services, layout, sample, tileKey, timetable, trainState, TRAIN_LENGTH } from './network.js?v=station-layout-32';
-import { buildTrack, buildStation, stationSign, materials, trainModel, stairHeight } from './geometry.js?v=station-layout-32';
+import { Z as Group } from '../textureRelease-2U-gT89r.js?v=mobile-chunk-pacing-62';
+import { route, routes, services, layout, sample, tileKey, timetable, trainState, TRAIN_LENGTH, surfaceHoles } from './network.js?v=station-layout-32';
+import { buildTrack, buildStation, stationSign, materials, trainModel, stairHeight } from './geometry.js?v=mobile-chunk-pacing-62';
 import {functionalEntrance,entranceYaw,entranceClosed,accessesByStation,hubs,stationPaths,accessSupport,platformOpening,platformFloorOpening} from './access.js?v=station-layout-32';
 import {createStationUse} from './station-use.js?v=station-layout-32';
 import {onPath} from './access-plan.js?v=station-layout-32';
+import {createRailBudget,railBounds} from './mobile-budget.js?v=mobile-rail-budget-55';
 
 function project(p,a,b) {
   const dx=b.x-a.x,dz=b.z-a.z,d=dx*dx+dz*dz;
@@ -16,9 +17,11 @@ const trackKey=(route,key)=>`${route.id}:${key}`;
 export function installRail(ctx) {
   if(ctx.modules.has('rail'))return ctx.modules.get('rail');
   const root=new Group();root.name='rail';ctx.worldGroup.add(root);
-  const mats=materials(),models={subway:trainModel(mats),commuter:trainModel(mats,'commuter')};
+  const mobile=ctx.quality.level==='mobile';
+  const mats=materials(),models={subway:trainModel(mats,'subway',mobile),commuter:trainModel(mats,'commuter',mobile)};
   const resident=new Map(),stations=new Map(),trains=new Map(),pending=new Set();
   const jobs=new Map(),jobsByTile=new Map(),stationJobs=[];
+  const selectJobs=createRailBudget(ctx,surfaceHoles);
   let disposed=false,scan=0,elapsed=0,visibleNow=[];
   const fleet=services.flatMap(service=>(service.directions??[-1,1]).flatMap(direction=>{
     const schedule=timetable(service.path,direction),count=Math.max(1,Math.floor(schedule.duration/150));
@@ -26,18 +29,20 @@ export function installRail(ctx) {
   }));
   for(const r of routes) {
     for(const [key,segments] of r.segmentsByTile) {
-      const id=trackKey(r,key),job={id,route:r,key,segments,point:segments[0][0]};
+      const points=segments.flat();
+      const id=trackKey(r,key),job={id,route:r,key,segments,point:segments[0][0],bounds:railBounds(points,22),
+        buried:!r.openCut&&points.every(p=>p.y<-6&&p.structure!=='cutting')};
       jobs.set(id,job);
       if(!jobsByTile.has(key))jobsByTile.set(key,[]);
       jobsByTile.get(key).push(job);
     }
     for(const station of r.stations) {
-      const keys=new Set(),half=(r.platformLength??120)/2;
-      for(const path of stationPaths(station.key))for(let s=0;s<=path.at(-1).s+1;s+=20){const p=onPath(path,s);keys.add(tileKey(p.x,p.z));}
+      const keys=new Set(),points=[],half=(r.platformLength??120)/2;
+      for(const path of stationPaths(station.key))for(let s=0;s<=path.at(-1).s+1;s+=20){const p=onPath(path,s);keys.add(tileKey(p.x,p.z));points.push(p);}
       for(let s=station.s-half-38;s<=station.s+half+5;s+=10)for(const offset of [-18,0,18]) {
-        const p=sample(r,s,offset);keys.add(tileKey(p.x,p.z));
+        const p=sample(r,s,offset);keys.add(tileKey(p.x,p.z));points.push(p);
       }
-      const job={id:`station:${station.key}`,station,route:r,keys,point:station};
+      const job={id:`station:${station.key}`,station,route:r,keys,point:station,bounds:railBounds(points,2),buried:!r.openCut&&station.y<-6};
       jobs.set(job.id,job);stationJobs.push(job);
     }
   }
@@ -55,12 +60,13 @@ export function installRail(ctx) {
     ctx.physics.removeTileColliders(record.name);
   }
   function refresh() {
-    const wanted=new Set();
+    let wanted=new Set();
     // Each physical corridor owns its geometry once, even when multiple train
     // services traverse it. A tile halo covers tracks over a residency seam.
     for(const tile of ctx.world.tiles.values())for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++)
       for(const job of jobsByTile.get(`${tile.tx+dx}_${tile.tz+dz}`)??[])wanted.add(job.id);
     for(const job of stationJobs)if([...job.keys].some(key=>ctx.world.tiles.has(key)))wanted.add(job.id);
+    wanted=selectJobs([...wanted].map(key=>jobs.get(key)),new Set([...resident.keys(),...stations.keys()]));
     for(const collection of [resident,stations])for(const [key,record] of collection)if(!wanted.has(key)){release(record);collection.delete(key);}
     for(const key of pending)if(!wanted.has(key))pending.delete(key);
     for(const key of wanted)if(!resident.has(key)&&!stations.has(key))pending.add(key);
@@ -74,7 +80,7 @@ export function installRail(ctx) {
       record.group.add(sign.group);record.sign=sign;record.job=job;stations.set(key,record);
     } else {
       const roads=[...new Map([...ctx.world.tiles.values()].flatMap(tile=>tile.streetContext?.roads??tile.roads??[]).map(road=>[road.id,road])).values()];
-      resident.set(key,publish(buildTrack(job.segments,roads,job.route),`rail:${key}`));
+      resident.set(key,publish(buildTrack(job.segments,roads,job.route,mobile),`rail:${key}`));
     }
   }
   const baseHeight=ctx.physics.groundHeight;
@@ -136,7 +142,7 @@ export function installRail(ctx) {
         .sort((a,b)=>Number(b.item.key===use.passengerKey)-Number(a.item.key===use.passengerKey)||a.distance-b.distance).slice(0,ctx.quality.level==='mobile'?4:10);
       visibleNow=visible;
       const live=new Set(visible.map(v=>v.item.key));
-      for(const [key,train] of trains)if(!live.has(key)){train.root.removeFromParent();trains.delete(key);}
+      for(const [key,train] of trains)if(!live.has(key)){train.dispose();trains.delete(key);}
       for(const {item,state} of visible) {
         const {service,schedule}=item,model=models[service.kind];let train=trains.get(item.key);
         if(!train){train=model.create();root.add(train.root);trains.set(item.key,train);}
@@ -148,6 +154,7 @@ export function installRail(ctx) {
     dispose() {
       disposed=true;use.dispose();off.forEach(fn=>fn());pending.clear();
       for(const r of [...resident.values(),...stations.values()])release(r);
+      for(const train of trains.values())train.dispose();
       resident.clear();stations.clear();trains.clear();Object.values(models).forEach(model=>model.dispose());
       Object.values(mats).forEach(m=>m.dispose());root.removeFromParent();
       if(ctx.physics.groundHeight===support)ctx.physics.groundHeight=baseHeight;

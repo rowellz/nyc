@@ -128,6 +128,7 @@ export async function createCharacter(ctx: GameContext): Promise<CharacterModule
   offs.push(
     ctx.events.on('enteredVehicle', () => {
       seated = true;
+      local.root.visible = false;
     }),
   );
 
@@ -224,12 +225,12 @@ export async function createCharacter(ctx: GameContext): Promise<CharacterModule
       const aiming = !screenshot && !st.local.dead && !inVehicle && (debug.forceAim ?? inp.aim);
 
       if (inVehicle) {
-        // sit on the driver seat; the vehicles module owns camera + state
+        // Keep the hidden model at the driver seat; the vehicles module owns camera + state.
         const veh = ctx.modules.get('vehicles') as VehiclesLike | undefined;
         const m = veh?.driverSeatMatrix?.();
         if (m) {
           seated = true;
-          local.root.visible = true;
+          local.root.visible = false;
           local.root.matrixAutoUpdate = false;
           seatMat.copy(m).multiply(seatOffset);
           const sc = local.appearance.height / 1.8;

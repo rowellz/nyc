@@ -18,3 +18,12 @@ assert.equal(workers.length,2,'failed workers are recreated on retry');
 transport.dispose();await assert.rejects(retry,/disposed/);assert(workers[1].stopped);
 await assert.rejects(transport.load('/late','0_0','mid',new AbortController().signal),/cancelled/);
 console.log('PASS scenery worker transport: cancellation, late replies, errors, retry and disposal');
+
+// Reject an inflated payload while streaming; never join an oversized buffer.
+const {readSceneryBuffer}=await import('../static/world/assets/scenery-format.js');
+let cancelled=false;
+const oversized=new ReadableStream({pull(controller){controller.enqueue(new Uint8Array(80));},cancel(){cancelled=true;}});
+await assert.rejects(readSceneryBuffer(oversized,100),/decode budget/);assert(cancelled);
+const exact=new ReadableStream({start(c){c.enqueue(new Uint8Array([1,2]));c.enqueue(new Uint8Array([3,4]));c.close();}});
+assert.deepEqual([...new Uint8Array(await readSceneryBuffer(exact,4))],[1,2,3,4]);
+console.log('PASS inflated scenery limit rejects oversized streams before joining buffers');

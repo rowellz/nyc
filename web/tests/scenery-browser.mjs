@@ -77,9 +77,13 @@ window.wallColors=()=>{
 };
 window.handoff=()=>{const root=new Group();root.name='buildings';const mesh=new Group();mesh.name='bld-0_0';root.add(mesh);worldGroup.add(root);lod.update();
 const proxies=lod.group.children.flatMap(c=>c.children).filter(m=>m.userData.kind==='buildings'&&m.userData.tiles.includes('0_0'));
-if(!proxies.length)throw Error('missing proxy');if(!proxies.every(m=>m.userData.coverage[m.userData.tiles.indexOf('0_0')]===1))throw Error('near mesh did not cover proxy');
+if(!proxies.length)throw Error('missing proxy');if(!proxies.every(m=>m.userData.coverage[m.userData.tiles.indexOf('0_0')]===1))throw Error('near mesh did not cover proxy');if(ctx.quality.level==='mobile')for(const m of proxies){const owner=m.userData.tiles.indexOf('0_0');if(m.geometry.index.array.slice(0,m.geometry.drawRange.count).some(v=>m.userData.owner[v]===owner))throw Error('covered tile still submitted');}
 root.removeFromParent();lod.update();if(!proxies.every(m=>m.userData.coverage[m.userData.tiles.indexOf('0_0')]===0))throw Error('unload did not restore proxy');
-const proxy=proxies[0],f=proxy.userData.features[0];built.add(f.id);lod.syncLandmarks();if(!proxy.geometry.index.array.slice(f.start,f.start+f.count).every(v=>v===0))throw Error('landmark double rendering');
+const proxy=proxies[0],f=proxy.userData.features[0];built.add(f.id);lod.syncLandmarks();
+if(ctx.quality.level==='mobile') {
+  const hidden=new Set(proxy.userData.sourceIndex.slice(f.start,f.start+f.count));
+  if(proxy.geometry.index.array.slice(0,proxy.geometry.drawRange.count).some(v=>hidden.has(v)))throw Error('landmark submitted twice');
+} else if(!proxy.geometry.index.array.slice(f.start,f.start+f.count).every(v=>v===0))throw Error('landmark double rendering');
 built.clear();lod.syncLandmarks();return true;};
 window.travel=async()=>{
 ctx.busy=0;const samples=[];
@@ -97,6 +101,7 @@ return samples;
 window.finish=()=>{lod.dispose();renderer.render(scene,camera);return{children:worldGroup.children.length,geometries:renderer.info.memory.geometries};};
 ${readFileSync(new URL('./tree-browser-fixture.js',import.meta.url),'utf8')}
 ${readFileSync(new URL('./facade-browser-fixture.js',import.meta.url),'utf8')}
+${readFileSync(new URL('./building-lod-browser-fixture.js',import.meta.url),'utf8')}
 </script>`;
 const server=createServer((req,res)=>{
   try{
@@ -172,7 +177,23 @@ try{
   for(const face of ['party','roof','unresolved'])assert.equal(facade[face],0,`${face} never receives window glow`);
   assert.equal(facade.landmarkUnresolved,0,'custom towers lose subpixel window glow');
   assert.deepEqual(await evaluate('window.errors'),[],'mobile facade shader compiles');
+  const surfaceLod=await evaluate('window.testFacadeSurfaceLod()');
+  for(const [kind,levels] of Object.entries(surfaceLod)){
+    for(const point of ['street','flying','crown'])assert(levels[point][0]>245,`${kind} ${point}: nearby surface retains detail`);
+    for(const point of ['upperFromStreet','lowerFromAir','horizontal','outside']){
+      assert.equal(levels[point][0],0,`${kind} ${point}: distant surface skips detail`);
+      assert.equal(levels[point][1],255,'probe rendered the wall, not the background');
+    }
+    assert(levels.transition[0]>0&&levels.transition[0]<245,`${kind}: smooth transition`);
+  }
+  assert.deepEqual(await evaluate('window.errors'),[],'surface LOD compiles for ordinary buildings and ESB');
+  console.log('PASS WebGL facade surface LOD: street, flight and crown proximity; distant floors, horizontal distance and smooth fade');
   console.log('PASS WebGL mobile window lights: sparse warm/cool windows, daylight, stable occupancy, blank walls, roofs and subpixel fade');
+  const building=await call('Runtime.evaluate',{expression:'window.testBuildingWorker()',awaitPromise:true,returnByValue:true});
+  assert(!building.exceptionDetails,JSON.stringify(building.exceptionDetails));
+  assert(building.result.value.triangles>0&&building.result.value.colored>1000&&building.result.value.colliders>0,JSON.stringify(building));
+  assert.deepEqual(await evaluate('window.errors'),[],'packed building geometry renders with the mobile facade shader');
+  console.log('PASS WebGL packed building worker: transferred geometry, normalized colors/normals, mobile shader, visible tower and collision');
   assert(await evaluate('window.handoff()'));
   const shot=await call('Page.captureScreenshot',{format:'png'});
   const screenshot=process.env.SCENERY_SCREENSHOT??`${tmpdir()}/nyc-scenery.png`;

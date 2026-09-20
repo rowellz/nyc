@@ -238,7 +238,7 @@ export const RENDER_NAMES = [
   'engine_idle', 'engine_mid', 'engine_high', 'engine_sweep', 'engine_shift',
   'ambience', 'ambience_day', 'ambience_night', 'honk', 'horn', 'honk_phrase',
   'honk_tap', 'honk_double', 'honk_triple', 'honk_lean', 'rain', 'thunder', 'subway',
-  ...['pickup', 'hit', 'headshot', 'kill', 'death', 'discovery', 'score', 'warning',
+  ...['pickup', 'hit', 'headshot', 'kill', 'death', 'discovery', 'warning',
     'protection_end', 'safe_enter', 'safe_exit', 'banner'].map(n => `ui_${n}`),
 ];
 
@@ -340,7 +340,6 @@ export async function renderOffline(name: string, seconds: number, sampleRate: n
       case 'ui_kill': ui.killConfirm(); break;
       case 'ui_death': ui.deathSting(); break;
       case 'ui_discovery': ui.discovery(true); break;
-      case 'ui_score': ui.scoreTick(); break;
       case 'ui_warning': ui.protectionWarning(); break;
       case 'ui_protection_end': ui.protectionEnd(); break;
       case 'ui_safe_enter': ui.safeZone(true); break;
