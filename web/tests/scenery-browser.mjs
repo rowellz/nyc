@@ -13,7 +13,7 @@ import { encodeScenery } from '../static/world/assets/scenery-format.js';
 const publicDir=new URL('../../public/',import.meta.url).pathname;
 const tools=await sceneryTools(publicDir),index=JSON.parse(readFileSync(`${publicDir}world/world/index.json`));
 const chunks=sceneryChunks(index.tiles),data=new Map(),entries=[];
-for(const key of ['-1_-1','0_-1','1_-1','-1_0','0_0','1_0','-1_1','0_1','1_1']) {
+for(const key of ['-1_-1','0_-1','1_-1','-1_0','0_0','1_0','-1_1','0_1','1_1','0_-3','1_-3']) {
   const tiles=await readSceneryTiles(publicDir,chunks.get(key));entries.push({key});
   for(const tier of ['mid','far'])data.set(`/world/world/lod/${key}.${tier}.bin`,gzipSync(new Uint8Array(encodeScenery(compileScenery(key,tiles,tier,tools)))));
 }
@@ -31,7 +31,7 @@ const renderer=new WebGLRenderer({antialias:true,preserveDrawingBuffer:true});re
 const scene=new Scene();scene.background=new Color(0x9ab2c5);scene.add(new HemisphereLight(0xffffff,0x666666,2));const light=new DirectionalLight(0xffffff,2);light.position.set(100,300,100);scene.add(light);
 const camera=new PerspectiveCamera(65,1.5,.1,10000);camera.position.set(512,500,1400);camera.lookAt(512,0,-1200);
 const worldGroup=new Group();scene.add(worldGroup);const built=new Set();
-const ctx={quality:{level:${JSON.stringify(level)},farDistance:${ios?2500:3500}},world:{baseUrl:'/world/world',ios:${ios}},worldGroup,scene,camera,time:{daylight:1},busy:10};
+const ctx={quality:{level:${JSON.stringify(level)},farDistance:${ios?5000:6000}},world:{baseUrl:'/world/world',ios:${ios}},worldGroup,scene,camera,time:{daylight:1},busy:10};
 window.__ready=true;const lod=createScenery(ctx,built);
 function frame(){lod.update();renderer.render(scene,camera);requestAnimationFrame(frame)}frame();
 window.inspect=()=>({stats:lod.stats,triangles:renderer.info.render.triangles,calls:renderer.info.render.calls,errors:window.errors,basic:lod.group.children.every(c=>c.children.every(m=>m.material.isMeshBasicMaterial))});
@@ -142,12 +142,12 @@ try{
   for(let i=0;i<160;i++){
     await new Promise(r=>setTimeout(r,250));assert.equal(errors.length,0,errors.join('\n'));
     result=await evaluate('window.inspect?.()');
-    if(result?.stats.chunks>0&&( ios ? result.stats.inFlight===0 : result.stats.chunks===9))break;
+    if(result?.stats.chunks===entries.length&&result.stats.inFlight===0)break;
   }
-  if(ios){assert(result?.stats.chunks>0,JSON.stringify(result));assert(result.stats.bytes<=8*1024*1024);assert(result.stats.triangles<=80000);}else assert.equal(result?.stats.chunks,9,JSON.stringify(result));assert.deepEqual(result.errors,[]);
+  if(ios){assert.equal(result?.stats.chunks,entries.length,JSON.stringify(result));assert(result.stats.bytes<=32*1024*1024);assert(result.stats.triangles<=320000);}else assert.equal(result?.stats.chunks,entries.length,JSON.stringify(result));assert.deepEqual(result.errors,[]);
   assert.equal(result.basic,level==='mobile','only mobile uses the cheaper vertex-lit shader');
-  if(level==='mobile')assert(result.stats.triangles<=160000,'mobile resident triangles stay bounded');
-  assert(result.triangles>1000);assert(result.calls<=27,'merged chunks use at most three draw calls each');
+  if(level==='mobile')assert(result.stats.triangles<=480000,'mobile resident triangles stay bounded');
+  assert(result.triangles>1000);assert(result.calls<=entries.length*3,'merged chunks use at most three draw calls each');
   const colors=await evaluate('window.wallColors()');
   assert(colors.windows.wall>1000&&colors.windows.changed>100,JSON.stringify(colors));
   assert(colors.windows.changed/colors.windows.wall<.2,'lit windows leave most wall pixels unchanged');
@@ -156,15 +156,16 @@ try{
   const trees=await evaluate('window.testTrees()');
   assert(Math.abs(trees.pitDirection[0]-trees.pitDirection[1])<1e-6,'rendered pit follows the diagonal sidewalk');
   if(trees.guardDirection)assert.deepEqual(trees.guardDirection,trees.pitDirection,'guard and pit share the same orientation');
-  for(const [band,name] of [['near','leaves'],['middle','middle'],['far','far'],['extended','far'],['fallback','far']]) {
+  for(const [band,name] of [['near','leaves'],['middle','middle'],['far','far'],['extended','far'],['restored','far'],['fallback','far']]) {
     assert.equal(trees[band].batches['env-tree-plane-'+name],1,JSON.stringify(trees[band]));
   }
   assert(trees.middle.triangles<trees.near.triangles/2,'middle trees use a bounded subset of real leaf clusters');
   assert(trees.far.triangles<trees.middle.triangles/4,'far trees stay cheap');
   assert.equal(trees.far.batches['env-tree-plane-far-wood'],1,'far crowns retain their trunks');
   assert.deepEqual(trees.unloaded.batches,{});assert.equal(trees.remaining,0,'tree batches retire cleanly');
+  assert.deepEqual(trees.reduced.batches,{},'stationary camera responds immediately to reduced tree range');
   const treeCount=Object.entries(trees.streamed.batches).filter(([name])=>/-(leaves|middle|far)$/.test(name)).reduce((sum,[,n])=>sum+n,0);
-  assert(treeCount>10&&treeCount<=(ios?2000:level==='mobile'?4000:10000),'real scenery populates bounded tree instances');
+  assert(treeCount>10&&treeCount<=(ios?4000:level==='mobile'?8000:10000),'real scenery populates bounded tree instances');
   for(const [band,shot] of Object.entries(trees.shots))writeFileSync(`${tmpdir()}/nyc-trees-${level}-${band}.png`,Buffer.from(shot.split(',')[1],'base64'));
   assert.deepEqual(await evaluate('window.errors'),[],'all tree LOD shaders compile');
   const facade=await evaluate('window.testFacadeLights()');

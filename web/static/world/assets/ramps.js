@@ -2,8 +2,8 @@
 import { PEDESTRIAN_HEADROOM, PEDESTRIAN_FLOOR } from './pedestrian-clearance.js';
 // Match the worker's versioned import: a second module instance loses the
 // shared elevation plan and renders elevated approaches again at ground level.
-import { approachProfile, approachCeiling, tunnelNetwork, setApproachElevations, APPROACH_REACH, MAX_APPROACH_GRADE, PORTAL_DEPTH } from './tunnels.js?v=highway-chunk-pacing-66';
-import { deckEdges } from './edges.js?v=highway-chunk-pacing-66';
+import { approachProfile, approachCeiling, tunnelNetwork, setApproachElevations, APPROACH_REACH, MAX_APPROACH_GRADE, PORTAL_DEPTH } from './tunnels.js?v=mobile-trees-vehicles-72';
+import { deckEdges } from './edges.js?v=mobile-trees-vehicles-72';
 const cache = new WeakMap();
 const VEHICLES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service']);
 const motorway = r => r.cls === 'motorway' || r.cls === 'trunk';
@@ -119,7 +119,7 @@ function plan(env, baseProfile) {
     }
     for (const other of candidates) {
       if (other.entry === entry || !(entry.road.bridge || other.entry.road.bridge
-        || motorway(entry.road) && motorway(other.entry.road))
+        || motorway(entry.road) || motorway(other.entry.road))
         || !overlap(ring, other.ring)) continue;
       const key = `${other.entry.road.id}:${entry.road.id}`;
       if (!pairs.has(key)) pairs.set(key, { key, a: other.entry, b: entry, contacts: [] });
@@ -140,26 +140,47 @@ function plan(env, baseProfile) {
       }
       const aIds = new Set(region.flatMap(c => [c[0].a.id, c[0].b.id]));
       if (region.some(c => aIds.has(c[1].a.id) || aIds.has(c[1].b.id))) {
-        // Sibling lanes remain one surface while their merge ribbons overlap.
-        // Otherwise lifting a crossing independently can put one merging lane
-        // through the other. Match stations along the travel direction: lateral
-        // separation is not room for a vertical ramp between adjacent lanes.
-        const linked = new Set();
-        for (const [a, b] of region) {
+        // Shallow motorway fans can run beside each other for hundreds of
+        // metres. Keep their longitudinal constraints; flattening the whole
+        // fan would consume the clearance needed by the interchange below.
+        const highwayFan = motorway(pair.a.road) || motorway(pair.b.road);
+        const landing = new Set(), linked = new Set();
+        for (const contact of region) {
+          const [a, b] = contact;
           const dx = a.b.x - a.a.x, dz = a.b.z - a.a.z, length = Math.hypot(dx, dz);
           const ex = b.b.x - b.a.x, ez = b.b.z - b.a.z;
-          if (Math.abs(dx * ex + dz * ez) < .85 * length * Math.hypot(ex, ez) || length < 1e-6) continue;
-          for (const p of [a.a, a.b]) {
-            const along = q => Math.abs(((q.x - p.x) * dx + (q.z - p.z) * dz) / length);
-            const q = along(b.a) < along(b.b) ? b.a : b.b, distance = along(q);
-            const key = `${p.id}:${q.id}`;
-            if (p.id === q.id || distance > STEP / 2 || linked.has(key)) continue;
-            linked.add(key);
-            nodes[p.id].links.push([q.id, 0]); nodes[q.id].links.push([p.id, 0]);
+          if (highwayFan && Math.abs(dx * ex + dz * ez) >= .85 * length * Math.hypot(ex, ez)) {
+            for (const p of [a.a, a.b]) {
+              const along = q => Math.abs(((q.x - p.x) * dx + (q.z - p.z) * dz) / (length || 1));
+              const q = along(b.a) < along(b.b) ? b.a : b.b, key = `${p.id}:${q.id}`;
+              if (p.id === q.id || along(q) > STEP / 2 || linked.has(key)) continue;
+              linked.add(key);
+              nodes[p.id].links.push([q.id, 0]); nodes[q.id].links.push([p.id, 0]);
+            }
+            continue;
           }
+          // Street ramps need a level landing across their full widths. A
+          // shared centreline height still lets differently oriented ribbons
+          // cut through each other, including raised, untagged approaches.
+          for (const segment of contact) {
+            const points = segment.entry.points;
+            // Clipped rendering uses a different sample phase. Include an
+            // extra station so its triangles cannot dip into the landing.
+            const margin = highwayFan ? 0 : 1;
+            for (let i = Math.max(0, segment.i - 1 - margin); i <= Math.min(points.length - 1, segment.i + margin); i++)
+              landing.add(points[i].id);
+          }
+        }
+        const anchor = landing.values().next().value;
+        for (const id of landing) if (id !== anchor) {
+          nodes[anchor].links.push([id, 0]); nodes[id].links.push([anchor, 0]);
         }
         continue;
       }
+      // Surface streets meeting a motorway need the shared junction above,
+      // but an unrelated at-grade crossing is not evidence of an overpass.
+      if (!pair.a.road.bridge && !pair.b.road.bridge
+        && !(motorway(pair.a.road) && motorway(pair.b.road))) continue;
       // A through crossing may require revisiting nearby stacking decisions.
       // Keep this more expensive repair separate from parallel shoulder contacts.
       const transverse = region.some(([a, b]) => {

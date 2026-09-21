@@ -1,5 +1,13 @@
 /** Traffic follows available lane space, including short highway segments and bends. */
+export function vehicleDrawDistance(ctx) {
+  const quality = ctx.quality;
+  return quality.level === 'mobile'
+    ? Math.min(quality.farDistance ?? Infinity, quality.drawDistance * 2, ctx.world?.ios ? 1200 : 1600)
+    : Math.min(640, quality.drawDistance);
+}
+
 export function trafficRadius(ctx) {
+  if (ctx.quality.level === 'mobile') return Math.max(100, vehicleDrawDistance(ctx) - 30);
   return Math.max(100, Math.min(620, ctx.quality.drawDistance - 30));
 }
 

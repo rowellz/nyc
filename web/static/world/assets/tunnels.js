@@ -1,5 +1,5 @@
-import { t as buildScope } from './loading-DS_gLujL.js?v=highway-chunk-pacing-66';
-import { deckEdges } from './edges.js?v=highway-chunk-pacing-66';
+import { t as buildScope } from './loading-DS_gLujL.js?v=mobile-trees-vehicles-72';
+import { deckEdges } from './edges.js?v=mobile-trees-vehicles-72';
 import { holesForTile as railHolesForTile, waterHolesForTiles } from './rail/footprints.js?v=station-layout-32';
 
 /** Shared by the geometry worker and traffic. Heights are synthetic: OSM layers

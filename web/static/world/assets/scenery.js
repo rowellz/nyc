@@ -1,6 +1,6 @@
 import { g as BufferGeometry, h as BufferAttribute, kt as Mesh, Z as Group, Pt as MeshStandardMaterial, At as MeshBasicMaterial, ar as Sphere, Or as Vector3 } from './textureRelease-2U-gT89r.js';
 import { SCENERY_VERSION, compactSceneryIndex } from './scenery-format.js';
-import { createSceneryStream, sceneryBudget } from './scenery-stream.js?v=highway-chunk-pacing-66';
+import { createSceneryStream, sceneryBudget } from './scenery-stream.js?v=mobile-trees-vehicles-72';
 import { createSceneryTransport } from './scenery-transport.js';
 
 // Same world-space noise as nearby terrain. The distant path samples only albedo;
@@ -67,10 +67,10 @@ export function createScenery(ctx, builtLandmarks = new Set()) {
   const terrain = { uGroundReady:{value:0}, uAsphalt:{value:null}, uConcrete:{value:null}, uGrass:{value:null},
     uTexScale:{value:[1/2.4,1/3,1/1.6,1]}, uWetness:{value:0}, uSeason:{value:0} };
   const originalFog = ctx.scene.fog?.isFog ? { fog:ctx.scene.fog, near:ctx.scene.fog.near, far:ctx.scene.fog.far } : null;
-  // Nearby meshes and proxies must enter the same haze. The old 700 m fog
-  // hid detailed tiles while the proxies beyond them stayed fully saturated.
+  // Keep the nearby city clear until halfway to the scenery limit, then blend
+  // detailed meshes and proxies into the same haze before scenery disappears.
   if (mobile && originalFog) {
-    originalFog.fog.near = budget.distance * .25;
+    originalFog.fog.near = budget.distance * .5;
     originalFog.fog.far = budget.distance;
   }
   const transport = createSceneryTransport();
@@ -217,6 +217,14 @@ outgoingLight+=lamp*windows*.65*uLodNight;
     syncLandmarks() {for(const rec of stream.resident.values())syncLandmarks(rec.handle);},
     update() {
       if(disposed)return;
+      const distance = ctx.quality.farDistance;
+      if (distance !== budget.distance) {
+        budget.distance = range.value = distance;
+        if (mobile && originalFog) {
+          originalFog.fog.near = distance * .5;
+          originalFog.fog.far = distance;
+        }
+      }
       // The scenery layer is optional; it never extends the startup busy gate.
       if(!globalThis.__ready)return;
       const now=performance.now();

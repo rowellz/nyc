@@ -2,7 +2,7 @@ import {platformSignInfo,combineSignInfo,paintSign,boardPosition} from './signs.
 import {panelMesh,wallPanel} from './enclosure.js?v=station-layout-32';
 import { g as BufferGeometry, h as BufferAttribute, kt as Mesh, Z as Group,
   Pt as MeshStandardMaterial, At as MeshBasicMaterial, y as CanvasTexture,
-  rt as InstancedMesh, Ot as Matrix4 } from '../textureRelease-2U-gT89r.js?v=highway-chunk-pacing-66';
+  rt as InstancedMesh, Ot as Matrix4 } from '../textureRelease-2U-gT89r.js?v=mobile-trees-vehicles-72';
 import { route as defaultRoute, routeById, layout, sample, stationAt, railPassageVolumes, splitStationSegments, PLATFORM_LENGTH, TRAIN_CARS, CAR_LENGTH, CAR_SPACING } from './network.js?v=station-layout-32';
 import { supportPlanner } from '../supports.js';
 import {appendAccessGeometry,platformOpening,platformStairAt,hubs,accessPassageVolumes,stationDestinations,transfers,accessesByStation} from './access.js?v=station-layout-32';

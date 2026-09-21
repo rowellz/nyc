@@ -115,12 +115,14 @@ assert.equal(own.revision, 0); assert.equal(neighbor.revision, 1); assert.equal(
 invalidation.Z(served); assert.equal(own.revision, 1, 'explicit tile replacements still rebuild');
 
 const vehicles = readFileSync(new URL('vehicles-_zJz3z3J.js', assets), 'utf8');
+const { vehicleDrawDistance } = await import('../static/world/assets/traffic-distribution.js');
 const Roads = vm.runInNewContext(vehicles.slice(vehicles.indexOf('const node = (x'), vehicles.indexOf('const AVENUE_RADIUS')) + '\nRoads', {
+  $vehicleDrawDistance: vehicleDrawDistance,
   isHighway: layout.isHighway, laneCount: layout.laneCount, laneWidth: layout.laneWidth,
   highwayLanePath: paths.highwayLanePath, KINDS: { sedan: { width: 2, parkedWeight: 1 } },
   isIOS: () => true, TILE_SIZE: 256, removeBody() {},
 });
-const traffic = new Roads({ camera: { position: { x: 0, z: 0 } } });
+const traffic = new Roads({ quality: { level:'mobile', drawDistance:384, farDistance:5000 }, world:{ios:true}, camera: { position: { x: 0, z: 0 } } });
 traffic.load({ ...served, roads: served.roads.filter(layout.isHighway) });
 const snapshots = new Map([...traffic.lanes].map(([key, lane]) => [key, structuredClone(lane.path)]));
 assert(snapshots.size > 0);

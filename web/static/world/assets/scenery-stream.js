@@ -1,13 +1,15 @@
 import { CHUNK_SIZE } from './scenery-format.js';
 
 export function sceneryBudget(mobile, farDistance, ios = false) {
-  if (ios) return { distance: Math.min(farDistance,2500), middle:256,
-    triangles:80000, chunks:16, bytes:8*1024*1024, requests:1,
-    decodeBytes:2*1024*1024, peakBytes:14*1024*1024 };
+  // Range needs enough residency to hold the skyline: dense NYC chunks alone
+  // can use 1–3 MiB including GPU copies. Keep decoding/publication serialized.
+  if (ios) return { distance: farDistance, middle:256,
+    triangles:320000, chunks:64, bytes:32*1024*1024, requests:1,
+    decodeBytes:2*1024*1024, peakBytes:38*1024*1024 };
   return { distance: farDistance, middle: mobile ? 512 : 2200,
-    triangles: mobile ? 160000 : Infinity,
-    chunks: mobile ? 48 : 192, bytes: (mobile ? 24 : 96) * 1024 * 1024, requests: mobile ? 1 : 2,
-    decodeBytes:(mobile?4:32)*1024*1024, peakBytes:(mobile?36:288)*1024*1024 };
+    triangles: mobile ? 480000 : Infinity,
+    chunks: mobile ? 96 : 192, bytes: (mobile ? 48 : 96) * 1024 * 1024, requests: mobile ? 1 : 2,
+    decodeBytes:(mobile?4:32)*1024*1024, peakBytes:(mobile?60:288)*1024*1024 };
 }
 const distance = (key, x, z) => {
   const [cx,cz] = key.split('_').map(Number);
@@ -18,7 +20,7 @@ const distance = (key, x, z) => {
  * Decoded replies retain their slots until one per frame can be published. */
 export function createSceneryStream({ budget, fetchChunk, publish, remove, now = () => performance.now() }) {
   const resident = new Map(), pending = new Map(), failed = new Map(), coarse = new Set();
-  let entries = [], wanted = new Map(), disposed = false, planned = -Infinity, lastX = Infinity, lastZ = Infinity, bytes = 0, triangles = 0, retiredLast = false;
+  let entries = [], wanted = new Map(), disposed = false, planned = -Infinity, lastX = Infinity, lastZ = Infinity, lastDistance = budget.distance, bytes = 0, triangles = 0, retiredLast = false;
   const triangleLimit = budget.triangles ?? Infinity;
   // Includes compressed/inflated staging, index copies and the upload while the
   // previous mesh is still alive. One request cannot grow beyond decodeBytes.
@@ -51,7 +53,9 @@ export function createSceneryStream({ budget, fetchChunk, publish, remove, now =
     update(x,z,allowed=true) {
       if (disposed) return;
       const time=now();
-      if (time-planned>=250 || Math.hypot(x-lastX,z-lastZ)>=256) { plan(x,z); planned=time; lastX=x; lastZ=z; }
+      if (budget.distance!==lastDistance || time-planned>=250 || Math.hypot(x-lastX,z-lastZ)>=256) {
+        plan(x,z); planned=time; lastX=x; lastZ=z; lastDistance=budget.distance;
+      }
       // One retirement OR publication per update. Close chunks win the budget.
       let changed=false;
       const obsolete=[...resident.keys()].filter(k=>!wanted.has(k)).sort((a,b)=>distance(b,x,z)-distance(a,x,z))[0];

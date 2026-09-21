@@ -162,6 +162,16 @@ the iPhone default of six cars. `?mobilemap=1`
 exposes the map control on desktop for testing, while `?mobilemap=0` disables
 the addon.
 
+A **Render distance** slider beside the map is available to every player on
+desktop and mobile. It adjusts nearby detail and the distant skyline from
+50–200% of the device's default, applies live, and remembers the choice in this
+browser. The control displays the requested distances and includes a reset to
+100%. Nearby detail has a 256 m minimum; scenery can reach 8 km on every device.
+Tile and scenery memory limits still apply, so a
+higher setting can cost FPS without guaranteeing every distant tile is loaded.
+The immediate surrounding tiles remain loaded for movement and collisions.
+Run `npm --prefix web run test:ui` for the control and persistence checks.
+
 The SvelteKit vehicle transform in `traffic-assets.js` loads
 `traffic-distribution.js` to distribute traffic by available lane length and
 occupancy across highways, ramps, arterials, and side streets. It includes short
@@ -169,7 +179,13 @@ OSM segments and follows curved lane paths when choosing spawn points. Camera
 views favor roads ahead without excluding the surrounding network. Vehicle mixes
 vary by road type, with fewer taxis and more passenger and delivery vehicles on
 highways. The rendering pools allow more simultaneous cars, including distant
-models on iOS. Run `cd web && npm run test:traffic` for the Cross Bronx replay.
+models on iOS. Mobile vehicle visibility reaches twice the detailed tile range:
+768 m on iPhone and 1,280 m on Android by default, capped at 1,200 / 1,600 m.
+The render-distance slider updates parked cars, moving traffic and their spawn
+radius live. Vehicles require resident road tiles, and traffic counts remain
+controlled by the traffic-density slider. Parked cars beyond iPhone's former
+80 m cutoff use simplified distant models; collision bodies remain local.
+Run `cd web && npm run test:traffic` for the Cross Bronx replay.
 
 Traffic signals group poles by road junction and level, so wide intersections
 share a controller and overpasses do not control the street below. Opposing
@@ -191,9 +207,10 @@ a **384 m radius**, Android uses **640 m**, and desktop presets use **768 m**.
 The immediate 3×3 tiles are always included.
 Distance is measured to tile edges, so tiles intersecting the radius are included.
 Prebuilt visual scenery extends beyond those detailed, simulated tiles.
-Mobile scenery and nearby meshes share one fog range: 625–2,500 m on iOS
-and 875–3,500 m on the other mobile presets, keeping the detail boundary from
-becoming a sudden change in haze.
+Mobile scenery and nearby meshes share one fog range: 2,500–5,000 m on iOS
+and 3,000–6,000 m on the other mobile presets at the default render distance.
+Fog starts halfway to the selected scenery limit, keeping nearby streets clear
+while fading out the edge of the loaded skyline.
 Mobile keeps the simplified roads and existing device-specific effects budgets.
 Detailed landmarks also use the local tile range, measured from their approximate edge
 so nearby bridge spans remain visible. Distant landmarks release after an extra
@@ -294,25 +311,25 @@ traffic, pedestrians and physics remain the responsibility of nearby tiles.
 
 | Preset | Detailed tiles | Middle scenery | Far scenery |
 |---|---:|---:|---:|
-| iOS | 384 m | 256 m | 2,500 m |
-| Android / mobile | 640 m | 512 m | 3,500 m |
+| iOS | 384 m | 256 m | 5,000 m |
+| Android / mobile | 640 m | 512 m | 6,000 m |
 | Low | 768 m | 2,200 m | 4,000 m |
 | Medium | 768 m | 2,200 m | 5,000 m |
 | High | 768 m | 2,200 m | 6,000 m |
 | Ultra | 768 m | 2,200 m | 8,000 m |
 
-Mobile scenery ranges were extended in client revision `mobile-scenery-range-63`.
-The later `mobile-ground-building-range-65` revision also extends detailed ground
-and buildings to 384 m on iOS and 640 m on other phones. Scenery memory and
-triangle budgets remain bounded; detailed tiles retain staggered publication.
+Mobile scenery ranges and residency were extended in client revision
+`mobile-render-distance-70`. iPhone's former 2.5 km hard cap is removed from the
+render-distance control and scenery layer. The larger budgets let real geometry
+fill more of the requested range. Detailed tiles retain staggered publication.
 Ranges are measured to chunk edges; the shader fades and clips the outer edge.
 The middle tier has 256 m of hysteresis to avoid repeated replacements on turns.
-The resident scenery budget is 16 chunks / 8 MiB of decoded buffers on iOS,
-48 chunks / 24 MiB on other mobile devices and 192 chunks / 96 MiB on desktop,
-plus at most one/two pending chunks. iOS caps resident scenery at 80,000 triangles;
-other mobile devices allow 160,000 triangles. Mobile uses vertex lighting
-instead of the desktop physically based shader. GPU copies consume additional
-memory. When a dense view reaches the byte or triangle cap,
+The resident scenery budget is 64 chunks / 32 MiB on iOS,
+96 chunks / 48 MiB on other mobile devices and 192 chunks / 96 MiB on desktop,
+including decoded buffers and GPU copies, plus at most one/two pending chunks.
+iOS caps resident scenery at 320,000 triangles; other mobile devices allow
+480,000 triangles. Mobile uses vertex lighting instead of the desktop physically
+based shader. When a dense view reaches the byte or triangle cap,
 nearer chunks take priority, so the maximum visible range is a budget ceiling.
 
 The client fetches compressed binary geometry, with normals and colors already
@@ -412,16 +429,17 @@ wind sine evaluations per leaf vertex, but keeps the same geometry and textures;
 it does not materially reduce resident tree memory. `npm run test:fps` checks
 both shader variants and the tree instance lifecycle.
 
-Trees also stream with the lightweight scenery chunks, reaching 1,200 m on
-mobile, 800 m on iOS, and 2,000 m on desktop (within the preset's scenery range).
-The closest 4,000 / 2,000 / 10,000 trees respectively can be instanced. A middle
+Trees also stream with the lightweight scenery chunks, reaching 3,000 m on
+Android, 2,000 m on iOS by default, and 2,000 m on desktop. Mobile tree range
+scales with the render-distance slider, including while the camera is stationary.
+The closest 8,000 / 4,000 / 10,000 trees respectively can be instanced. A middle
 LOD keeps up to 40 clusters from the detailed leaf geometry through 220 / 150 /
 320 m; the farther crowns retain cheap trunks and horizontal canopy cards for
 overhead views. Species, size, tint and leaf textures stay shared across LODs.
 Detailed tiles replace matching scenery trees without duplicates, and retiring
 a scenery chunk releases its tree records. `npm run test:scenery-browser` checks
-these LODs in WebGL. Run `node tools/patch-trees.mjs` after editing the shared
-tree LOD helper or updating the mirrored tree renderer.
+these LODs in WebGL. The SvelteKit service uses the extended tree policy in
+`web/static/world/assets/tree-lod.js`; the shared mirror retains its original policy.
 
 Run `cd web && npm run test:fps` for frame-rate replays, slow/fast recovery,
 iOS free camera/low mode, orientation, buffer allocations, the simplified
@@ -557,7 +575,8 @@ The mobile pedestrian startup grace period uses four seconds of wall time;
 slow frames no longer stretch that wait and delay the HUD. Crowd spawning keeps
 running after the startup gate is released.
 Mobile parking refreshes keep lane references and highway paths intact, update
-only parking inside the 80 m window, and reuse cars that remain in that window.
+only parking inside the vehicle visibility range plus 64 m of padding, and reuse
+cars that remain in that window.
 `mobile-props.js` moves lamp-clearance geometry to `mobile-props.worker.js`,
 caches placements across camera movement, and stages terrain queries and buffer
 updates through the shared scene queue. Rounded instance capacity avoids
@@ -890,6 +909,18 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
     the Highbridge tiles, and that the two Trans-Manhattan approaches keep
     their inner traffic lanes a lane apart.
 
+Sharp motorway turns now share a level surface across the overlapping junction
+pavement, including connections to ordinary streets. This prevents a sloping
+neighboring deck from cutting through the driving lane. The motorway crossing
+regression includes 720 bumper/body sweeps through the Amsterdam Avenue ramp,
+as well as stacked-deck clearance, road grades, and independently built tile seams.
+
+Iron bridge railings also omit sections that intrude into another road's
+vehicle clearance, including pedestrian bridge railings. Visible rails, posts,
+and colliders use the same openings; exposed and grade-separated railings remain.
+`node web/tests/bridge-railings.test.mjs` checks the served worker's geometry and
+collision passages in both road arrival orders.
+
 ## Developing on the client
 
 ### Rail network
@@ -1144,8 +1175,8 @@ exclude owners covered by nearby tiles and buildings replaced by custom landmark
 those triangles no longer reach the GPU merely to be discarded by the shader.
 
 Scenery residency counts both CPU backing buffers and estimated GPU attribute/index
-storage. iOS permits 8 MiB resident and reserves up to 14 MiB including one bounded
-2 MiB inflated request; other mobile devices permit 24 MiB resident and 36 MiB with
+storage. iOS permits 32 MiB resident and reserves up to 38 MiB including one bounded
+2 MiB inflated request; other mobile devices permit 48 MiB resident and 60 MiB with
 a 4 MiB request. Decoding checks the inflated limit while streaming. An oversized
 middle-tier chunk falls back to its coarse tier. These are geometry accounting
 budgets, not measurements or limits of Safari's total process memory: textures,

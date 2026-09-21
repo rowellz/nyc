@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { assets } from './sveltekit-assets.mjs';
-import {treeBudget,treeRecords,syncSceneryTrees} from '../../src/client/src/environment/tree-lod.js';
+import {treeBudget,treeRecords,syncSceneryTrees} from '../static/world/assets/tree-lod.js';
 
 const source = readFileSync(new URL('environment-WQwLg8tn.js', assets), 'utf8');
 const factory = source.indexOf('function qt(e,t,n,r,i){');
@@ -22,7 +22,7 @@ for (const level of ['mobile', 'high']) {
     G: (mat, key, hook) => { mat.onBeforeCompile = hook; mat.customProgramCacheKey = () => key; },
     s: [batch], O: false, k: 0, A: { distanceToSquared: () => 0, copy() {} },
     o: new Map([['0_0', [{ tree: { x: 100, z: 0 }, form: 'oak', matrix: {}, tint: {} }]]]),
-    u: new Map([['oak', { far: batch,middle:batch,farWood:{add(){}} }]]), N: 512, j: 65,
+    u: new Map([['oak', { far: batch,middle:batch,farWood:{add(){}} }]]), N: treeBudget({level}).distance, j: 65,
   });
   vm.runInContext(source.slice(flagStart, flagEnd) + 'const ' + source.slice(start, end) + ';', scope);
   for (const far of [false, true]) {

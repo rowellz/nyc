@@ -167,11 +167,19 @@ function fixture({bytes=1000,requests=2,triangles=Infinity}={}) {
 {
   const {nearSceneryCoverage,createScenery}=await import(new URL('scenery.js',assets));
   const {Z:Group}=await import(new URL('textureRelease-2U-gT89r.js',assets));
-  for(const [level,ios,expected] of [['mobile',false,[875,3500]],['mobile',true,[625,2500]],['high',false,[180,700]]]) {
+  for(const [level,ios,expected] of [['mobile',false,[3000,6000]],['mobile',true,[2500,5000]],['high',false,[180,700]]]) {
     const fog={isFog:true,near:180,far:700};
-    const context={quality:{level,farDistance:ios?2500:3500},world:{ios},worldGroup:new Group(),scene:{fog}};
+    const context={quality:{level,farDistance:ios?5000:6000},world:{ios},worldGroup:new Group(),scene:{fog}};
     const scenery=createScenery(context);
     assert.deepEqual([fog.near,fog.far],expected,'near and far mobile objects use one atmosphere');
+    context.quality.farDistance /= 2;
+    scenery.update();
+    assert.deepEqual([fog.near,fog.far],level==='mobile'?expected.map(v=>v/2):expected,
+      'changing render distance updates mobile haze without changing desktop weather');
+    context.quality.farDistance = 8000;
+    scenery.update();
+    assert.deepEqual([fog.near,fog.far],level==='mobile'?[4000,8000]:expected,
+      'live mobile scenery and fog can expand to 8 km, including iPhone');
     scenery.dispose();
     assert.deepEqual([fog.near,fog.far],[180,700],'disposing scenery restores the original fog');
     assert.equal(context.worldGroup.children.length,0);
@@ -182,9 +190,9 @@ function fixture({bytes=1000,requests=2,triangles=Infinity}={}) {
   assert(coverage.buildings.has('0_0'));assert(coverage.ground.has('0_0'));assert.equal(coverage.roads.size,0);
   const source=await readFile(new URL('buildings-BDmduZ8y.js',assets),'utf8');
   assert(source.includes('x=$createScenery(t,y)'),'served client replaces the all-world skyline worker');
-  assert(sceneryBudget(true,2500).bytes<sceneryBudget(false,6000).bytes);
-  const ios=sceneryBudget(true,2500,true);
-  assert.equal(ios.bytes,8*1024*1024);assert.equal(ios.distance,2500);assert.equal(ios.triangles,80000);
+  assert(sceneryBudget(true,6000).bytes<sceneryBudget(false,6000).bytes);
+  const ios=sceneryBudget(true,8000,true);
+  assert.equal(ios.bytes,32*1024*1024);assert.equal(ios.distance,8000);assert.equal(ios.triangles,320000);
 }
 console.log('PASS scenery binary format, coastline holes, tiers, production serving, bounded streaming, teleports, cancellation and visible-mesh handoff');
 

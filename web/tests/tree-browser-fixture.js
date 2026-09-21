@@ -31,8 +31,11 @@ window.testTrees=()=>{
   // Keep the far model large enough in the screenshot to inspect its silhouette.
   view.zoom=8;view.updateProjectionMatrix();sample();const farShot=renderer.domElement.toDataURL();
   view.zoom=1;view.updateProjectionMatrix();
-  const distance=ctx.world.ios?800:ctx.quality.level==='mobile'?1200:2000;
+  const distance=ctx.world.ios?2000:ctx.quality.level==='mobile'?3000:2000;
   view.position.z=distance-20;const extended=sample();
+  const originalRange=context.quality.farDistance;
+  context.quality.farDistance=100;const reduced=sample();
+  context.quality.farDistance=originalRange;const restored=sample();
   trees.removeTile(tile.key);const fallback=sample();
   root.userData.sceneryTreeTiles.clear();const unloaded=sample();
   // Exercise actual decoded scenery records as well as the isolated handoff.
@@ -41,5 +44,5 @@ window.testTrees=()=>{
   const streamed=sample();
   trees.dispose();for(const texture of [...Object.values(leaves),...Object.values(crowns)])texture.dispose();
   renderer.render(treeScene,view);
-  return {near,middle,far,extended,fallback,unloaded,streamed,pitDirection,guardDirection,remaining:root.children.length,shots:{near:nearShot,middle:middleShot,far:farShot}};
+  return {near,middle,far,extended,reduced,restored,fallback,unloaded,streamed,pitDirection,guardDirection,remaining:root.children.length,shots:{near:nearShot,middle:middleShot,far:farShot}};
 };

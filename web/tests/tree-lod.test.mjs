@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
-import {treeBudget,treeRecords,syncSceneryTrees} from '../../src/client/src/environment/tree-lod.js';
+import {treeBudget,treeRecords,syncSceneryTrees} from '../static/world/assets/tree-lod.js';
 
-for(const [level,ios,distance,count] of [['mobile',false,1200,4000],['mobile',true,800,2000],['high',false,2000,10000]]) {
+for(const [level,ios,distance,count] of [['mobile',false,1250,8000],['mobile',true,1000,4000],['high',false,2000,10000]]) {
   assert.deepEqual(treeBudget({level,farDistance:2500},ios),{distance,count,middle:ios?150:level==='mobile'?220:320});
 }
 assert.equal(treeBudget({level:'high',farDistance:600}).distance,600);
+assert.equal(treeBudget({level:'mobile',farDistance:5000},true).distance,2000);
+assert.equal(treeBudget({level:'mobile',farDistance:6000}).distance,3000);
+assert.equal(treeBudget({level:'mobile',farDistance:8000},true).distance,3200);
 const record=(x,scenery=false)=>({tree:{x,z:0},scenery});
 const detailed=record(20),overlap=record(20,true),far=record(900,true),outside=record(1300,true);
 const near=new Map([['0_0',[detailed]]]),remote=new Map([['0_0',[overlap]],['3_0',[far,outside]]]);

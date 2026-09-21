@@ -6,6 +6,7 @@ import { assets } from './sveltekit-assets.mjs';
 import { installTileRequests } from '../static/world/assets/tile-requests.js';
 import { serveStatic } from '../src/lib/server/static.js';
 import { canCommitSceneTile } from '../static/world/assets/predictive-streaming.js';
+import { configureRenderDistance } from '../static/world/assets/render-distance.js';
 
 // Exercise the actual shipped streamer, including request IDs, promise replies,
 // overlap indexes and events. Only time, camera and network latency are faked.
@@ -16,7 +17,7 @@ assert(start > 0 && end > start);
 const streamerSource = main.slice(start, end).replaceAll('import.meta.url', '"file:///streamer.js"');
 const policy = readFileSync(new URL('predictive-streaming.js', assets), 'utf8').replace(/^import .*\n/gm, '').replaceAll('export function', 'function');
 assert(main.includes('$canCommitSceneTile(t,o)'));
-assert(main.includes('O=$configureStreaming(new Pl(S,v,t.world),x.camera)'));
+assert(main.includes('O=$configureRenderDistance($configureStreaming(new Pl(S,v,t.world),x.camera),v)'));
 assert(readFileSync(new URL('streets-CfYSUqyW.js', assets), 'utf8').includes('e.world.tilePriority?.(t.tile.tx,t.tile.tz)'));
 
 // Exercise the shipped quality detector, including the separate iOS override
@@ -34,11 +35,11 @@ for (const [ua, override, expected] of [
   const { quality } = scope.l(override);
   assert.equal(quality.drawDistance, expected, `${ua} / ${override} uses its device budget`);
   assert(quality.farDistance >= expected);
-  if (quality.level === 'mobile') assert.equal(quality.farDistance, ua==='iPhone'?2500:3500, 'mobile uses a bounded prebuilt scenery layer');
+  if (quality.level === 'mobile') assert.equal(quality.farDistance, ua==='iPhone'?5000:6000, 'mobile uses a bounded prebuilt scenery layer');
   if (ua === 'iPhone') {
     assert.equal(quality.maxTraffic, 6);
     assert.equal(quality.shadows, false);
-    assert.equal(quality.farDistance, 2500, 'iOS keeps detailed tiles local while extending scenery');
+    assert.equal(quality.farDistance, 5000, 'iOS keeps detailed tiles local while extending scenery');
   }
 }
 {
@@ -73,7 +74,7 @@ function fixture({ ios = true, mobile = true, predictive = true, latency = 0.6, 
       occupied: args[0] === 'tileLoaded' && args[1].key === `${Math.floor(world.focus.x / 256)}_${Math.floor(world.focus.z / 256)}`,
     });
   } },
-    { level: mobile ? 'mobile' : 'high', drawDistance: ios ? 384 : mobile ? 640 : 768, farDistance: ios ? 2500 : mobile ? 3500 : 6000 });
+    { level: mobile ? 'mobile' : 'high', drawDistance: ios ? 384 : mobile ? 640 : 768, farDistance: ios ? 5000 : 6000 });
   for (let x = -20; x <= 20; x++) for (let z = -10; z <= 10; z++) world.tileSet.add(`${x}_${z}`);
   if (tileData) world.tileSet = new Set(tileData.keys());
   world.index = { tiles: [...world.tileSet] };
@@ -110,6 +111,18 @@ function fixture({ ios = true, mobile = true, predictive = true, latency = 0.6, 
     if (ios && predictive) assert(world.tiles.size <= 20, 'nearby, ahead and retained tiles share the 20-tile iOS limit');
   }
   return { world, camera, events, requests, pending, changes, frame, point, get time() { return time; } };
+}
+
+for (const ios of [false, true]) {
+  const f = fixture({ ios, mobile: ios, latency: .01 });
+  configureRenderDistance(f.world, { drawDistance: ios ? 384 : 768, farDistance: ios ? 5000 : 6000 });
+  f.world.renderDistance.set(200, false);
+  for (let i = 0; i < 500; i++) await f.frame();
+  const expanded = f.world.tiles.size;
+  f.world.renderDistance.set(50, false);
+  for (let i = 0; i < 500; i++) await f.frame();
+  if (!ios) assert(f.world.tiles.size < expanded, 'live range reduction retires detailed tiles at a stationary camera');
+  assertCoverage(f);
 }
 
 {

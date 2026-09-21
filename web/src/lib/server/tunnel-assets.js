@@ -6,6 +6,8 @@ export function tunnelAssetTransform(rel, source) {
     source = source.replace(before, after);
   };
   if (rel === 'world/assets/tile.worker-Ai2ZdmRL.js') {
+    source = "import { resolveRoadCollision as $resolveRoadCollision } from './road-collision.js';\n" + source;
+    replace('$resolveRoadOverlaps(c,a,o);', '$resolveRoadOverlaps(c,a,o);$resolveRoadCollision(s,a,o);');
     source = "import { finishTunnelApproaches as $tunnelFinish, surfaceMarkingAllowed as $tunnelSurfaceMarking } from './tunnels.js';\n" + source;
     replace('const paving = Math.max(0, baseAt(x, z) - deckAt(x, z));',
       'if(!$tunnelSurfaceMarking(env.tile.roads,currentRoad,x,z))return;const paving = Math.max(0, baseAt(x, z) - deckAt(x, z));');
@@ -18,6 +20,10 @@ export function tunnelAssetTransform(rel, source) {
       'const $profileRoad=r.find(r=>!r.tunnel&&dr.has(r.cls)&&r.pts.length>1);if($profileRoad)$clearanceProfile(p,$profileRoad,$baseDeckProfile);const $profiles=$tunnelNetwork(r);');
     replace('decks:s.decks,colliders:', 'decks:s.decks,approachProfiles:s.approachProfiles,colliders:');
   } else if (rel === 'world/assets/streets-CfYSUqyW.js') {
+    // Road ribbons meet at duplicated vertices just like sidewalk polygons.
+    // Weld them in Rapier and suppress artificial contacts on triangle seams.
+    replace('r.RAPIER.ColliderDesc.trimesh(t.position,t.index).setFriction(.85)',
+      'r.RAPIER.ColliderDesc.trimesh(t.position,t.index,r.RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES|r.RAPIER.TriMeshFlags.MERGE_DUPLICATE_VERTICES).setFriction(.85).setRestitution(0)');
     replace('n.decks=i.decks,$tunnelTerrain(e,n.tile)',
       'n.decks=i.decks,n.tile.approachProfiles=i.approachProfiles,$tunnelTerrain(e,n.tile)');
     replace('e.events.on(`tileUnloaded`,ee)',
