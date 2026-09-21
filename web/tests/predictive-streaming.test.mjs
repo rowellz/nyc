@@ -125,6 +125,32 @@ for (const ios of [false, true]) {
   assertCoverage(f);
 }
 
+// Real road speeds must receive the same paced lifecycle as the free camera.
+for (const speed of [50/3.6, 50*.44704, 80*.44704]) {
+  const f=fixture({latency:.01});
+  for(let i=0;i<100;i++)await f.frame();
+  f.changes.length=0;
+  for(let i=0;i<1800;i++)await f.frame({dt:1/60,x:f.point.x+speed/60});
+  assert(f.world.stats.fastTravel,`${speed.toFixed(2)} m/s activates travel pacing`);
+  assert(f.changes.filter(c=>c.fast).length>2,'road-speed travel still publishes new terrain');
+  for(let i=1;i<f.changes.length;i++) {
+    const a=f.changes[i-1],b=f.changes[i];
+    if(b.fast&&!b.occupied)assert(b.time-a.time>=.15-1e-6,'road speeds pace tile fan-out');
+  }
+}
+{
+  const f=fixture({latency:.01});
+  f.world.stats.drivingSpeed=50/3.6;
+  await f.frame();
+  assert(f.world.stats.fastTravel,'vehicle speed enables pacing before camera motion is sampled');
+  f.world.stats.drivingSpeed=10;
+  await f.frame();assert(f.world.stats.fastTravel,'brief braking retains the travel budget');
+  f.world.stats.drivingSpeed=8;
+  await f.frame();assert(!f.world.stats.fastTravel,'slowing down restores the normal budget');
+  f.world.stats.drivingSpeed=10;
+  await f.frame();assert(!f.world.stats.fastTravel,'hysteresis avoids toggling near the threshold');
+  f.world.unloadAll();assert.equal(f.world.stats.drivingSpeed,0);
+}
 {
   const f = fixture({ latency: .01 });
   for (let i = 0; i < 100; i++) await f.frame({ dt: 1 / 60 });

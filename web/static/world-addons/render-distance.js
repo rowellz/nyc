@@ -23,12 +23,13 @@
     var control = document.createElement('div');
     control.className = 'render-distance ia';
     control.innerHTML = '<label for="render-distance">Render distance <output for="render-distance"></output></label>'
-      + '<input id="render-distance" type="range" min="50" max="200" step="25" aria-describedby="render-distance-help render-distance-range">'
+      + '<input id="render-distance" type="range" min="50" step="25" aria-describedby="render-distance-help render-distance-range">'
       + '<small id="render-distance-range"></small>'
       + '<small id="render-distance-help">Higher uses more memory and may lower FPS.</small>'
       + '<button type="button">Reset to default</button>';
     var slider = control.querySelector('input');
     function sync() {
+      slider.max = String(setting.max);
       slider.value = String(setting.value);
       control.querySelector('output').textContent = setting.value + '%';
       var description = setting.near + ' m detail · ' + (setting.far / 1000).toFixed(1) + ' km skyline';

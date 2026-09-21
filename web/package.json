@@ -18,7 +18,7 @@
     "test:city-browser": "node tests/mobile-city-browser.mjs",
     "test:station-browser": "node tests/station-walk-browser.mjs",
     "test:traffic": "node tests/traffic-distribution.test.mjs",
-    "test:scenery": "node tests/scenery.test.mjs && node tests/scenery-transport.test.mjs && node tests/tree-lod.test.mjs && node tests/tree-pits.test.mjs && node tests/curb-placement.test.mjs",
+    "test:scenery": "node tests/scenery.test.mjs && node tests/scenery-handoff.test.mjs && node tests/scenery-transport.test.mjs && node tests/tree-lod.test.mjs && node tests/tree-pits.test.mjs && node tests/curb-placement.test.mjs",
     "test:scenery-browser": "node tests/scenery-browser.mjs",
     "test:streaming": "node tests/predictive-streaming.test.mjs && node tests/driving-streaming.test.mjs && node tests/tile-requests.test.mjs && node tests/scene-compilation.test.mjs && node tests/mobile-chunk-pacing.test.mjs && node tests/highway-chunk-pacing.test.mjs",
     "test:memory": "node tests/mobile-memory.test.mjs && node tests/geometry-residency.test.mjs && node tests/mobile-building-lod.test.mjs && node tests/renderer-diagnostics.test.mjs",
@@ -27,7 +27,7 @@
     "test:textures": "node tests/mobile-textures.test.mjs && node tests/mobile-atlases.test.mjs && node tests/mobile-builds.test.mjs && node tests/mobile-roads.test.mjs && node tests/mobile-terrain.test.mjs && node tests/terrain-worker-input.test.mjs",
     "test:ui": "node tests/render-distance.test.mjs && node tests/mobile-map.test.mjs && node tests/look-stick.test.mjs && node tests/touch-zoom.test.mjs && node tests/camera-boot.test.mjs && node tests/url-state.test.mjs && node tests/water-reflection.test.mjs",
     "test:tunnels": "node tests/tunnels.test.mjs && node tests/foundations.test.mjs && node tests/buried-tunnels.test.mjs && node tests/tunnel-worker.test.mjs && node tests/tunnel-markings.test.mjs && node tests/tunnel-water.test.mjs && node tests/tunnel-terrain.test.mjs && node tests/tunnel-barriers.test.mjs && node tests/tunnel-bridge.test.mjs",
-    "test:roads": "node tests/ramp-merges.test.mjs && node tests/road-layers.test.mjs && node tests/bridge-railings.test.mjs && node tests/elevated-markings.test.mjs && node tests/road-grades.test.mjs && node tests/lane-continuity.test.mjs && node tests/road-fixtures.test.mjs && node tests/road-overlap.test.mjs && node tests/pedestrian-clearance.test.mjs && node tests/motorway-width.test.mjs && node tests/motorway-curves.test.mjs && node tests/motorway-crossings.test.mjs && node tests/motorway-streaming.test.mjs",
+    "test:roads": "node tests/ramp-merges.test.mjs && node tests/road-layers.test.mjs && node tests/bridge-railings.test.mjs && node tests/elevated-markings.test.mjs && node tests/street-markings.test.mjs && node tests/road-grades.test.mjs && node tests/lane-continuity.test.mjs && node tests/road-fixtures.test.mjs && node tests/road-overlap.test.mjs && node tests/pedestrian-clearance.test.mjs && node tests/motorway-width.test.mjs && node tests/motorway-curves.test.mjs && node tests/motorway-crossings.test.mjs && node tests/motorway-streaming.test.mjs",
     "test:sidewalks": "node tests/sidewalk-carriageway.test.mjs",
     "test:peds": "node tests/pedestrian-height.test.mjs"
   },

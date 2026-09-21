@@ -155,20 +155,43 @@ outgoingLight+=lamp*windows*.65*uLodNight;
   function syncHandle(handle, ready) {
     for (const mesh of handle.children) {
       const { coverage, kind, tiles }=mesh.userData;
-      for (let i=0;i<tiles.length;i++) coverage[i]=ready[kind].has(tiles[i])?1:0;
-      if(mobile) compactMesh(mesh);
+      let changed=false;
+      for (let i=0;i<tiles.length;i++) {
+        const value=ready[kind].has(tiles[i])?1:0;
+        if(coverage[i]!==value){coverage[i]=value;changed=true;}
+      }
+      if(mobile && changed) compactMesh(mesh);
     }
   }
+  // Only the local visibility state can change this mesh's submitted indices.
+  // A tile arriving elsewhere must not scan/reupload the entire skyline.
+  function hiddenSignature(mesh) {
+    return mesh.userData.features.filter(f=>builtLandmarks.has(f.id)).map(f=>f.start).join(',');
+  }
   function compactMesh(mesh) {
-    const count=compactSceneryIndex(mesh.userData,mesh.userData.coverage,builtLandmarks);
+    const data=mesh.userData, hidden=hiddenSignature(mesh);
+    let covered=0;
+    for(let i=0;i<data.coverage.length;i++)if(data.coverage[i])covered|=1<<i;
+    if(data.covered===covered && data.hidden===hidden)return;
+    data.covered=covered;data.hidden=hidden;
+    const count=compactSceneryIndex(data,data.coverage,builtLandmarks);
     mesh.geometry.setDrawRange(0,count);
-    mesh.geometry.index.needsUpdate=true;
+    // Compaction only changes the live prefix; retired triangles need no upload.
+    // An entirely covered mesh changes its draw range without touching the GPU.
+    if(count) {
+      mesh.geometry.index.clearUpdateRanges();
+      mesh.geometry.index.addUpdateRange(0,count);
+      mesh.geometry.index.needsUpdate=true;
+    }
   }
   function syncLandmarks(handle) {
     for(const mesh of handle.children) {
       if(mobile){compactMesh(mesh);continue;}
       const {features,sourceIndex}=mesh.userData;
       if(!features.length)continue;
+      const hidden=hiddenSignature(mesh);
+      if(mesh.userData.hidden===hidden)continue;
+      mesh.userData.hidden=hidden;
       const index=mesh.geometry.index.array;
       index.set(sourceIndex);
       for(const f of features) if(builtLandmarks.has(f.id)) index.fill(0,f.start,f.start+f.count);
@@ -187,6 +210,7 @@ outgoingLight+=lamp*windows*.65*uLodNight;
         geometry.setAttribute('color',new BufferAttribute(layer.color,3,true));
         geometry.setAttribute('aOwner',new BufferAttribute(layer.owner,1));
         geometry.setIndex(new BufferAttribute(layer.renderIndex,1));
+        geometry.setDrawRange(0,layer.index.length);
         geometry.boundingSphere=new Sphere(new Vector3(...layer.bounds.center),layer.bounds.radius);
         const mesh=new Mesh(geometry,material(layer.kind,coverage));
         mesh.position.set(chunk.ox,0,chunk.oz); mesh.renderOrder=1;
@@ -195,11 +219,11 @@ outgoingLight+=lamp*windows*.65*uLodNight;
         // The skyline mirror hides near meshes, so keep their proxies in that pass.
         mesh.onBeforeRender=(_renderer,_scene,camera)=>{mesh.material.userData.lodCoverage.value=camera===ctx.camera?coverage:uncovered;};
         mesh.userData={coverage,kind:layer.kind,tiles:chunk.tiles,features:layer.features,
-          sourceIndex:layer.index,renderIndex:layer.renderIndex,owner:layer.owner};
+          sourceIndex:layer.index,renderIndex:layer.renderIndex,owner:layer.owner,covered:0,hidden:''};
         root.add(mesh);
       }
       syncHandle(root,nearSceneryCoverage(ctx.worldGroup));
-      if(!mobile)syncLandmarks(root);
+      syncLandmarks(root);
       group.add(root);
       for(const tile of root.userData.treeTiles) treeTiles.set(tile.key,tile);
       return root;

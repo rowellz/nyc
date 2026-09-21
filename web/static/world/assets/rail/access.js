@@ -51,6 +51,10 @@ export function accessSupport(stationKey,x,z,referenceY) {
  return best;
 }
 export function appendAccessGeometry(b,station,railVolumes=()=>[]) {
+ const steps=appendAccessGeometrySteps(b,station,railVolumes);
+ while(!steps.next().done){}
+}
+export function* appendAccessGeometrySteps(b,station,railVolumes=()=>[]) {
  for(const a of closed.values())if(a.stationKey===station.key)
   b.box({...a.path[0],dx:a.dx,dz:a.dz},2.35,1,.15,'green',.5,0,true);
  const segments=[],flat=[];
@@ -74,9 +78,11 @@ export function appendAccessGeometry(b,station,railVolumes=()=>[]) {
  // must not remove each other at nearly tangent stair/tunnel junctions.
  for(const segment of segments)segment.volume=passageVolume(segment.a,segment.c,segment.width/2-.145,-.2,2.65);
  for(const segment of segments) {
+  yield;
   const {path,a,c,width}=segment,d=c.s-a.s;if(d<.01)continue;
   const steps=Math.max(1,Math.ceil(Math.abs(c.y-a.y)/.17));
   for(let j=0;j<steps;j++) {
+   yield;
    const p=onPath(path,a.s+d*(j+.5)/steps),y=a.y+(c.y-a.y)*(j+1)/steps;
    b.box({...p,y},width,.22,d/steps+.01,'concrete',-.11);
   }
@@ -89,6 +95,7 @@ export function appendAccessGeometry(b,station,railVolumes=()=>[]) {
   const cuts=[...segments.filter(s=>s!==segment).map(s=>s.volume),...railVolumes(a,c),...accessPassageVolumes(a,c,station.key)];
   const count=Math.ceil(d/3);
   for(let j=0;j<count;j++) {
+   yield;
    const p=onPath(path,a.s+d*j/count),q=onPath(path,a.s+d*(j+1)/count),underground=Math.max(p.y,q.y)<-2.7;
    for(const side of [-1,1]) {
     if(!underground&&Math.min(p.y,q.y)<0) {

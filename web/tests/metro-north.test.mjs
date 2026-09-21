@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { sceneFrameClock } from './scene-frame-clock.mjs';
 import { readFileSync } from 'node:fs';
 import { assets } from './sveltekit-assets.mjs';
 import { CLIENT_REVISION, versionClientImports } from '../src/lib/server/client-cache.js';
@@ -85,11 +86,12 @@ const ctx={worldGroup:new Group(),camera:{position:new Vector3()},scene:new Grou
   physics:{ready:true,groundHeight:()=>0,world:{createCollider:()=>({})},RAPIER:{ColliderDesc:{trimesh:()=>({setFriction(){return this;}})}},
     addTileColliders:key=>{assert(!colliders.has(key));colliders.add(key);},removeTileColliders:key=>colliders.delete(key)}};
 const api=installRail(ctx);
+const frameClock=sceneFrameClock();
 function visit(station) {
   const tx=Math.floor(station.x/256),tz=Math.floor(station.z/256);
   ctx.camera.position.set(station.x,station.y+3,station.z);ctx.world.tiles.clear();
   for(let x=-1;x<=1;x++)for(let z=-1;z<=1;z++)ctx.world.tiles.set(`${tx+x}_${tz+z}`,{tx:tx+x,tz:tz+z,roads:[]});
-  listeners.get('tileLoaded')();for(let i=0;i<1000&&!api.readyForInput();i++)api.update(1/60);
+  listeners.get('tileLoaded')();for(let i=0;i<5000&&!api.readyForInput();i++){api.update(1/60);frameClock.frame();}
   assert(api.readyForInput());assert(api.stats.trains<=4);
 }
 for(let i=0;i<2;i++)for(const station of [harlem125,parkAvenue.stations[0],hudson.stations[0],harlem.stations[0],route.stations[0]]) {
@@ -110,6 +112,7 @@ for(let i=0;i<2;i++)for(const station of [harlem125,parkAvenue.stations[0],hudso
   assert.equal(api.stats.trackTiles,0);assert.equal(api.stats.stations,0);assert.equal(api.stats.trains,0);assert.equal(colliders.size,0);
 }
 api.dispose();delete globalThis.document;
+frameClock.restore();
 assert.equal(ctx.worldGroup.children.length,0);assert.equal(listeners.size,0);
 const main=readFileSync(new URL('main-D_3aygO4.js',assets),'utf8');
 assert(main.includes(`./rail/runtime.js?v=${CLIENT_REVISION}`));

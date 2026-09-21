@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import {assets} from './sveltekit-assets.mjs';
+import {CLIENT_REVISION} from '../src/lib/server/client-cache.js';
+import {sceneFrameClock} from './scene-frame-clock.mjs';
 import {createRailBudget,railBounds} from '../static/world/assets/rail/mobile-budget.js';
 const camera={x:0,y:2,z:0},ctx={camera:{position:camera},world:{ios:true},quality:{level:'mobile'}};
 const track=(id,y,x=0)=>({id,bounds:railBounds([{x,y,z:0},{x:x+40,y,z:0}],4),buried:y<-6});
@@ -35,6 +37,18 @@ for(let i=0;i<after.index.length;i+=3) {
   assert((b[2]-a[2])*(c[0]-a[0])-(b[0]-a[0])*(c[2]-a[2])>0,'sleepers face up');
 }
 const mats=materials();
+// Cancelling after a mesh buffer is allocated must dispose that unpublished
+// geometry; no scene traversal can find it yet.
+const {g:QueueGeometry}=await import(new URL(`textureRelease-2U-gT89r.js?v=${CLIENT_REVISION}`,assets));
+const disposeGeometry=QueueGeometry.prototype.dispose;
+let cancelledBuffers=0;
+try {
+  QueueGeometry.prototype.dispose=function(){cancelledBuffers++;return disposeGeometry.call(this);};
+  const upload=mobile.buildSteps(mats);
+  assert.equal(upload.next().done,false);
+  upload.return();
+  assert.equal(cancelledBuffers,1);
+} finally {QueueGeometry.prototype.dispose=disposeGeometry;}
 for(const kind of ['subway','commuter']) {
   const legacy=trainModel(mats,kind),batched=trainModel(mats,kind,true);
   const old=legacy.create(),fresh=batched.create(),schedule=timetable(route,1);
@@ -74,6 +88,24 @@ const runtimeCtx={worldGroup:new three.Z(),camera:{position:new three.Or()},modu
   physics:{ready:true,groundHeight:()=>0,world:{createCollider:()=>({})},RAPIER:{ColliderDesc:{trimesh:()=>({setFriction(){return this}})}},
     addTileColliders:key=>colliders.add(key),removeTileColliders:key=>colliders.delete(key)}};
 const api=installRail(runtimeCtx);
+const frameClock=sceneFrameClock(),frame=()=>frameClock.frame();
+// A chunk event and update only enqueue work. Other scene jobs share the same
+// queue, and retiring a tile cancels construction before anything is published.
+const {t:buildScope}=await import(new URL(`loading-DS_gLujL.js?v=${CLIENT_REVISION}`,assets));
+const station=route.stations[1],tx=Math.floor(station.x/256),tz=Math.floor(station.z/256);
+runtimeCtx.camera.position.set(station.x,station.y+1.7,station.z);
+runtimeCtx.world.tiles.set(`${tx}_${tz}`,{tx,tz,roads:[]});listeners.get('tileLoaded')();
+api.update(1/30);
+assert.equal(colliders.size,0,'mobile rail does not build synchronously in the frame loop');
+assert.equal(runtimeCtx.busy,1);
+let otherRan=false;
+buildScope(runtimeCtx).job('other scene work').run((function*(){otherRan=true;})());
+frame();assert(otherRan,'rail yields to another scene builder');
+assert.equal(colliders.size,0,'dense rail construction spans frames');
+runtimeCtx.world.tiles.clear();listeners.get('tileUnloaded')();frame();
+assert.equal(runtimeCtx.busy,0,'retirement releases the active build exactly once');
+assert.equal(colliders.size,0,'retired rail cannot publish late');
+assert(api.readyForInput());
 for(const station of [route.stations[1],route.stations[5],route.stations[11]]) {
   const entry=accessesByStation.get(station.key)?.[0];assert(entry);
   const destination=entranceDestinations(entry).find(d=>d.stationKey===station.key);assert(destination);
@@ -83,11 +115,13 @@ for(const station of [route.stations[1],route.stations[5],route.stations[11]]) {
     const tx=Math.floor(point.x/256),tz=Math.floor(point.z/256);runtimeCtx.world.tiles.clear();
     for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++)runtimeCtx.world.tiles.set(`${tx+dx}_${tz+dz}`,{tx:tx+dx,tz:tz+dz,roads:[]});
     listeners.get('tileLoaded')();
-    for(let i=0;i<100&&!api.readyForInput();i++)api.update(1/30);
+    for(let i=0;i<5000&&!api.readyForInput();i++){api.update(1/30);frame();}
     assert(api.readyForInput());assert(api.stats.trackTiles<=32&&api.stats.stations<=4);
     if(fraction>0&&fraction<1)assert(Math.abs(api.support(point.x,point.z,point.y,NaN)-point.y)<.05,`mobile approach keeps ${station.name} stairs available at ${fraction}`);
   }
 }
 api.dispose();assert.equal(colliders.size,0);assert.equal(runtimeCtx.worldGroup.children.length,0);
+assert.equal(runtimeCtx.busy,0);
+frameClock.restore();
 delete globalThis.document;
 console.log('PASS iPhone station approach/descent/return: budgeted runtime retains underground and elevated stair support');

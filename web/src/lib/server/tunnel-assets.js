@@ -29,6 +29,10 @@ export function tunnelAssetTransform(rel, source) {
     replace('e.events.on(`tileUnloaded`,ee)',
       'e.events.on(`tileUnloaded`,t=>{ee(t);$tunnelTerrain(e)})');
   } else if (rel === 'world/assets/lane-layout.js') {
+    source = "import { createLanePlanCache } from './lane-plan-cache.js';\n" + source;
+    replace('const cache = new WeakMap();', 'let cachedPlan;');
+    replace('  let layouts = cache.get(roads);\n  if (!layouts) { layouts = plan(roads); cache.set(roads, layouts); }\n  return layouts.get(road.id) ?? null;',
+      '  cachedPlan ??= createLanePlanCache(plan, isHighway, key);\n  return cachedPlan(road, roads);');
     source = "import { taperGore } from './lane-transitions.js';\n" + source;
     // A fan shifts the whole lane envelope sideways. Carry the outside shoulder
     // with it too; shifting only the shared edge can invert a narrow ramp's deck.

@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { encodeScenery, CHUNK_TILES, CHUNK_SIZE, SCENERY_VERSION } from '../../../static/world/assets/scenery-format.js';
+import { landmarkShell } from '../../../static/world/assets/landmark-shells.js';
 
 export async function sceneryTools(publicDir) {
   const polygon = await import(pathToFileURL(path.join(publicDir, 'world/assets/polygon-BtfRVykj.js')).href);
@@ -128,19 +129,24 @@ export function compileScenery(key, tiles, tier, tools) {
       if (tier === 'far' && h < 12) continue;
       let poly = tools.normalize(b.footprint);
       if (!poly) continue;
-      poly = tools.normalize(poly.map(r => tools.simplify(r, tier === 'far' ? 4 : .8))) ?? poly;
-      const y0 = tools.foundation(b), top = y0 + h;
+      const shell = landmarkShell(b.id, poly[0]);
+      if (!shell) poly = tools.normalize(poly.map(r => tools.simplify(r, tier === 'far' ? 4 : .8))) ?? poly;
+      const y0 = tools.foundation(b);
       const start = layers[2].index.length;
       // Use the detailed baker's deterministic palettes, in linear vertex color space.
       const seed = tools.seedOf(b.id), params = tools.buildingParams(b, seed);
       const bytes = color => color.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255));
       const tint = bytes(params.tint);
       const roof = bytes(tools.roofPalette(seed, tools.roofMaterial(seed)));
-      for (const ring of poly) for (let i=0; i<ring.length; i++) {
-        const a=ring[i], q=ring[(i+1)%ring.length];
-        face(layers[2], [[a[0],y0,a[1]],[a[0],top,a[1]],[q[0],top,q[1]],[q[0],y0,q[1]]], tint);
+      for (const part of shell ?? [{ring:poly[0], holes:poly.slice(1), base:0, top:h}]) {
+        for (const ring of [part.ring, ...part.holes]) for (let i=0; i<ring.length; i++) {
+          const a=ring[i], q=ring[(i+1)%ring.length];
+          face(layers[2], [[a[0],y0+part.base,a[1]],[a[0],y0+part.top,a[1]],
+            [q[0],y0+part.top,q[1]],[q[0],y0+part.base,q[1]]], tint);
+        }
+        cap(layers[2], [part.ring,...part.holes], y0+part.top, roof);
       }
-      cap(layers[2], poly, top, roof); buildings++;
+      buildings++;
       layers[2].features.push({ id:b.id, start, count:layers[2].index.length-start });
     }
     owner++;

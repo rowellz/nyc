@@ -9,6 +9,7 @@ import { versionClientImports, CLIENT_REVISION } from '../src/lib/server/client-
 for (const value of [null, undefined, '', 'oops', Infinity]) assert.equal(normalizeRenderDistance(value), 100);
 assert.equal(normalizeRenderDistance(-100), 50);
 assert.equal(normalizeRenderDistance(99999), 200);
+assert.equal(normalizeRenderDistance(200, 100), 100);
 
 const source = readFileSync(new URL('../static/world-addons/render-distance.js', import.meta.url), 'utf8');
 for (const [touch, ios, near, far] of [[false, false, 768, 6000], [true, false, 640, 6000], [true, true, 384, 5000]]) {
@@ -16,22 +17,24 @@ for (const [touch, ios, near, far] of [[false, false, 768, 6000], [true, false, 
     { url: 'http://localhost/world/', runScripts: 'outside-only' });
   globalThis.localStorage = dom.window.localStorage;
   localStorage.setItem(RENDER_DISTANCE_KEY, '75');
-  const quality = { drawDistance: near, farDistance: far, maxTraffic: 6 };
+  const quality = { level: touch ? 'mobile' : 'high', drawDistance: near, farDistance: far, maxTraffic: 6 };
   const world = { ios, setDrawDistance(value) { this.distance = value; } };
   configureRenderDistance(world, quality);
   assert.equal(world.distance, Math.max(256, near * .75), 'saved preference applies before UI mounts');
   dom.window.__game = { ctx: { quality, world, state: { admin: false } } };
   dom.window.eval(source);
   const slider = dom.window.document.querySelector('#render-distance');
+  const maximum = touch ? 100 : 200;
+  assert.equal(slider.max, String(maximum));
   assert.equal(slider.value, '75');
   slider.value = '200';
   slider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-  assert.equal(quality.drawDistance, near * 2);
+  assert.equal(quality.drawDistance, near * maximum / 100);
   assert.equal(world.distance, quality.drawDistance);
-  assert.equal(quality.farDistance, Math.min(8000, far * 2));
-  assert.equal(localStorage.getItem(RENDER_DISTANCE_KEY), '200');
+  assert.equal(quality.farDistance, Math.min(8000, far * maximum / 100));
+  assert.equal(localStorage.getItem(RENDER_DISTANCE_KEY), String(maximum));
   assert.equal(quality.maxTraffic, 6);
-  assert(slider.getAttribute('aria-valuetext').includes(`${near * 2} m detail`));
+  assert(slider.getAttribute('aria-valuetext').includes(`${near * maximum / 100} m detail`));
   let bubbled = false;
   dom.window.document.addEventListener('keydown', () => { bubbled = true; });
   slider.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
@@ -41,6 +44,15 @@ for (const [touch, ios, near, far] of [[false, false, 768, 6000], [true, false, 
   assert.equal(world.distance, near);
   assert.equal(quality.farDistance, far);
   assert.equal(localStorage.getItem(RENDER_DISTANCE_KEY), '100');
+  // Existing preferences and direct runtime calls obey the device cap too.
+  localStorage.setItem(RENDER_DISTANCE_KEY, '200');
+  const reloaded = { ios, mobile: touch, setDrawDistance(value) { this.distance = value; } };
+  const reloadedQuality = { level: 'high', drawDistance: near, farDistance: far };
+  configureRenderDistance(reloaded, reloadedQuality);
+  assert.equal(reloaded.renderDistance.value, maximum);
+  assert.equal(localStorage.getItem(RENDER_DISTANCE_KEY), String(maximum));
+  reloaded.renderDistance.set(10000);
+  assert.equal(reloaded.distance, near * maximum / 100);
   dom.window.eval(source);
   assert.equal(dom.window.document.querySelectorAll('#render-distance').length, 1);
   dom.window.close();

@@ -21,10 +21,22 @@ export function streetContextAssetTransform(rel, source) {
     replace('for(let e of N.values()){let n=e.tile.tx*256,',
       'for(let e of N.values()){if(e.tile.streetContext&&e.tile!==$changed)continue;let n=e.tile.tx*256,');
   } else {
-    replace('class Roads {', 'class Roads {\n  streetContexts = new WeakMap();');
+    replace('class Roads {', 'class Roads {\n  streetContexts = new WeakMap();\n  laneContexts = new WeakMap();');
     replace('const key = roadKey(r);', 'const key = roadKey(r);if(tile.streetContext)this.streetContexts.set(r,tile.streetContext.roads);');
-    replace('highwayLanePath(lane.road, roads, lane.segment',
-      'highwayLanePath(lane.road, this.streetContexts.get(lane.road)??roads, lane.segment');
+    // Contextual roads already include every neighbour needed for lane joins.
+    // Tile arrivals must not redensify every unchanged lane on the main thread.
+    // Legacy tiles still rebuild against the current resident road network.
+    replace('const roads = [...this.refs.values()].map(ref => ref.lanes[0]?.road).filter(Boolean)                 ;',
+      'let roads;');
+    replace('const path = highwayLanePath(lane.road, roads, lane.segment ?? 0, lane.offset ?? 0);',
+      `if (!isHighway(lane.road)) continue;
+      const context = this.streetContexts.get(lane.road);
+      const cached = this.laneContexts.get(lane);
+      const segment = lane.segment ?? 0, offset = lane.offset ?? 0;
+      if (context && cached?.context === context && cached.segment === segment && cached.offset === offset) continue;
+      if (!context && !roads) roads = [...this.refs.values()].map(ref => ref.lanes[0]?.road).filter(Boolean);
+      const path = highwayLanePath(lane.road, context ?? roads, segment, offset);
+      if (context) this.laneContexts.set(lane, { context, segment, offset });`);
   }
   return source;
 }

@@ -47,6 +47,7 @@ for (const [sign, height] of [[1, 0], [-1, 0], [1, 20], [1, -8]]) {
   assert(world.drivingRequired.has(next));
   assert.equal(world.lastPlan, 1, 'safety checks do not force full scene replanning');
   assert.equal(drive.state.streaming, true);
+  assert(Math.abs(world.stats.drivingSpeed-120)<.01,'streaming holds retain the saved vehicle speed for scheduling');
   assert.deepEqual(drive.skid, [0, 0, 0, 0]);
   // Decoded tile / visible road is insufficient: bridge and tunnel collision
   // chunks can still be pending after the ordinary land floor is installed.
@@ -67,6 +68,7 @@ for (const [sign, height] of [[1, 0], [-1, 0], [1, 20], [1, -8]]) {
   releaseDrivingGuard(drive);
   assert.equal(world.drivingRequired, undefined);
   assert.equal(world.stats.drivingWaiting, false);
+  assert.equal(world.stats.drivingSpeed,0,'leaving the car clears its scheduling speed');
   physics.free();
 }
 

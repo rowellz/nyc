@@ -135,7 +135,11 @@ Surf shadeRoof(vec3 N) {
   // Share the exact same window layout and light occupancy across both tiers.
   // Every derivative above is evaluated before the distance-dependent return.
   source = replaceOnce(source, '    // ---- wall tone:', lighting + `
-    Surf coarse = S;
+    // Only the transition needs both surfaces. Near walls use the detailed
+    // result directly; distant walls return before the detailed work below.
+    Surf coarse;
+    if (detail < 1.0) {
+    coarse = S;
     coarse.emis = surfaceLight * win;
     vec3 coarseTint = brickShaft && fl >= 3 ? shaftTint(seed, tint) : tint;
     coarse.n = N;
@@ -159,9 +163,11 @@ Surf shadeRoof(vec3 N) {
     coarse.alb *= 1.0 - 0.35 * coarseWet;
     coarse.rough = mix(coarse.rough, 0.3, coarseWet);
     if (detail <= 0.0) return coarse;
+    }
 
     // ---- wall tone:`);
   source = replaceOnce(source, '    return S;', `
+    if (detail < 1.0) {
     S.alb = mix(coarse.alb, S.alb, detail);
     S.rough = mix(coarse.rough, S.rough, detail);
     S.metal = mix(coarse.metal, S.metal, detail);
@@ -170,6 +176,7 @@ Surf shadeRoof(vec3 N) {
     S.ao = mix(coarse.ao, S.ao, detail);
     S.spec = mix(coarse.spec, S.spec, detail);
     S.specMix = mix(coarse.specMix, S.specMix, detail);
+    }
     return S;`);
   // Strip unused desktop light/interior helpers from WebKit's compilation
   // input as well. Remove comments before matching function braces.

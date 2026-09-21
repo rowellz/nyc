@@ -38,6 +38,9 @@ export function guardDriving(drive, dt, spec) {
   if (!body.isValid()) return false;
   const held = holds.get(drive), position = held?.position ?? body.translation();
   const velocity = held?.velocity ?? body.linvel();
+  // Camera smoothing and a stationary streaming hold must not hide road speed
+  // from the frame scheduler. Rapier velocities are metres per second.
+  world.stats.drivingSpeed = Math.hypot(velocity.x, velocity.z);
   const radius = Math.hypot(spec.length, spec.width) / 2 + 2;
   const required = requiredTiles(drive, position, velocity, dt, radius);
   const streets = ctx.modules.get('streets');
@@ -79,4 +82,5 @@ export function releaseDrivingGuard(drive) {
   checks.delete(drive);
   drive.ctx.world.drivingRequired = undefined;
   drive.ctx.world.stats.drivingWaiting = false;
+  drive.ctx.world.stats.drivingSpeed = 0;
 }

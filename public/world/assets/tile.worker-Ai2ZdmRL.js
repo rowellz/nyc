@@ -1344,6 +1344,33 @@ function ai(env         , marks             , grid             , walks          
     if (h > 0.3) return;
     marks.quad(x, z, ROAD_Y + 0.010, dx, dz, 0.45 + 0.55 * h, 0.2 + 0.2 * hash2(seed + 1, z), ATLAS.oil, 1, 0.55 + 0.3 * h, 0, 0, 1, deckAt);
   };
+  /** Only a junction/dead end needs a setback; OSM tag changes split straight streets too. */
+  const streetEndGap = (road             , end         )         => {
+    const p = end ? road.pts.at(-1)  : road.pts[0];
+    const q = end ? road.pts.at(-2)  : road.pts[1];
+    const length = Math.hypot(p[0] - q[0], p[1] - q[1]);
+    let continuations = 0;
+    for (const { seg: other, bb } of env.roadsV.segs) {
+      if (other.id === road.id || other.bridge || other.tunnel || other.layer !== road.layer) continue;
+      if (p[0] < bb.minX || p[0] > bb.maxX || p[1] < bb.minZ || p[1] > bb.maxZ) continue;
+      // Include connections to the middle of a way: a T junction need not split it.
+      const touches = other.pts.slice(1).some((b, i) => {
+        const a = other.pts[i], dx = b[0] - a[0], dz = b[1] - a[1];
+        const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / (dx * dx + dz * dz || 1)));
+        return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dz) < 0.1;
+      });
+      if (!touches) continue;
+      const otherEnd = Math.hypot(p[0] - other.pts[0][0], p[1] - other.pts[0][1]) >= 0.1;
+      const a = otherEnd ? other.pts.at(-1)  : other.pts[0];
+      const b = otherEnd ? other.pts.at(-2)  : other.pts[1];
+      const dot = ((p[0] - q[0]) * (b[0] - a[0]) + (p[1] - q[1]) * (b[1] - a[1]))
+        / (length * Math.hypot(b[0] - a[0], b[1] - a[1]) || 1);
+      if (Math.hypot(p[0] - a[0], p[1] - a[1]) >= 0.1 || dot < 0.85
+        || road.oneway !== other.oneway || road.oneway && end === otherEnd) return 7;
+      continuations++;
+    }
+    return continuations === 1 ? 0 : 7;
+  };
   for (const { seg: r } of env.roadsV.segs) {
     if (r.tunnel || r.lanes < 1 || r.cls === 'service') continue;
     currentRoad = r;
@@ -1352,7 +1379,9 @@ function ai(env         , marks             , grid             , walks          
     const laneW = Math.min(3.3, r.width / lanes);
     const total = polylineLength(r.pts);
     // Highway way boundaries are often just layer/tag changes, not junctions.
-    const endGap = r.bridge || env.roadTriangles(r).length || r.cls === 'motorway' || r.cls === 'trunk' ? 0 : 7;
+    const continuous = r.bridge || env.roadTriangles(r).length || r.cls === 'motorway' || r.cls === 'trunk';
+    const startGap = continuous ? 0 : streetEndGap(r, false);
+    const endGap = continuous ? 0 : streetEndGap(r, true);
     const hw = Math.max(3.2, r.width / 2);
     const edges = deckEdges(r, env.tile.roads, hw);
     const stations = [0];
@@ -1379,7 +1408,7 @@ function ai(env         , marks             , grid             , walks          
         const dx = (b[0] - a[0]) / len, dz = (b[1] - a[1]) / len;
         const pts       = [a, b];
         for (const piece of clipPolylineToRect(pts, env.rect)) {
-          const start = Math.max(along + piece.s0 / scale, endGap);
+          const start = Math.max(along + piece.s0 / scale, startGap);
           const end = Math.min(along + (piece.s0 + polylineLength(piece.pts)) / scale, lineTotal - endGap);
           // Dash phase comes from the uncut source road, including across tile boundaries.
           for (let s = dashed ? Math.floor((start + (layout?.phase ?? 0)) / 12) * 12 - (layout?.phase ?? 0) : start; s < end; s += dashed ? 12 : 3) {

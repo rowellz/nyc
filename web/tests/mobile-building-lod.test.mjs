@@ -5,10 +5,14 @@ import { gunzipSync } from 'node:zlib';
 import { assets } from './sveltekit-assets.mjs';
 import { buildingFoundation, foundationSlab } from '../../public/world/assets/foundations.js';
 import { selectBuildingDetail, createBuildingDetailController, compactBuildingGeometry } from '../static/world/assets/mobile-building-lod.js';
+import { landmarkShell } from '../static/world/assets/landmark-shells.js';
+import { compileScenery, sceneryTools } from '../src/lib/server/scenery-compiler.js';
+import { compactSceneryIndex } from '../static/world/assets/scenery-format.js';
 const code=readFileSync(new URL('builder.worker-D9_Czkt3.js',assets),'utf8').replace(/^import .*$/gm,'');
 let reply;
 const scope=vm.createContext({console,performance,self:{postMessage:r=>reply=r},
-  $foundation:buildingFoundation,$foundationSlab:foundationSlab,$compactBuildingGeometry:compactBuildingGeometry});
+  $foundation:buildingFoundation,$foundationSlab:foundationSlab,$compactBuildingGeometry:compactBuildingGeometry,
+  $landmarkShell:landmarkShell});
 vm.runInContext(code,scope);
 const build=(tile,options={})=>{
   scope.self.onmessage({data:{id:1,input:{...tile,quality:'low',landmarkBins:tile.buildings.slice(0,2).map(b=>b.id),...options}}});
@@ -42,6 +46,48 @@ for(const key of ['0_0','1_0','0_1','1_1','-1_0','0_-1']) {
 assert(after<before*.6,'shell geometry materially reduces resident arrays');
 assert(newTriangles<oldTriangles*.6);
 console.log(`PASS real Midtown building shells: ${oldTriangles} -> ${newTriangles} triangles; ${(before/1048576).toFixed(2)} -> ${(after/1048576).toFixed(2)} MiB CPU buffers; identical collision`);
+// The mobile landmark slot can retire only a few blocks away. Its fallback
+// must still have the narrow shaft, upper setbacks, mooring mast and antenna.
+{
+  const tile=JSON.parse(gunzipSync(readFileSync(new URL('../../public/world/world/tiles/-1_2.json.gz',import.meta.url))));
+  tile.buildings=tile.buildings.filter(b=>b.id===1015862);
+  const building=tile.buildings[0];assert(building);
+  const original=build(tile),shell=build(tile,{mobile:true,detailedIds:[]});
+  assert.deepEqual(shell.position,original.position,'roof-detail selection never changes landmark massing');
+  assert.deepEqual(shell.index,original.index);
+  assert(shell.index.length/3<500,'silhouette stays inexpensive enough for the fallback');
+  const checkShape=(positions,ox,oz)=>{
+    const heights=Array.from({length:positions.length/3},(_,i)=>positions[i*3+1]);
+    assert(Math.abs(Math.max(...heights)-443.2)<.001,'antenna retains full landmark height');
+    const widthAt=y=>{
+      const local=[];
+      for(let i=0;i<positions.length;i+=3)if(Math.abs(positions[i+1]-y)<.001) {
+        const dx=positions[i]+ox+132.6,dz=positions[i+2]+oz-577.4;
+        local.push(dx*Math.sin(209*Math.PI/180)-dz*Math.cos(209*Math.PI/180));
+      }
+      assert(local.length,`missing silhouette level ${y}`);
+      return Math.max(...local)-Math.min(...local);
+    };
+    assert(Math.abs(widthAt(269)-44.2)<.01,'main shaft matches the detailed cross plan');
+    assert(Math.abs(widthAt(302)-38.2)<.01,'72nd-floor setback survives');
+    assert(Math.abs(widthAt(318)-32.2)<.01,'observatory setback survives');
+    assert(widthAt(366)<11,'mooring mast is much narrower than the tower');
+    assert(widthAt(443.2)<1.5,'antenna remains a slim spire');
+  };
+  checkShape(shell.position,shell.ox,shell.oz);
+  assert.equal(shell.landmarkRanges.length,1);
+  assert.equal(shell.landmarkRanges[0].count,shell.index.length,'whole shell hands off together');
+  const tools=await sceneryTools(new URL('../../public/',import.meta.url).pathname);
+  for(const tier of ['mid','far']) {
+    const chunk=compileScenery('-1_0',[tile],tier,tools),layer=chunk.layers.find(l=>l.kind==='buildings');
+    checkShape(layer.position,chunk.ox,chunk.oz);
+    assert(layer.index.length/3<500);
+    layer.sourceIndex=layer.index;layer.renderIndex=new Uint32Array(layer.index.length);
+    assert.equal(compactSceneryIndex(layer,[],new Set([1015862])),0,
+      'committed detailed landmark hides the entire scenery shell');
+  }
+  console.log(`PASS Empire State silhouette in nearby, mid and far batches (${shell.index.length/3} triangles)`);
+}
 const building=(id,x,height=20)=>({id,height,footprint:[[[x,0],[x+10,0],[x+10,10],[x,10]]]});
 const tile={key:'0_0',buildings:Array.from({length:100},(_,i)=>building(i,i))};
 const ctx={quality:{level:'mobile'},camera:{position:{x:0,y:2,z:0}},world:{ios:true,tiles:new Map([['0_0',tile]])}};
@@ -58,6 +104,19 @@ ctx.camera.position.y=2;time=1000;
 rec.job.pending=true;controller.update(records,r=>enqueued.push(r));assert.equal(enqueued.length,0,'no concurrent replacement');
 rec.job.pending=false;time=2000;controller.update(records,r=>enqueued.push(r));assert.equal(enqueued.length,1);
 controller.input(rec);time=3000;controller.update(records,r=>enqueued.push(r));assert.equal(enqueued.length,1,'stable selection never rebuilds');
+// Keep existing shells while driving; spending another worker/upload on
+// parapets must not compete with the first road/building mesh of a new tile.
+ctx.world.stats={fastTravel:true};ctx.camera.position.y=300;
+for(time=4000;time<=8000;time+=1000)controller.update(records,r=>enqueued.push(r));
+assert.equal(enqueued.length,1,'fast travel never enqueues cosmetic tile replacements');
+const duringTravel={tile};controller.input(duringTravel);
+assert.equal(duringTravel.detailSignature,rec.detailSignature,'new input uses stable detail selection while driving');
+ctx.world.stats.fastTravel=false;time=8500;
+controller.update(records,r=>enqueued.push(r));assert.equal(enqueued.length,1,'brief braking does not immediately rebuild');
+ctx.busy=1;time=9000;
+controller.update(records,r=>enqueued.push(r));assert.equal(enqueued.length,1,'essential scene work goes before roof detail');
+ctx.busy=0;time=10000;
+controller.update(records,r=>enqueued.push(r));assert.equal(enqueued.length,2,'detail updates resume after slowing down and draining scene work');
 
 // Run the actual served scene commit and unload functions with real Three meshes.
 const three=await import(new URL('textureRelease-2U-gT89r.js',assets));

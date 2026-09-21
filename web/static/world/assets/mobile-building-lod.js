@@ -33,16 +33,22 @@ export function createBuildingDetailController(ctx, now = () => performance.now(
   return {
     input(rec) {
       if(ctx.quality.level!=='mobile')return {};
-      if(next===-Infinity)selected=selectBuildingDetail(ctx,selected);
+      if(next===-Infinity&&!ctx.world.stats?.fastTravel)selected=selectBuildingDetail(ctx,selected);
       rec.detailSignature=signature(rec.tile);
       return {mobile:true, detailedIds:rec.tile.buildings.filter(b=>selected.has(b.id)).map(b=>b.id)};
     },
     update(records, enqueue) {
-      if(ctx.quality.level!=='mobile'||now()<next)return;
-      next=now()+750;
-      selected=selectBuildingDetail(ctx,selected);
+      if(ctx.quality.level!=='mobile')return;
+      const time=now();
+      // These replacements only change parapets. Leave the current geometry
+      // intact while driving; road/ground uploads and collision take priority.
+      // Wait for a brief settled period before spending work after braking.
+      if(ctx.world.stats?.fastTravel){next=time+750;return;}
+      if(time<next)return;
+      next=time+750;
       // Never overlap a second decoded replacement with an existing build.
-      if([...records.values()].some(r=>r.job?.pending))return;
+      if((ctx.busy??0)>0||[...records.values()].some(r=>r.job?.pending))return;
+      selected=selectBuildingDetail(ctx,selected);
       for(const rec of records.values()) if(rec.mesh && signature(rec.tile)!==rec.detailSignature) {
         enqueue(rec);break;
       }

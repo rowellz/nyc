@@ -14,7 +14,9 @@ export interface BuildJob {
   run(steps: BuildSteps): void;
   cancel(): void;
 }
-const queues = new WeakMap<GameContext, FrameBuildQueue>();
+// Cache-query variants of this module still belong to one scene/frame budget.
+const registry = globalThis as typeof globalThis & { [key: symbol]: WeakMap<GameContext, FrameBuildQueue> };
+const queues = registry[Symbol.for('nyc.sceneBuildQueues')] ??= new WeakMap<GameContext, FrameBuildQueue>();
 export function frameBuilds(ctx: GameContext): FrameBuildQueue {
   let queue = queues.get(ctx);
   if (!queue) queues.set(ctx, queue = new FrameBuildQueue(ctx));

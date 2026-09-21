@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { assets } from './sveltekit-assets.mjs';
 import { CLIENT_REVISION } from '../src/lib/server/client-cache.js';
+import { sceneFrameClock } from './scene-frame-clock.mjs';
 
 for(const name of ['geometry','runtime']) {
   const source=readFileSync(new URL(`../static/world/assets/rail/${name}.js`,import.meta.url),'utf8');
@@ -144,6 +145,7 @@ const ctx={worldGroup:new Group(),camera:{position:new Vector3(p.x,0,p.z)},scene
     RAPIER:{ColliderDesc:{trimesh:()=>({setFriction(){return this;}})}},
     addTileColliders:key=>colliders.add(key),removeTileColliders:key=>colliders.delete(key),loadLand:()=>{}}};
 const originalHeight=ctx.physics.groundHeight,api=installRail(ctx);
+const frameClock=sceneFrameClock();
 const main=readFileSync(new URL('main-D_3aygO4.js',assets),'utf8');
 const guardSource=main.match(/var ql=(class\{[\s\S]*?t\.updateMatrixWorld\(\)\}\})/)[1];
 const Guard=vm.runInNewContext(`(${guardSource})`,{M:Vector3,Ue:new Group().quaternion.constructor});
@@ -157,7 +159,7 @@ for(let run=0;run<3;run++)for(const station of [route.stations[0],route.stations
   ctx.world.tiles.clear();ctx.camera.position.set(station.x,station.y+3,station.z);
   for(let x=-1;x<=1;x++)for(let z=-1;z<=1;z++)ctx.world.tiles.set(`${tx+x}_${tz+z}`,{tx:tx+x,tz:tz+z,key:`${tx+x}_${tz+z}`,roads:[]});
   listeners.get('tileLoaded')();
-  for(let i=0;i<1000&&!api.readyForInput();i++)api.update(1/60);
+  for(let i=0;i<5000&&!api.readyForInput();i++){api.update(1/60);frameClock.frame();}
   assert(api.readyForInput());assert(api.stats.stations>0);assert(api.stats.trains<=4);
   const floor=sample(route,station.s,6);
   assert.equal(ctx.physics.groundHeight(floor.x,floor.z,station.y+1.15),station.y+1.15);
@@ -182,4 +184,5 @@ api.dispose();assert.equal(ctx.worldGroup.children.length,0);assert.equal(listen
 assert.equal(ctx.physics.groundHeight,originalHeight);
 assert(!ctx.modules.has('rail'));
 delete globalThis.document;
+frameClock.restore();
 console.log('PASS repeated tile arrival/removal, level-aware support and complete rail disposal');

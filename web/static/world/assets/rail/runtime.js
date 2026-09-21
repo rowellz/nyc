@@ -1,6 +1,7 @@
-import { Z as Group } from '../textureRelease-2U-gT89r.js?v=rail-portal-guards-76';
+import { Z as Group } from '../textureRelease-2U-gT89r.js?v=mobile-facade-shortcut-84';
 import { route, routes, services, layout, sample, sampleTrack, tileKey, timetable, trainState, TRAIN_LENGTH, surfaceHoles } from './network.js?v=rail-portal-guards-76';
-import { buildTrack, buildStation, stationSign, materials, trainModel, stairHeight } from './geometry.js?v=rail-portal-guards-76';
+import { buildTrack, buildStation, buildTrackSteps, buildStationSteps, stationSign, materials, trainModel, stairHeight } from './geometry.js?v=rail-chunk-pacing-79';
+import { t as buildScope } from '../loading-DS_gLujL.js?v=mobile-facade-shortcut-84';
 import {functionalEntrance,entranceYaw,entranceClosed,accessesByStation,hubs,stationPaths,accessSupport,platformOpening,platformFloorOpening} from './access.js?v=rail-portal-guards-76';
 import {createStationUse} from './station-use.js?v=rail-portal-guards-76';
 import {onPath} from './access-plan.js?v=rail-portal-guards-76';
@@ -20,6 +21,8 @@ export function installRail(ctx) {
   const mobile=ctx.quality.level==='mobile';
   const mats=materials(),models={subway:trainModel(mats,'subway',mobile),commuter:trainModel(mats,'commuter',mobile)};
   const resident=new Map(),stations=new Map(),trains=new Map(),pending=new Set();
+  const builds=buildScope(ctx);
+  let active=null;
   const jobs=new Map(),jobsByTile=new Map(),stationJobs=[];
   const selectJobs=createRailBudget(ctx,surfaceHoles);
   let disposed=false,scan=0,elapsed=0,visibleNow=[];
@@ -46,13 +49,14 @@ export function installRail(ctx) {
       jobs.set(job.id,job);stationJobs.push(job);
     }
   }
-  function publish(builder,name) {
-    const group=builder.build(mats);group.name=name;root.add(group);
+  function publish(builder,name,group=builder.build(mats)) {
+    group.name=name;
     const {position,index}=builder.collision;
     if(index.length) {
       const p=ctx.physics,col=p.world.createCollider(p.RAPIER.ColliderDesc.trimesh(Float32Array.from(position),Uint32Array.from(index),p.RAPIER.TriMeshFlags?.FIX_INTERNAL_EDGES).setFriction(.85));
       p.addTileColliders(name,[col],'concrete');
     }
+    root.add(group);
     return {group,name};
   }
   function release(record) {
@@ -67,14 +71,37 @@ export function installRail(ctx) {
       for(const job of jobsByTile.get(`${tile.tx+dx}_${tile.tz+dz}`)??[])wanted.add(job.id);
     for(const job of stationJobs)if([...job.keys].some(key=>ctx.world.tiles.has(key)))wanted.add(job.id);
     wanted=selectJobs([...wanted].map(key=>jobs.get(key)),new Set([...resident.keys(),...stations.keys()]));
+    if(active&&!wanted.has(active.key)){active.build.cancel();active=null;}
     for(const collection of [resident,stations])for(const [key,record] of collection)if(!wanted.has(key)){release(record);collection.delete(key);}
     for(const key of pending)if(!wanted.has(key))pending.delete(key);
     for(const key of wanted)if(!resident.has(key)&&!stations.has(key))pending.add(key);
   }
   function buildNext() {
-    if(!pending.size||ctx.physics.ready===false)return;
+    if(active||!pending.size||ctx.physics.ready===false)return;
     const distance=key=>{const p=jobs.get(key).point;return Math.hypot(p.x-ctx.camera.position.x,p.z-ctx.camera.position.z);};
-    const key=[...pending].sort((a,b)=>distance(a)-distance(b))[0],job=jobs.get(key);pending.delete(key);
+    const key=[...pending].sort((a,b)=>distance(a)-distance(b))[0],job=jobs.get(key);
+    if(mobile) {
+      const build=builds.job(`rail:${key}`),record={key,build};active=record;
+      build.run((function*(){
+        let group,sign,published=false;
+        try {
+          const roads=job.station?[]:[...new Map([...ctx.world.tiles.values()].flatMap(tile=>tile.streetContext?.roads??tile.roads??[]).map(road=>[road.id,road])).values()];
+          const builder=yield* (job.station?buildStationSteps(job.station,job.route):buildTrackSteps(job.segments,roads,job.route,true));
+          group=yield* builder.buildSteps(mats);
+          if(job.station){sign=stationSign(job.station,mats,job.route);group.add(sign.group);yield;}
+          const result=publish(builder,`rail:${key}`,group);
+          if(job.station){result.sign=sign;result.job=job;stations.set(key,result);}
+          else resident.set(key,result);
+          published=true;
+        } finally {
+          if(!published){sign?.dispose();group?.traverse(o=>o.geometry?.dispose());group?.removeFromParent();}
+          pending.delete(key);
+          if(active===record)active=null;
+        }
+      })());
+      return;
+    }
+    pending.delete(key);
     if(job.station) {
       const record=publish(buildStation(job.station,job.route),`rail:${key}`),sign=stationSign(job.station,mats,job.route);
       record.group.add(sign.group);record.sign=sign;record.job=job;stations.set(key,record);
@@ -152,7 +179,7 @@ export function installRail(ctx) {
       use.update(dt);
     },
     dispose() {
-      disposed=true;use.dispose();off.forEach(fn=>fn());pending.clear();
+      disposed=true;use.dispose();off.forEach(fn=>fn());builds.dispose();active=null;pending.clear();
       for(const r of [...resident.values(),...stations.values()])release(r);
       for(const train of trains.values())train.dispose();
       resident.clear();stations.clear();trains.clear();Object.values(models).forEach(model=>model.dispose());

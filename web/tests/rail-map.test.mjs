@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { sceneFrameClock } from './scene-frame-clock.mjs';
 import {readFileSync} from 'node:fs';
 import {compileRailMap,solveRailGrades,railStructure} from '../static/world/assets/rail/map-compiler.js';
 import {assets} from './sveltekit-assets.mjs';
@@ -63,12 +64,14 @@ const ctx={worldGroup:new Group(),scene:new Group(),camera:{position:new Vector3
  events:{on:(name,fn)=>{listeners.set(name,fn);return()=>listeners.delete(name);}},
  physics:{ready:true,groundHeight:()=>0,world:{createCollider:()=>({})},RAPIER:{ColliderDesc:{trimesh:()=>({setFriction(){return this;}})}},addTileColliders:key=>colliders.add(key),removeTileColliders:key=>colliders.delete(key)}};
 const api=installRail(ctx);
+const frameClock=sceneFrameClock();
 for(let run=0;run<2;run++) {
  for(let x=-1;x<=1;x++)for(let z=-1;z<=1;z++){const tx=tiles[0].tx+x,tz=tiles[0].tz+z;ctx.world.tiles.set(`${tx}_${tz}`,{tx,tz});}
- listeners.get('tileLoaded')();for(let i=0;i<1500&&!api.readyForInput();i++)api.update(1/60);
+ listeners.get('tileLoaded')();for(let i=0;i<5000&&!api.readyForInput();i++){api.update(1/60);frameClock.frame();}
  assert(api.readyForInput());assert(api.stats.corridors.includes(r.id));assert(api.stats.trains<=4);
  const p=sample(r,s.s,s.offset);assert(Math.abs(api.support(p.x,p.z,s.y+1.15,NaN)-(s.y+1.15))<.01);
  ctx.world.tiles.clear();listeners.get('tileUnloaded')();api.update(.1);assert.equal(colliders.size,0);assert.equal(api.stats.trackTiles,0);
 }
 api.dispose();delete globalThis.document;assert.equal(listeners.size,0);assert.equal(ctx.worldGroup.children.length,0);
+frameClock.restore();
 console.log('PASS imported station streaming, platform support, global fleet budget and complete disposal');

@@ -2,10 +2,16 @@ import {platformSignInfo,combineSignInfo,paintSign,boardPosition} from './signs.
 import {panelMesh,wallPanel} from './enclosure.js?v=rail-portal-guards-76';
 import { g as BufferGeometry, h as BufferAttribute, kt as Mesh, Z as Group,
   Pt as MeshStandardMaterial, At as MeshBasicMaterial, y as CanvasTexture,
-  rt as InstancedMesh, Ot as Matrix4 } from '../textureRelease-2U-gT89r.js?v=rail-portal-guards-76';
+  rt as InstancedMesh, Ot as Matrix4 } from '../textureRelease-2U-gT89r.js?v=mobile-facade-shortcut-84';
 import { route as defaultRoute, routeById, layout, sample, sampleTrack, stationAt, openPortal, railPassageVolumes, splitStationSegments, PLATFORM_LENGTH, TRAIN_CARS, CAR_LENGTH, CAR_SPACING } from './network.js?v=rail-portal-guards-76';
 import { supportPlanner } from '../supports.js';
-import {appendAccessGeometry,platformOpening,platformStairAt,hubs,accessPassageVolumes,stationDestinations,transfers,accessesByStation} from './access.js?v=rail-portal-guards-76';
+import {appendAccessGeometrySteps,platformOpening,platformStairAt,hubs,accessPassageVolumes,stationDestinations,transfers,accessesByStation} from './access.js?v=rail-chunk-pacing-79';
+
+function finish(steps) {
+  let result;
+  do { result=steps.next(); } while(!result.done);
+  return result.value;
+}
 
 // Use the shared endpoint frames, as the rails do, so curved wall/roof
 // sections meet at the same corners instead of leaving wedge-shaped seams.
@@ -60,13 +66,25 @@ export class Builder {
     }
   }
   build(materials) {
+    return finish(this.buildSteps(materials));
+  }
+  *buildSteps(materials) {
     const group=new Group();
-    for (const [kind,data] of this.layers) {
-      const g=new BufferGeometry(); g.setAttribute('position',new BufferAttribute(Float32Array.from(data.position),3));
-      g.setIndex(data.index); g.computeVertexNormals(); g.computeBoundingSphere();
-      const mesh=new Mesh(g,materials[kind]); mesh.receiveShadow=true; group.add(mesh);
+    let complete=false;
+    try {
+      for (const [kind,data] of this.layers) {
+        const g=new BufferGeometry(); g.setAttribute('position',new BufferAttribute(Float32Array.from(data.position),3));
+        const mesh=new Mesh(g,materials[kind]); mesh.receiveShadow=true; group.add(mesh);
+        yield;
+        g.setIndex(data.index); yield;
+        g.computeVertexNormals(); yield;
+        g.computeBoundingSphere(); yield;
+      }
+      complete=true;
+      return group;
+    } finally {
+      if(!complete)group.traverse(o=>o.geometry?.dispose());
     }
-    return group;
   }
 }
 
@@ -82,6 +100,9 @@ export function materials() {
 }
 
 export function buildTrack(segments, roads = [], route=defaultRoute, mobile=false) {
+  return finish(buildTrackSteps(segments,roads,route,mobile));
+}
+export function* buildTrackSteps(segments, roads = [], route=defaultRoute, mobile=false) {
   segments=splitStationSegments(route,segments).flatMap(([a,b])=>{
     const cuts=route.stations.flatMap(station=>{const h=hubs.get(station.key);return h?[h.start,h.end]:[];}).filter(s=>s>a.s&&s<b.s).sort((a,b)=>a-b);
     const points=[a,...cuts.map(s=>({...sample(route,s),structure:a.structure})),b];return points.slice(1).map((p,i)=>[points[i],p]);
@@ -109,6 +130,7 @@ export function buildTrack(segments, roads = [], route=defaultRoute, mobile=fals
     planSupport=supportPlanner({tile:{roads:nearby}},()=>null);
   }
   for(const [a,c] of segments) {
+    yield;
     if(Math.hypot(c.x-a.x,c.z-a.z)<.001)continue;
     const mid=(a.s+c.s)/2,p=sample(route,mid),station=stationAt(route,mid);
     const accessStation=station??entrances.find(e=>mid>=e.start-3&&mid<=e.end+3)?.station;
@@ -236,12 +258,16 @@ export function stairHeight(entrance,s) {
   return entrance.top+(entrance.bottom-entrance.top)*fraction;
 }
 export function buildStation(station,route=routeById.get(station.routeId)??defaultRoute) {
+  return finish(buildStationSteps(station,route));
+}
+export function* buildStationSteps(station,route=routeById.get(station.routeId)??defaultRoute) {
   const b=new Builder();
-  appendAccessGeometry(b,station,railPassageVolumes);
+  yield* appendAccessGeometrySteps(b,station,railPassageVolumes);
   for (const e of route.entrances.filter(e=>e.station===station)) {
     const width=e.island?2.4:2.8;
     const steps=Math.ceil(Math.abs(e.top-e.bottom)/0.17),length=(e.end-e.start)/steps;
     for (let i=0;i<steps;i++) {
+      yield;
       const s=e.start+(i+0.5)*length, q=sample(route,s,e.offset),y=stairHeight(e,s);
       b.box({...q,y},width,0.3,length+0.01,'concrete',-0.15,0,true);
       b.box({...q,y},width-.1,0.025,0.06,'yellow',0.016,0);

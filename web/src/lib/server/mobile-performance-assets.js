@@ -90,6 +90,9 @@ export function mobilePerformanceAssetTransform(rel, source) {
     // Its BIN still suppresses the proxy until removeLandmark releases it.
     replace('e.root.visible=de(e)<=ke', 'e.root.visible=true');
   } else if (rel.endsWith('/loading-DS_gLujL.js')) {
+    // Static add-ons can import this module through a different cache URL.
+    // All copies must share one queue per context, not one RAF budget per URL.
+    replace('var e=new WeakMap;', 'var e=globalThis[Symbol.for(`nyc.sceneBuildQueues`)]??=new WeakMap;');
     source = "import { nextSceneBuild as $nextSceneBuild, sceneBuildBudgetMs as $sceneBuildBudgetMs } from './mobile-build-policy.js';\n" + source;
     replace('let e=performance.now()+3,', 'let e=performance.now()+$sceneBuildBudgetMs(this.ctx),');
     replace('ctx;ready=[];frame=0;', 'ctx;ready=[];frame=0;turn=0;');
@@ -148,9 +151,19 @@ export function mobilePerformanceAssetTransform(rel, source) {
     // Keep the drawn manhole in the atlas without fetching/compositing two photos.
     replace('let t=await Gn(),n;', 'let t=e.data.quality===`mobile`?{}:await Gn(),n;');
   } else if (rel.endsWith('/builder.worker-D9_Czkt3.js')) {
+    source = "import { landmarkShell as $landmarkShell } from './landmark-shells.js';\n" + source;
+    // Ordinary fallbacks must preserve landmark massing at every quality level.
+    replace('x=Math.max(3,t.height);', 'x=t.id===1015862?443.2:Math.max(3,t.height);');
+    replace('j=[];if(t.roofShape===`setback`',
+      'j=[],$shell=$landmarkShell(t.id,n);if($shell)j=$shell.map(t=>({...t,edges:Q(t.ring,!0)}));else if(t.roofShape===`setback`');
+    replace('N=A?0:C.style===5?1:.6', 'N=$shell?0:A?0:C.style===5?1:.6');
+    replace('T.cornice&&a.street', '!$shell&&T.cornice&&a.street');
+    replace('if(!A&&v){', 'if(!$shell&&!A&&v){');
+    replace('if(v)for(let e of D)', 'if(v&&!$shell)for(let e of D)');
+    replace('kind:0},a=[{ring:t.ring', 'kind:t.metal?2:0},a=[{ring:t.ring');
     source = "import { compactBuildingGeometry as $compactBuildingGeometry } from './mobile-building-lod.js';\n" + source;
     replace('function xe(e){', 'function xe(e){const $mobile=e.mobile===true,$details=new Set(e.detailedIds??[]);');
-    replace('let e=ge(t.ring,.28);', 'let e=(!$mobile||$details.has($buildingId))?ge(t.ring,.28):null;');
+    replace('let e=ge(t.ring,.28);', 'let e=!$shell&&(!$mobile||$details.has($buildingId))?ge(t.ring,.28):null;');
     replace('l.cap([t.ring,...t.holes],n,e)', 'l.cap([t.ring,...t.holes],$mobile&&!$details.has($buildingId)?t.top:n,e)');
     replace('for(let t of e.buildings){let e=f.get(t.id);', 'for(let t of e.buildings){const $buildingId=t.id;let e=f.get(t.id);');
     replace('let t=xe(r);self.postMessage', 'let t=xe(r);if(r.mobile)$compactBuildingGeometry(t);self.postMessage');
@@ -181,7 +194,7 @@ export function mobilePerformanceAssetTransform(rel, source) {
     replace('function ue(e,t){let n=', 'function ue(e,t){const $facadeSource=t.mobile?$mobileFacadeShader(se):se;let n=');
     replace('`+se).replace(`#include <normal_fragment_maps>`', '`+$facadeSource).replace(`#include <normal_fragment_maps>`');
     replace('m=ue(d,{textures:!1})', 'm=ue(d,{textures:!1,mobile:t.quality.level===`mobile`})');
-    replace('`facade-v2-${t.textures?`tex`:`proc`}`', '`facade-v5-${t.mobile?`mobile`:t.textures?`tex`:`proc`}`');
+    replace('`facade-v2-${t.textures?`tex`:`proc`}`', '`facade-v6-${t.mobile?`mobile`:t.textures?`tex`:`proc`}`');
     // The filtered wall/flat roof path uses vertex colors and the sign atlas.
     // Do not decode/upload unused facade photos or recompile to the photo path.
     replace('async function U(){H++;', 'async function U(){if(t.quality.level===`mobile`){B=!0;return}H++;');

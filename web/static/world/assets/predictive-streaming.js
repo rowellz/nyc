@@ -5,7 +5,11 @@ const TILE = 256;
 // iOS fills the 384 m neighborhood, with one route tile and recent retention.
 // Leave a little retirement overlap while keeping geometry/physics bounded.
 const IOS_STREAMING = Object.freeze({ maxTiles: 20, requests: 1 });
-const FAST_TRAVEL_SPEED = 24;
+// Start pacing before 50 km/h, rather than waiting until 86 km/h (24 m/s).
+// A lower exit speed keeps acceleration/braking near the threshold from
+// repeatedly restoring the larger scene budget.
+const FAST_TRAVEL_SPEED = 12;
+const SLOW_TRAVEL_SPEED = 9;
 const keyOf = (tx, tz) => `${tx}_${tz}`;
 const distance = (tx, tz, x, z) => Math.hypot(
   Math.max(tx * TILE - x, 0, x - (tx + 1) * TILE),
@@ -94,7 +98,9 @@ export function configureStreaming(world, camera) {
     } else { vx = vz = 0; }
     sample = { x: focus.x, z: focus.z, time: wall };
     const speed = Math.hypot(vx, vz);
-    this.stats.fastTravel = !nearOnly && (speed > FAST_TRAVEL_SPEED || this.stats.drivingWaiting === true);
+    const travelSpeed = Math.max(speed, this.stats.drivingSpeed ?? 0);
+    this.stats.fastTravel = !nearOnly && (travelSpeed > (this.stats.fastTravel ? SLOW_TRAVEL_SPEED : FAST_TRAVEL_SPEED)
+      || this.stats.drivingWaiting === true);
     camera.getWorldDirection(direction);
     const facing = Math.hypot(direction.x, direction.z);
     const nearReach = this.ios ? TILE : this.drawDistance;
@@ -266,6 +272,7 @@ export function configureStreaming(world, camera) {
     this.stats.fastTravel = false;
     this.drivingRequired = undefined;
     this.stats.drivingWaiting = false;
+    this.stats.drivingSpeed = 0;
     originalUnloadAll.call(this);
   };
   return world;

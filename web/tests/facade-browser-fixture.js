@@ -103,3 +103,58 @@ window.testFacadeSurfaceLod=()=>{
   geometry.dispose();renderer.render(new Scene(),view);
   return results;
 };
+
+// Compare the shortcut against the original always-compute-both path, using
+// actual rendered pixels. Move across the detail boundary without changing
+// geometry/materials: this must neither pop nor compile a new shader.
+window.testFacadeDetailShortcut=()=>{
+  const fixture=new Scene(),view=new PerspectiveCamera(65,1.5,.1,2000);
+  fixture.add(new HemisphereLight(0xffffff,0x666666,2));
+  const geometry=new BufferGeometry();
+  geometry.setAttribute('position',new BufferAttribute(new Float32Array([-400,0,0,400,0,0,400,800,0,-400,800,0]),3));
+  geometry.setAttribute('normal',new BufferAttribute(new Float32Array(Array(4).fill([0,0,1]).flat()),3));
+  geometry.setAttribute('uv',new BufferAttribute(new Float32Array([0,0,800,0,800,800,0,800]),2));
+  geometry.setAttribute('color',new BufferAttribute(new Float32Array(Array(4).fill([.55,.5,.45]).flat()),3));
+  geometry.setAttribute('aWall',new BufferAttribute(new Float32Array(Array(4).fill([800,1,3.5,0]).flat()),4));
+  geometry.setAttribute('aInfo',new BufferAttribute(new Float32Array(16),4));
+  geometry.setIndex([0,1,2,0,2,3]);
+  const uniforms=createFacadeUniformsTest({modules:new Map(),quality:{level:'mobile'}},null);
+  const fast=createFacadeTest(uniforms,{textures:false,mobile:true});
+  const reference=createFacadeTest(uniforms,{textures:false,mobile:true});
+  const compile=reference.onBeforeCompile;
+  reference.onBeforeCompile=(shader,...args)=>{
+    compile(shader,...args);
+    const guard='if (detail < 1.0) {';
+    if(shader.fragmentShader.split(guard).length!==3)throw Error('Facade comparison anchors changed');
+    shader.fragmentShader=shader.fragmentShader.replaceAll(guard,'{');
+  };
+  reference.customProgramCacheKey=()=>`${fast.customProgramCacheKey()}-reference`;
+  const mesh=new Mesh(geometry,fast);fixture.add(mesh);
+  const gl=renderer.getContext(),actual=new Uint8Array(960*640*4),expected=new Uint8Array(actual.length);
+  const results=[];
+  for(const style of [0,4,5]){
+    geometry.attributes.aInfo.array.set(Array(4).fill([800,3.2,style*65536+1234,0]).flat());
+    geometry.attributes.aInfo.needsUpdate=true;
+    for(const night of [0,.9])for(const distance of [24,96,192,244]){
+      uniforms.uNight.value=night;uniforms.uWet.value=night>0?.65:0;
+      view.position.set(0,200,distance);view.lookAt(0,200,0);
+      mesh.material=reference;renderer.render(fixture,view);
+      gl.readPixels(0,0,960,640,gl.RGBA,gl.UNSIGNED_BYTE,expected);
+      mesh.material=fast;renderer.render(fixture,view);
+      gl.readPixels(0,0,960,640,gl.RGBA,gl.UNSIGNED_BYTE,actual);
+      let maxDifference=0,colored=0;
+      for(let i=0;i<actual.length;i++){
+        maxDifference=Math.max(maxDifference,Math.abs(actual[i]-expected[i]));
+        if(i%4!==3&&actual[i]>10)colored++;
+      }
+      results.push({style,night,distance,maxDifference,colored});
+    }
+  }
+  const programs=renderer.info.programs.length;
+  for(const distance of [240,192,144,96,24,144,240]){
+    view.position.z=distance;renderer.render(fixture,view);
+  }
+  const stablePrograms=renderer.info.programs.length===programs;
+  geometry.dispose();fast.dispose();reference.dispose();renderer.render(new Scene(),view);
+  return {results,stablePrograms};
+};

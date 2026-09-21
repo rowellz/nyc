@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { gzipSync } from 'node:zlib';
+import { gzipSync, gunzipSync } from 'node:zlib';
 import { assets } from './sveltekit-assets.mjs';
 import { sceneryTools, sceneryChunks, compileScenery, readSceneryTiles } from '../src/lib/server/scenery-compiler.js';
 import { encodeScenery } from '../static/world/assets/scenery-format.js';
@@ -75,8 +75,13 @@ window.wallColors=()=>{
   ctx.time.daylight=1;lights.forEach((l,i)=>l.intensity=intensities[i]);lod.update();renderer.render(scene,camera);
   return {windows,roof,distant};
 };
-window.handoff=()=>{const root=new Group();root.name='buildings';const mesh=new Group();mesh.name='bld-0_0';root.add(mesh);worldGroup.add(root);lod.update();
+window.handoff=()=>{
+const all=lod.group.children.flatMap(c=>c.children),versions=all.map(m=>m.geometry.index.version);
+const root=new Group();root.name='buildings';const mesh=new Group();mesh.name='bld-0_0';root.add(mesh);worldGroup.add(root);lod.update();
 const proxies=lod.group.children.flatMap(c=>c.children).filter(m=>m.userData.kind==='buildings'&&m.userData.tiles.includes('0_0'));
+const changed=all.filter((m,i)=>m.geometry.index.version!==versions[i]);
+if(changed.some(m=>!proxies.includes(m)))throw Error('tile arrival reuploaded unrelated skyline geometry');
+window.handoffUploads={layers:all.length,changed:changed.length};
 if(!proxies.length)throw Error('missing proxy');if(!proxies.every(m=>m.userData.coverage[m.userData.tiles.indexOf('0_0')]===1))throw Error('near mesh did not cover proxy');if(ctx.quality.level==='mobile')for(const m of proxies){const owner=m.userData.tiles.indexOf('0_0');if(m.geometry.index.array.slice(0,m.geometry.drawRange.count).some(v=>m.userData.owner[v]===owner))throw Error('covered tile still submitted');}
 root.removeFromParent();lod.update();if(!proxies.every(m=>m.userData.coverage[m.userData.tiles.indexOf('0_0')]===0))throw Error('unload did not restore proxy');
 const proxy=proxies[0],f=proxy.userData.features[0];built.add(f.id);lod.syncLandmarks();
@@ -189,10 +194,25 @@ try{
   }
   assert.deepEqual(await evaluate('window.errors'),[],'surface LOD compiles for ordinary buildings and ESB');
   console.log('PASS WebGL facade surface LOD: street, flight and crown proximity; distant floors, horizontal distance and smooth fade');
+  const shortcut=await evaluate('window.testFacadeDetailShortcut()');
+  for(const sample of shortcut.results){
+    assert(sample.colored>1000,'facade comparison must render visible pixels');
+    assert(sample.maxDifference<=1,`facade shortcut changes rendered appearance: ${JSON.stringify(sample)}`);
+  }
+  assert(shortcut.stablePrograms,'moving across facade detail bands must reuse compiled materials');
+  assert.deepEqual(await evaluate('window.errors'),[],'facade shortcut and comparison shaders compile');
+  console.log('PASS WebGL facade shortcut: matching near/transition/far pixels for masonry and glass, dry daylight and wet night; no transition recompilation');
   console.log('PASS WebGL mobile window lights: sparse warm/cool windows, daylight, stable occupancy, blank walls, roofs and subpixel fade');
   const building=await call('Runtime.evaluate',{expression:'window.testBuildingWorker()',awaitPromise:true,returnByValue:true});
   assert(!building.exceptionDetails,JSON.stringify(building.exceptionDetails));
   assert(building.result.value.triangles>0&&building.result.value.colored>1000&&building.result.value.colliders>0,JSON.stringify(building));
+  const esbTile=JSON.parse(gunzipSync(readFileSync(`${publicDir}world/world/tiles/-1_2.json.gz`)));
+  const esbInput={...esbTile,buildings:esbTile.buildings.filter(b=>b.id===1015862),landmarkBins:[1015862]};
+  const esb=await call('Runtime.evaluate',{expression:`window.testBuildingWorker(${JSON.stringify(esbInput)})`,awaitPromise:true,returnByValue:true});
+  assert(!esb.exceptionDetails,JSON.stringify(esb.exceptionDetails));
+  assert(esb.result.value.triangles<500&&esb.result.value.colored>1000&&esb.result.value.colliders>0);
+  writeFileSync(`${tmpdir()}/nyc-empire-state-shell.png`,Buffer.from(esb.result.value.shot.split(',')[1],'base64'));
+  console.log('PASS WebGL Empire State fallback silhouette, packed geometry and facade shader');
   assert.deepEqual(await evaluate('window.errors'),[],'packed building geometry renders with the mobile facade shader');
   console.log('PASS WebGL packed building worker: transferred geometry, normalized colors/normals, mobile shader, visible tower and collision');
   assert(await evaluate('window.handoff()'));

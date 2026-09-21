@@ -164,9 +164,10 @@ the addon.
 
 A **Render distance** slider beside the map is available to every player on
 desktop and mobile. It adjusts nearby detail and the distant skyline from
-50–200% of the device's default, applies live, and remembers the choice in this
+50–100% of the device's default on mobile and 50–200% on desktop, applies live, and remembers the choice in this
 browser. The control displays the requested distances and includes a reset to
-100%. Nearby detail has a 256 m minimum; scenery can reach 8 km on every device.
+100%. Nearby detail has a 256 m minimum; skyline limits are 5 km on iOS,
+6 km on the mobile preset, and up to 8 km on desktop.
 Tile and scenery memory limits still apply, so a
 higher setting can cost FPS without guaranteeing every distant tile is loaded.
 The immediate surrounding tiles remain loaded for movement and collisions.
@@ -222,8 +223,11 @@ On iOS, at most two custom architectural landmarks are constructed near the
 camera (192 m from their approximate edge); other mobile presets allow three
 within 256 m. Existing models get a small distance preference to avoid churn.
 Unselected models and unfinished construction jobs retire before another model
-starts allocating. Their ordinary building facades/colliders remain the fallback;
-parks, bridges and structures without a building replacement retain their normal
+starts allocating. Their ordinary building facades/colliders remain the fallback.
+The Empire State fallback preserves its stepped base, cross-shaped shaft, crown
+and 443.2 m antenna in the nearby batch and both scenery tiers (under 500 triangles);
+its shell shares the detailed model’s frame and setback dimensions.
+Parks, bridges and structures without a building replacement retain their normal
 rules. This bounds simultaneous custom models, not their total memory in bytes.
 
 iOS allows up to **12 resident tiles** to accommodate the local 3×3, one
@@ -318,6 +322,11 @@ traffic, pedestrians and physics remain the responsibility of nearby tiles.
 | High | 768 m | 2,200 m | 6,000 m |
 | Ultra | 768 m | 2,200 m | 8,000 m |
 
+Mobile render distance is limited to 50–100% (revision `mobile-distance-cap-80`).
+The defaults in the table are also the mobile maximums: 384 m detail / 5 km skyline
+on iOS and 640 m / 6 km on the mobile preset. Previously saved settings above 100%
+are clamped and saved on startup. Desktop retains the 50–200% slider range.
+
 Mobile scenery ranges and residency were extended in client revision
 `mobile-render-distance-70`. iPhone's former 2.5 km hard cap is removed from the
 render-distance control and scenery layer. The larger budgets let real geometry
@@ -350,6 +359,10 @@ or retired chunks release their GPU resources. A coarse tile remains visible
 until the corresponding building, street or ground mesh is actually present.
 Landmark proxies disappear when their detailed landmark is ready. The skyline
 water reflection keeps proxies for near meshes that its reflection pass hides.
+Near-tile and landmark handoffs only rewrite the affected chunk/layer indices;
+unrelated skyline meshes retain their GPU buffers. Mobile uploads only the live
+index prefix, and fully covered layers hide without an upload. The scenery
+regression suite checks local handoffs and restoration against real Midtown chunks.
 
 `npm run prepare:world` writes scenery under `generated/scenery/` alongside the
 road catalog and compressed client. Production reads those files directly;
@@ -450,14 +463,16 @@ city to finish loading, and compare FPS during standing, turning and travel.
 The debug overlay's DPR follows adaptive changes. Repeat after several minutes
 to check sustained performance as the phone heats up.
 
-During travel above 24 m/s, background tile additions/removals are paced
+During travel above 12 m/s (43 km/h / 27 mph), background tile additions/removals are paced
 150 ms apart on mobile and 50 ms apart on desktop. New tile publication pauses
 at six outstanding scene jobs on mobile and ten on desktop (normally sixteen).
-Missing terrain under the camera keeps its urgent bypass; the 32-tile iOS memory
+Missing terrain under the camera keeps its urgent bypass; the iOS resident-tile
 cap still applies. All devices share one tile addition or removal per frame,
 alternating cleanup with publication so an old row cannot block upcoming tiles.
 The shared scene commit queue uses a 1 ms cooperative budget on mobile and 2 ms
-on desktop during fast travel, returning to 3 ms when movement slows.
+on desktop during fast travel, returning to 3 ms below 9 m/s. Vehicle speed feeds
+this policy directly so camera smoothing does not delay it. Rail, water and the
+main client share one queue even when imported through different cache URLs.
 Background scenery may finish later while moving quickly. These budgets bound
 scheduled work, not the duration of an individual native GPU/physics call.
 
@@ -1208,8 +1223,9 @@ setbacks and foundations while dropping fine parapet/coping geometry. A shared
 selection admits roof-edge detail within 192 m of the camera (256 m to retain it),
 including vertical distance to the roof. iOS admits at most 24 detailed buildings
 and 192 footprint edges; other mobile devices admit 40 and 320. The controller
-checks every 750 ms, schedules one replacement at a time after existing building
-work settles, and keeps the previous mesh visible until publication. Detail-only
+checks every 750 ms and pauses cosmetic replacements during fast travel. After
+slowing down, it waits for scene work to drain, schedules one replacement at a
+time, and keeps the previous mesh visible until publication. Detail-only
 replacements reuse the original colliders, so changing detail never opens a gap
 in a wall or walkable roof.
 
@@ -1313,3 +1329,19 @@ replays, checking more than 34,000 lane stations against the original planner,
 profile cache invalidation, and unchanged tunnel cuts. These checks validate
 geometry and work scheduling, not device FPS. Client revision
 `highway-chunk-pacing-66` refreshes the affected browser imports.
+
+Mobile rail construction now shares the scene build queue with streets and water.
+Tracks yield between segments, station access yields between stairs and enclosure
+panels, and mesh publication yields between buffer operations. Geometry and
+collision become resident together; retiring a tile cancels its unfinished build
+and releases partial buffers. Desktop retains synchronous rail construction.
+
+Highway lane plans are cached by connected component and road content, so a new
+chunk's independently decoded copies of unchanged roads reuse the plan. Changed
+lane widths, geometry, or endpoint connections invalidate it; the recent-component
+cache retains at most 64 plans. The streaming regressions compare every sampled
+lane against the full-network planner and check reuse, invalidation, and eviction.
+Rail regressions drive the shared frame queue through real station visits and
+verify yielding, cancellation, support, and disposal. Revision
+`rail-chunk-pacing-79` also aligns the water/rail queue and Three imports with the
+main client so versioned module URLs do not create separate queues or renderers.
