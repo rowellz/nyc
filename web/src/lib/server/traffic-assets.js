@@ -8,6 +8,9 @@ export function trafficAssetTransform(rel, source) {
     source = source.replace(before, after);
   };
   source = "import { spawnTraffic as $spawnTraffic, trafficRadius as $trafficRadius, vehicleDrawDistance as $vehicleDrawDistance } from './traffic-distribution.js';\n" + source;
+  source = "import { parkingOffset as $parkingOffset } from './curb-placement.js';\n" + source;
+  replace('const offset = (r.width / 2 - PARKING_INSET) * side;',
+    'const offset = $parkingOffset(tile, r, i, d, side, spec.width, spec.length); if (offset === null) continue;');
   const start = source.indexOf('      this.spawnClock = 0.25;');
   const end = source.indexOf('    // Spatial broad phase for queues.', start);
   if (start < 0 || end < 0) throw new Error(`Traffic spawn block changed in ${rel}`);

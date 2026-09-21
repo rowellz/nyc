@@ -155,7 +155,22 @@ export function compileScenery(key, tiles, tier, tools) {
 }
 
 export async function readSceneryTiles(publicDir, keys) {
-  return Promise.all(keys.map(async key => JSON.parse(gunzipSync(await readFile(path.join(publicDir, `world/world/tiles/${key}.json.gz`))))));
+  const { alignStreetTrees } = await import('../../../static/world/assets/curb-placement.js');
+  // Use the same one-tile halo as the detailed tile service, including at LOD
+  // chunk boundaries, so trunks do not jump when their detailed pits load.
+  const wanted = new Set(keys), halo = new Set(keys);
+  for (const key of keys) {
+    const [tx,tz] = key.split('_').map(Number);
+    for(let x=tx-1;x<=tx+1;x++)for(let z=tz-1;z<=tz+1;z++)halo.add(`${x}_${z}`);
+  }
+  const tiles = (await Promise.all([...halo].map(async key => {
+    try { return JSON.parse(gunzipSync(await readFile(path.join(publicDir, `world/world/tiles/${key}.json.gz`)))); }
+    catch(error) { if(error.code==='ENOENT'&&!wanted.has(key))return null;throw error; }
+  }))).filter(Boolean);
+  return keys.map(key => {
+    const tile=tiles.find(t=>t.key===key);
+    return alignStreetTrees(tile,tiles.filter(t=>Math.abs(t.tx-tile.tx)<=1&&Math.abs(t.tz-tile.tz)<=1));
+  });
 }
 
 export async function prepareScenery(publicDir, output) {

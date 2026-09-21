@@ -8,6 +8,7 @@ import { streamingAssetTransform } from '../src/lib/server/streaming-assets.js';
 import { mobilePerformanceAssetTransform } from '../src/lib/server/mobile-performance-assets.js';
 import { versionClientImports } from '../src/lib/server/client-cache.js';
 import { streetContextAssetTransform } from '../src/lib/server/street-context-assets.js';
+import { urlStateAssetTransform } from '../src/lib/server/url-state-assets.js';
 import { railAssetTransform } from '../src/lib/server/rail-assets.js';
 
 // Resolve the same overrides and transformed imports that a browser receives,
@@ -24,5 +25,5 @@ for (const name of new Set([...readdirSync(original), ...local].filter(name => n
     : tunnelAssetTransform(`world/assets/${name}`, scoreFreeAssetTransform(`world/assets/${name}`, readFileSync(new URL(name, original), 'utf8')));
   const rel = `world/assets/${name}`;
   const transformed = streetContextAssetTransform(rel, mobilePerformanceAssetTransform(rel, streamingAssetTransform(rel, trafficAssetTransform(rel, source))));
-  writeFileSync(new URL(name, assets), local.has(name) ? transformed : versionClientImports(railAssetTransform(rel, transformed)));
+  writeFileSync(new URL(name, assets), local.has(name) ? transformed : versionClientImports(urlStateAssetTransform(rel, railAssetTransform(rel, transformed))));
 }

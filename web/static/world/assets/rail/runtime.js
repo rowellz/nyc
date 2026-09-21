@@ -1,9 +1,9 @@
-import { Z as Group } from '../textureRelease-2U-gT89r.js?v=mobile-trees-vehicles-72';
-import { route, routes, services, layout, sample, tileKey, timetable, trainState, TRAIN_LENGTH, surfaceHoles } from './network.js?v=station-layout-32';
-import { buildTrack, buildStation, stationSign, materials, trainModel, stairHeight } from './geometry.js?v=mobile-trees-vehicles-72';
-import {functionalEntrance,entranceYaw,entranceClosed,accessesByStation,hubs,stationPaths,accessSupport,platformOpening,platformFloorOpening} from './access.js?v=station-layout-32';
-import {createStationUse} from './station-use.js?v=station-layout-32';
-import {onPath} from './access-plan.js?v=station-layout-32';
+import { Z as Group } from '../textureRelease-2U-gT89r.js?v=rail-portal-guards-76';
+import { route, routes, services, layout, sample, sampleTrack, tileKey, timetable, trainState, TRAIN_LENGTH, surfaceHoles } from './network.js?v=rail-portal-guards-76';
+import { buildTrack, buildStation, stationSign, materials, trainModel, stairHeight } from './geometry.js?v=rail-portal-guards-76';
+import {functionalEntrance,entranceYaw,entranceClosed,accessesByStation,hubs,stationPaths,accessSupport,platformOpening,platformFloorOpening} from './access.js?v=rail-portal-guards-76';
+import {createStationUse} from './station-use.js?v=rail-portal-guards-76';
+import {onPath} from './access-plan.js?v=rail-portal-guards-76';
 import {createRailBudget,railBounds} from './mobile-budget.js?v=mobile-rail-budget-55';
 
 function project(p,a,b) {
@@ -108,7 +108,7 @@ export function installRail(ctx) {
       for(const [a,b] of job.segments) {
         const q=project({x,z},a,b);
         if(q.distance>22)continue;
-        const station=r.stations.find(station=>Math.abs(station.s-q.s)<=(station.length??r.platformLength??120)/2),l=layout(r,station);
+        const station=r.stations.find(station=>Math.abs(station.s-q.s)<=(station.length??r.platformLength??120)/2),l=layout(r,station,q.s);
         if(r.island?l.tracks.some(track=>Math.abs(q.offset-track)<1.5):q.distance<4.25)offer(r.height(q.s)-.14);
         if(station&&!platformFloorOpening(station,x,z)&&l.platforms.some(p=>Math.abs(q.offset-p.offset)<p.width/2&&!platformOpening(station,q.s,p.offset)))offer(station.y+1.15);
       }
@@ -134,7 +134,7 @@ export function installRail(ctx) {
       const now=ctx.state.serverTime?.()??elapsed,range=Math.min(ctx.quality.drawDistance||800,900);
       const localRoutes=new Set([...resident.keys()].map(key=>jobs.get(key).route.id));
       const visible=fleet.filter(item=>item.key===use.passengerKey||!item.service.id.startsWith('osm-')||localRoutes.has(item.service.id)).map(item=>{
-        const state=trainState(item.schedule,now+item.phase),p=sample(item.service.path,state.s,item.service.tracks[item.schedule.direction]);
+        const state=trainState(item.schedule,now+item.phase),p=sampleTrack(item.service.path,state.s,item.service.tracks[item.schedule.direction]);
         const owner=item.service.path.partAt(state.s).route,center=sample(item.service.path,state.s);
         return {item,state,distance:Math.hypot(p.x-ctx.camera.position.x,p.z-ctx.camera.position.z),owner,center};
       }).filter(({item,state,center,owner,distance})=>item.key===use.passengerKey||(state.s>TRAIN_LENGTH/2&&state.s<item.service.path.length-TRAIN_LENGTH/2

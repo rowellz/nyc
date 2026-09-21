@@ -40,6 +40,8 @@ COPY --from=build /app/generated ./generated
 COPY web/package.json web/server.js ./
 COPY web/src/lib/server ./src/lib/server
 COPY web/src/lib/shared ./src/lib/shared
+# The raw tile service and browser share curb placement geometry.
+COPY web/static/world/assets/curb-placement.js ./static/world/assets/curb-placement.js
 
 # The client + world payload, byte-for-byte as mirrored.
 COPY public/ ./public/

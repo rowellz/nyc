@@ -1,6 +1,6 @@
-import { t as buildScope } from './loading-DS_gLujL.js?v=mobile-trees-vehicles-72';
-import { deckEdges } from './edges.js?v=mobile-trees-vehicles-72';
-import { holesForTile as railHolesForTile, waterHolesForTiles } from './rail/footprints.js?v=station-layout-32';
+import { t as buildScope } from './loading-DS_gLujL.js?v=rail-portal-guards-76';
+import { deckEdges } from './edges.js?v=rail-portal-guards-76';
+import { holesForTile as railHolesForTile, waterHolesForTiles } from './rail/footprints.js?v=rail-portal-guards-76';
 
 /** Shared by the geometry worker and traffic. Heights are synthetic: OSM layers
  * describe stacking, not surveyed elevations. Keep grades continuous across ways. */

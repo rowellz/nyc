@@ -1,4 +1,4 @@
-import {footprints} from './footprints-data.js?v=station-layout-32';
+import {footprints} from './footprints-data.js?v=rail-portal-guards-76';
 function index(holes) {
  const cells=new Map();
  for(const ring of holes) {

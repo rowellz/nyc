@@ -2,8 +2,8 @@
 import { PEDESTRIAN_HEADROOM, PEDESTRIAN_FLOOR } from './pedestrian-clearance.js';
 // Match the worker's versioned import: a second module instance loses the
 // shared elevation plan and renders elevated approaches again at ground level.
-import { approachProfile, approachCeiling, tunnelNetwork, setApproachElevations, APPROACH_REACH, MAX_APPROACH_GRADE, PORTAL_DEPTH } from './tunnels.js?v=mobile-trees-vehicles-72';
-import { deckEdges } from './edges.js?v=mobile-trees-vehicles-72';
+import { approachProfile, approachCeiling, tunnelNetwork, setApproachElevations, APPROACH_REACH, MAX_APPROACH_GRADE, PORTAL_DEPTH } from './tunnels.js?v=rail-portal-guards-76';
+import { deckEdges } from './edges.js?v=rail-portal-guards-76';
 const cache = new WeakMap();
 const VEHICLES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service']);
 const motorway = r => r.cls === 'motorway' || r.cls === 'trunk';

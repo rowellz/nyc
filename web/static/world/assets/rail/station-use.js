@@ -1,6 +1,6 @@
-import {accessesByStation,hubs,entranceDestinations} from './access.js?v=station-layout-32';
-import {pathFrom,onPath,pathFloor} from './access-plan.js?v=station-layout-32';
-import {sample,trainState,CAR_SPACING,TRAIN_CARS} from './network.js?v=station-layout-32';
+import {accessesByStation,hubs,entranceDestinations} from './access.js?v=rail-portal-guards-76';
+import {pathFrom,onPath,pathFloor} from './access-plan.js?v=rail-portal-guards-76';
+import {sample,sampleTrack,trainState,CAR_SPACING,TRAIN_CARS} from './network.js?v=rail-portal-guards-76';
 export function boardingDoor(item,state,position) {
  if(!state.doors||!state.station)return null;
  const offset=item.service.tracks[item.schedule.direction],side=Math.sign(state.station.offset??item.service.doors[item.schedule.direction]);
@@ -54,7 +54,7 @@ export function createStationUse(ctx,{stationRecords,visibleTrains,readyStation,
   record.lastS=state.s;
   const terminal=item.schedule.direction===1?item.service.path.stations.at(-1):item.service.path.stations[0];
   if((record.exitRequested||state.station?.key===terminal?.key)&&exitRide(record,state))return false;
-  const p=sample(item.service.path,state.s+record.along,item.service.tracks[item.schedule.direction]),s=ctx.state.local.state;
+  const p=sampleTrack(item.service.path,state.s+record.along,item.service.tracks[item.schedule.direction]),s=ctx.state.local.state;
   Object.assign(s,{x:p.x,y:p.y+1.25,z:p.z,vx:p.dx*state.speed*item.schedule.direction,vy:0,vz:p.dz*state.speed*item.schedule.direction});
   return true;
  }

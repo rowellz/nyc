@@ -769,6 +769,17 @@ Other parameters, from `src/client/src/core/params.ts`:
 | `?nohud=1` | hide the HUD |
 | `?modules=none` | disable game modules (useful for isolating a problem) |
 
+The address bar updates every five seconds using `history.replaceState`, without
+reloading or adding Back-button entries. `pos=x,y,z,heading` records the player;
+`view=x,y,z,heading,pitch,fov` records the camera independently. Coordinates are
+world metres, headings are compass degrees, and positive pitch looks upward.
+Existing query options and the hash are preserved. Opening the link restores
+position and view once the game is ready; normal play links stay in play mode.
+Free-camera and admin-flight snapshots also update `fly` (replacing a stale
+named `spot`), so shared flight links open in camera mode without requiring admin
+access. `node web/tests/url-state.test.mjs` covers updates, restoration, history,
+invalid values and page lifecycle.
+
 In the browser console, `__game.teleport(x, z)` moves you anywhere in the city;
 `__stats()` reports renderer counters.
 
@@ -1048,6 +1059,25 @@ Platform assignment prefers the mapped layer over tiny differences in distance
 to stacked tracks. `tools/refine-rail-platforms.mjs` applies that correction to an
 existing snapshot without another download.
 
+Park Avenue narrows from six-metre track centres at island platforms to 3.4 metres
+between stops, with smooth station approaches and the compact corridor centred
+between the carriageways near East 97th Street. Rails, sleepers, retaining walls,
+terrain cuts, collision, trains and passengers use the same lateral profile.
+A building-footprint index raises the deck over intersecting roofs with bounded
+grades and omits support columns inside buildings. Station levels and branch
+junctions remain fixed. The index uses rendered foundation heights; tile
+`groundElev` metadata is not applied by the building renderer. After changing
+these map tiles or the authored corridor, regenerate both indexes in order:
+
+```bash
+node tools/index-rail-clearance.mjs
+node tools/index-rail-footprints.mjs
+```
+
+`web/tests/rail-corridor.test.mjs` checks the actual 97th Street carriageways,
+building roof clearance, support columns, deck collision, generated terrain cuts,
+and all four commuter train paths through the narrow and raised sections.
+
 `web/static/world/assets/rail/network.js` owns the routes, bounded grades, station
 levels, train schedules and portal/stair footprints. Geometry and train carriages
 sample those same routes. Track sections have fixed tile owners and a neighbor halo;
@@ -1066,6 +1096,22 @@ Workers import the compact footprint index rather than the full rail graph;
 terrain and water cuts are selected from spatial buckets for resident tiles.
 The geometry/runtime Three.js imports carry the same
 revision as `client-cache.js`; keep those in step when updating the client revision.
+
+The Broadway approach to 125th Street uses an explicit height control near
+West 122nd Street. It keeps the bore below the 120th–123rd Street crossings,
+then rises in the long block before the elevated station. This accommodates
+the world's flat streets without cutting a trench through intersections;
+the elevations are simulation clearances, not a terrain survey. Regenerate
+`tools/index-rail-footprints.mjs` after changing the profile so worker paving
+cuts agree with the track geometry. `broadway-clearance.test.mjs` checks the
+vendored street crossings, paving, track collision and generated cutouts.
+
+The Park Avenue portal also leaves the far sidewalk of East 97th Street
+covered. Open tunnel approaches have 1.2 m metal railings on their retaining
+walls and across the covered end, with continuous collision barriers between
+posts. The opening index determines those end locations independently of tile
+arrival order. `rail-portal.test.mjs` checks the actual sidewalk through the
+served worker and verifies the side/end barriers and train headroom.
 
 Run `npm --prefix web run test:rail` for grades, seams, train spacing and stopping,
 station collision, connected entrance clearance, boarding and riding, NPC visits

@@ -1,17 +1,17 @@
-import {platformSignInfo,combineSignInfo,paintSign,boardPosition} from './signs.js?v=station-layout-32';
-import {panelMesh,wallPanel} from './enclosure.js?v=station-layout-32';
+import {platformSignInfo,combineSignInfo,paintSign,boardPosition} from './signs.js?v=rail-portal-guards-76';
+import {panelMesh,wallPanel} from './enclosure.js?v=rail-portal-guards-76';
 import { g as BufferGeometry, h as BufferAttribute, kt as Mesh, Z as Group,
   Pt as MeshStandardMaterial, At as MeshBasicMaterial, y as CanvasTexture,
-  rt as InstancedMesh, Ot as Matrix4 } from '../textureRelease-2U-gT89r.js?v=mobile-trees-vehicles-72';
-import { route as defaultRoute, routeById, layout, sample, stationAt, railPassageVolumes, splitStationSegments, PLATFORM_LENGTH, TRAIN_CARS, CAR_LENGTH, CAR_SPACING } from './network.js?v=station-layout-32';
+  rt as InstancedMesh, Ot as Matrix4 } from '../textureRelease-2U-gT89r.js?v=rail-portal-guards-76';
+import { route as defaultRoute, routeById, layout, sample, sampleTrack, stationAt, openPortal, railPassageVolumes, splitStationSegments, PLATFORM_LENGTH, TRAIN_CARS, CAR_LENGTH, CAR_SPACING } from './network.js?v=rail-portal-guards-76';
 import { supportPlanner } from '../supports.js';
-import {appendAccessGeometry,platformOpening,platformStairAt,hubs,accessPassageVolumes,stationDestinations,transfers,accessesByStation} from './access.js?v=station-layout-32';
+import {appendAccessGeometry,platformOpening,platformStairAt,hubs,accessPassageVolumes,stationDestinations,transfers,accessesByStation} from './access.js?v=rail-portal-guards-76';
 
 // Use the shared endpoint frames, as the rails do, so curved wall/roof
 // sections meet at the same corners instead of leaving wedge-shaped seams.
 const framedPoint=(p,offset,y)=>[p.x-p.dz*offset,p.y+y,p.z+p.dx*offset];
-const framedWall=(a,b,offset,low,high)=>[framedPoint(a,offset,low),framedPoint(b,offset,low),framedPoint(b,offset,high),framedPoint(a,offset,high)];
-const framedRoof=(a,b,min,max,y)=>[framedPoint(a,min,y),framedPoint(b,min,y),framedPoint(b,max,y),framedPoint(a,max,y)];
+const framedWall=(a,b,offset,low,high,endOffset=offset)=>[framedPoint(a,offset,low),framedPoint(b,endOffset,low),framedPoint(b,endOffset,high),framedPoint(a,offset,high)];
+const framedRoof=(a,b,min,max,y,endMin=min,endMax=max)=>[framedPoint(a,min,y),framedPoint(b,endMin,y),framedPoint(b,endMax,y),framedPoint(a,max,y)];
 
 // One indexed mesh per material per streamed tile. Collision uses the same
 // vertices; no per-sleeper colliders, lights, or independently allocated meshes.
@@ -88,6 +88,16 @@ export function buildTrack(segments, roads = [], route=defaultRoute, mobile=fals
   });
   const b=new Builder(),entrances=route.entrances;
   const shift=(p,offset)=>({...p,x:p.x-p.dz*offset,z:p.z+p.dx*offset});
+  const guard=(a,c)=>{
+    // A single collision envelope prevents capsules slipping between bars.
+    // Render open metalwork instead of an opaque wall above the sidewalk.
+    const points=[[a.x,a.y,a.z],[c.x,c.y,c.z],[c.x,c.y+1.2,c.z],[a.x,a.y+1.2,a.z]];
+    const mesh=panelMesh(points,.1),base=b.collision.position.length/3;
+    b.collision.position.push(...mesh.position);b.collision.index.push(...mesh.index.map(i=>i+base));
+    for(const y of [.12,.6,1.2])b.span(a,c,.07,.07,'green',y);
+    const count=Math.max(1,Math.ceil(Math.hypot(c.x-a.x,c.z-a.z)/1.5));
+    for(let i=0;i<=count;i++)b.box({...a,x:a.x+(c.x-a.x)*i/count,y:a.y+(c.y-a.y)*i/count,z:a.z+(c.z-a.z)*i/count},.09,1.25,.09,'green',.6);
+  };
   let planSupport;
   if(segments.some(([a,c])=>Math.max(a.y,c.y)>2)) {
     const points=segments.flat(),margin=55;
@@ -102,22 +112,22 @@ export function buildTrack(segments, roads = [], route=defaultRoute, mobile=fals
     if(Math.hypot(c.x-a.x,c.z-a.z)<.001)continue;
     const mid=(a.s+c.s)/2,p=sample(route,mid),station=stationAt(route,mid);
     const accessStation=station??entrances.find(e=>mid>=e.start-3&&mid<=e.end+3)?.station;
-    const l=layout(route,accessStation);
+    const l=layout(route,accessStation,mid),la=layout(route,accessStation,a.s),lc=layout(route,accessStation,c.s);
     const cuts=[...accessPassageVolumes(a,c),...(route.mapped?railPassageVolumes(a,c,route):[])];
     const underground=p.y<0&&!route.openCut&&a.structure!=='cutting';
     // A continuous invert seals the gaps between ballast, platforms and walls.
-    if(underground)b.panel(framedRoof(a,c,l.min-.4,l.max+.4,-.65),.3,'concrete',accessPassageVolumes(a,c));
+    if(underground)b.panel(framedRoof(a,c,la.min-.4,la.max+.4,-.65,lc.min-.4,lc.max+.4),.3,'concrete',accessPassageVolumes(a,c));
     const stairwell=entrances.filter(e=>e.island&&mid>=e.start-3&&mid<=e.end+3);
     const bridge=route.bridgeSpans?.some(([start,end])=>mid>=start&&mid<=end);
     if(!route.island)b.span(a,c,l.width,.32,'ballast',-.3,l.center,true);
-    for(const track of l.tracks) {
-      const ta=shift(a,track),tc=shift(c,track);
+    for(const trackIndex of l.tracks.keys()) {
+      const ta=shift(a,la.tracks[trackIndex]),tc=shift(c,lc.tracks[trackIndex]);
       if(route.island)b.span(ta,tc,3,.32,'ballast',-.3,0,true);
       // Offset the shared endpoint frames, including the branch junction.
-      for(const rail of [-.7175,.7175])b.span(shift(a,track+rail),shift(c,track+rail),.075,.15,'steel');
+      for(const rail of [-.7175,.7175])b.span(shift(a,la.tracks[trackIndex]+rail),shift(c,lc.tracks[trackIndex]+rail),.075,.15,'steel');
       for(let s=Math.ceil(a.s/.8)*.8;s<c.s;s+=.8) {
-        if(mobile)b.plate(sample(route,s),2.6,.22,'sleeper',-.06,track);
-        else b.box(sample(route,s),2.6,.16,.22,'sleeper',-.14,track);
+        if(mobile)b.plate(sampleTrack(route,s,(route.tracks??[-2,2])[trackIndex]),2.6,.22,'sleeper',-.06);
+        else b.box(sampleTrack(route,s,(route.tracks??[-2,2])[trackIndex]),2.6,.16,.22,'sleeper',-.14);
       }
       if(route.island&&p.y>=.3)b.span(ta,tc,3,.6,'steel',-.7,0,true);
     }
@@ -139,9 +149,14 @@ export function buildTrack(segments, roads = [], route=defaultRoute, mobile=fals
     if(p.y<.3) {
       // A buried bore owns only its own storey. Extending its retaining walls
       // to street level blocks every platform and track stacked above it.
+      const open=!station&&openPortal(route,a,c);
       const wallHeight=underground&&Math.max(a.y,c.y)<-5.7?5.5:Math.max(5.5,-Math.min(a.y,c.y)+.4);
-      if(route.island||!station)for(const edge of [l.min-.2,l.max+.2])
-        b.panel(framedWall(a,c,edge,-.4,wallHeight-.1),.35,'concrete',cuts);
+      if(route.island||!station)for(const side of ['min','max']) {
+        const offset=side==='min'?-.2:.2,points=framedWall(a,c,la[side]+offset,-.4,wallHeight-.1,lc[side]+offset);
+        if(open){points[2][1]=.3;points[3][1]=.3;}
+        b.panel(points,.35,'concrete',cuts);
+        if(open)guard({...shift(a,la[side]+offset),y:.3},{...shift(c,lc[side]+offset),y:.3});
+      }
       if(underground&&(station||Math.max(a.y,c.y)<-5.7)) {
         const half=station&&!route.island?9.5:l.width/2+.4;
         let from=l.center-half;
@@ -151,11 +166,18 @@ export function buildTrack(segments, roads = [], route=defaultRoute, mobile=fals
           from=hole.offset+1.5;
         }
         const to=l.center+half;
-        if(to>from)b.panel(framedRoof(a,c,from,to,5.35),.35,'concrete',cuts);
+        if(to>from)b.panel(route.compactTracks?framedRoof(a,c,stairwell.length?from:la.min-.4,la.max+.4,5.35,stairwell.length?from:lc.min-.4,lc.max+.4):framedRoof(a,c,from,to,5.35),.35,'concrete',cuts);
       }
     } else {
       if(!route.island&&!station)b.span(a,c,l.width+.8,.6,'steel',-.7,l.center,true);
-      if(route.island||!station)for(const edge of [l.min-.25,l.max+.25])b.panel(framedWall(a,c,edge,-.2,1),.18,'green',cuts);
+      if(route.island||!station)for(const side of ['min','max'])b.panel(framedWall(a,c,la[side]+(side==='min'?-.25:.25),-.2,1,lc[side]+(side==='min'?-.25:.25)),.18,'green',cuts);
+    }
+    for(const s of route.portalCaps??[])if(s>=a.s&&s<c.s) {
+      const p=sample(route,s),l=layout(route,null,s);
+      const left={...shift(p,l.min-.2),y:.3},right={...shift(p,l.max+.2),y:.3};
+      // A lintel seals the covered end without obstructing the train bore.
+      b.panel([[left.x,p.y+5.1,left.z],[right.x,p.y+5.1,right.z],[right.x,.3,right.z],[left.x,.3,left.z]],.3,'concrete');
+      guard(left,right);
     }
     if(station&&underground) {
       const half=(station.length??route.platformLength??PLATFORM_LENGTH)/2;
@@ -188,7 +210,8 @@ export function buildTrack(segments, roads = [], route=defaultRoute, mobile=fals
     for(let s=Math.ceil(a.s/18)*18;s<c.s;s+=18) {
       const q=sample(route,s);
       const access=entrances.some(e=>e.island&&s>=e.start-3&&s<=e.end+3);
-      if(q.y>2&&!bridge&&!access) {
+      const overBuilding=route.obstacles?.some(o=>s>=o.start-1&&s<=o.end+1);
+      if(q.y>2&&!bridge&&!access&&!overBuilding) {
         const center=shift(q,l.center),plan=planSupport({id:'rail'},center,l.width/2+.4,q.y-.7,.55,.4);
         if(plan) {
           for(const offset of plan.offsets)b.box({...center,y:0},.65,q.y-1.25,.8,'green',(q.y-1.25)/2,offset,true);
@@ -354,8 +377,8 @@ export function trainModel(materialSet,kind='subway',instanced=false) {
       train.open=(train.open??0)+(Number(state.doors)-(train.open??0))*Math.min(1,dt*4);
       train.cars.forEach(({car,panels},i)=>{
         const s=state.s-direction*(i-(TRAIN_CARS-1)/2)*CAR_SPACING;
-        const p=sample(route,s,trackOffset),a=sample(route,s-4,trackOffset),b=sample(route,s+4,trackOffset);
-        car.position.set(p.x,p.y,p.z);car.rotation.set(0,Math.atan2(p.dx,p.dz),0);
+        const p=sampleTrack(route,s,trackOffset),a=sampleTrack(route,s-4,trackOffset),b=sampleTrack(route,s+4,trackOffset);
+        car.position.set(p.x,p.y,p.z);car.rotation.set(0,Math.atan2(b.x-a.x,b.z-a.z),0);
         car.rotateX(-Math.atan2(b.y-a.y,Math.hypot(b.x-a.x,b.z-a.z)));
         // Side platforms are outside each track. Keep the track-side doors shut.
         panels.forEach((panel,j)=>panel.position.z=(j%2?1:-1)*train.open*0.66
