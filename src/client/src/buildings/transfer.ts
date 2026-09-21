@@ -68,7 +68,7 @@ export async function bitmapTexture(url: string): Promise<THREE.Texture> {
   url = mobileTextureUrl(url);
   if (typeof Worker !== 'undefined') return decodePixels(url);
   let bitmap = await new THREE.ImageBitmapLoader().setOptions({ imageOrientation: 'flipY', premultiplyAlpha: 'none', colorSpaceConversion: 'none' }).loadAsync(url);
-  const scale = url.includes('/assets/textures-mobile/') ? Math.min(1, 256 / Math.max(bitmap.width, bitmap.height)) : 1;
+  const scale = Math.min(1, (url.includes('/assets/textures-mobile/') ? 256 : 1920) / Math.max(bitmap.width, bitmap.height));
   if (scale < 1) {
     const original = bitmap;
     try {

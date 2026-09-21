@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { gunzip, gzip } from 'node:zlib';
+import { alignStreetTrees } from '../../../static/world/assets/curb-placement.js';
 
 const inflate = promisify(gunzip), deflate = promisify(gzip);
 const TILE = 256, REACH = 512;
@@ -135,7 +136,9 @@ export function createStreetTileService(directory, { catalogPath } = {}) {
       const neighbor = keyOf(tx, tz);
       if (keys.has(neighbor)) pending.push(cached(decoded, neighbor, 128, () => read(neighbor)));
     }
-    const context = streetContext(tile, index, await Promise.all(pending));
-    return deflate(JSON.stringify({ ...tile, roads: tile.roads.filter(visibleRoad), streetContext: context }));
+    const neighbors = await Promise.all(pending);
+    const context = streetContext(tile, index, neighbors);
+    const aligned = alignStreetTrees(tile, neighbors.filter(t => Math.abs(t.tx-tile.tx)<=1 && Math.abs(t.tz-tile.tz)<=1));
+    return deflate(JSON.stringify({ ...aligned, roads: tile.roads.filter(visibleRoad), streetContext: context }));
   });
 }

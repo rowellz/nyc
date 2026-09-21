@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
+import vm from 'node:vm';
 import { prepareSceneTextures } from '../static/world/assets/texture-preflight.js';
 import { assets } from './sveltekit-assets.mjs';
 
@@ -36,6 +37,28 @@ const lateMap=texture();materials[0].uniforms.maps.value=[lateMap];
 const next=[];prepareSceneTextures(scene,t=>next.push(t));assert(next.includes(lateMap));
 const source=readFileSync(new URL('textureRelease-2U-gT89r.js',assets),'utf8');
 assert(source.includes('$prepareSceneTextures(e,rl),n(e,t)'),'served renderer uses deduplicated preparation');
+// Exercise the served upload cap on both platforms, including textures that
+// arrive after the first frame. Smaller maps must not allocate a replacement.
+const cap = source.slice(source.indexOf('function rl('), source.indexOf('export{', source.indexOf('function rl(')));
+for (const ios of [false, true]) {
+  const limit = ios ? 512 : 1920;
+  const scope = vm.createContext({ Zc: ios, tl: { resized: 0 }, Qc: new WeakMap(),
+    document: { createElement: () => ({ getContext: () => ({ drawImage() {} }) }) },
+  });
+  vm.runInContext(cap, scope);
+  const small = { image: { width: 128, height: 64 } }, original = small.image;
+  scope.rl(small);
+  assert.equal(small.image, original);
+  const canvas = { image: { width: 4096, height: 2048 } };
+  scope.rl(canvas);
+  assert.deepEqual([canvas.image.width, canvas.image.height], [limit, limit / 2]);
+  const pixels = { image: { width: 4096, height: 64, data: new Uint8Array(4096 * 64 * 4) } };
+  scope.rl(pixels);
+  assert.deepEqual([pixels.image.width, pixels.image.height], [limit, limit / 64]);
+  assert.equal(pixels.image.data.length, limit * (limit / 64) * 4);
+}
+const main = readFileSync(new URL('main-D_3aygO4.js', assets), 'utf8');
+assert(main.includes('});at(a),a.outputColorSpace'), 'upload preparation runs on desktop and mobile');
 for(const scan of [oldScan,prepareSceneTextures])for(let i=0;i<10;i++)scan(scene,()=>{});
 const measure=scan=>{const start=performance.now();for(let i=0;i<100;i++)scan(scene,()=>{});return (performance.now()-start)/100;};
 console.log(`PASS mobile texture preflight: ${previousVisits} -> 20 material scans; fixture CPU ${measure(oldScan).toFixed(2)} -> ${measure(prepareSceneTextures).toFixed(2)} ms/frame (host, not device FPS)`);

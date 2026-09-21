@@ -7,7 +7,7 @@ self.onmessage = async (event: MessageEvent<{ shadows: boolean; mobile?: boolean
     const kinds = buildCatalogue(event.data.shadows);
     const packed = {
       base: await packTexture(textures.makeGrimeTexture()),
-      plywood: await packTexture(textures.makePlywoodTexture(event.data.mobile ? 1024 : 2048)),
+      plywood: await packTexture(textures.makePlywoodTexture(2048, 512, event.data.mobile ? 0.125 : 0.25)),
       mesh: await packTexture(textures.makeMeshTexture()),
       shrub: await packTexture(textures.makeShrubTexture()),
       ped: await packTexture(textures.makePedTexture()),

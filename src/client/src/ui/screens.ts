@@ -15,7 +15,6 @@ const CONTROLS: [string, string][] = [
   ['E', 'enter / exit vehicle · pick up'],
   ['F', 'horn / siren'],
   ['R', 'reload'],
-  ['Tab', 'leaderboard'],
   ['M', 'map'],
 ];
 
@@ -23,13 +22,11 @@ const CONTROLS: [string, string][] = [
 export interface JumpItem { name: string; sub: string; x: number; z: number; heading?: number }
 
 const TIPS = [
-  'Your <b>score survives death</b>. Your weapons, armor and car do not.',
   'Nobody can shoot inside the <b>safe zone</b> at Bryant Park. Regroup there.',
   'New players are <b>protected for two minutes</b> after spawning, until they fire.',
   'Every street is a real street. <b>The signs are right.</b>',
-  '<b>Finding a landmark first</b> is worth more than a kill.',
-  'Hold <b>Tab</b> for the leaderboard. Press <b>M</b> for the map.',
-  'Distance driven and time survived count toward your score.',
+  'Explore the city to <b>discover landmarks</b>.',
+  'Press <b>M</b> for the map.',
   'Press <b>F3</b> to see ping and frame rate.',
 ];
 
@@ -89,14 +86,12 @@ export interface DeathDetails {
   where?: string | null;
 }
 
-/** Composed for one 16:9 frame: verdict, who / with what / where, score kept, respawn 3-2-1, top five beneath. */
+/** Composed for one 16:9 frame: verdict, who / with what / where, respawn 3-2-1. */
 export class DeathScreen extends Screen {
   private by: HTMLDivElement;
   private where: HTMLDivElement;
-  private keptVal: HTMLSpanElement;
   private btn: HTMLButtonElement;
   private cd: HTMLSpanElement;
-  readonly slot: HTMLDivElement;
   private timer: ReturnType<typeof setInterval> | null = null;
   constructor(root: HTMLElement, private onRespawn: () => void) {
     super(root, 'death');
@@ -104,9 +99,6 @@ export class DeathScreen extends Screen {
     el('div', 'title', card).textContent = 'You died';
     this.by = el('div', 'by', card);
     this.where = el('div', 'where', card);
-    const kept = el('div', 'kept', card);
-    kept.innerHTML = `<span class="lab">Score kept</span><span class="val num"></span><span class="gone">everything else is gone</span>`;
-    this.keptVal = kept.querySelector('.val') as HTMLSpanElement;
     this.btn = el('button', 'btn', card);
     this.btn.type = 'button';
     this.btn.innerHTML = `Respawn<span class="cd num"></span>`;
@@ -115,9 +107,8 @@ export class DeathScreen extends Screen {
       if (this.btn.disabled) return;
       this.onRespawn();
     });
-    this.slot = el('div', 'lb-slot', this.el);
   }
-  show(killer: string, score: number, d: DeathDetails = {}, pending = false): void {
+  show(killer: string, d: DeathDetails = {}, pending = false): void {
     this.open();
     this.el.classList.toggle('environmental', killer === 'You drowned');
     this.by.textContent = '';
@@ -134,7 +125,6 @@ export class DeathScreen extends Screen {
     } else this.by.textContent = 'The city got you';
     this.where.textContent = d.where ?? '';
     this.where.classList.toggle('hidden', !d.where);
-    this.keptVal.textContent = score.toLocaleString('en-US');
     let left = 3;
     this.btn.disabled = true;
     this.cd.textContent = String(left);
@@ -222,7 +212,7 @@ export class PauseMenu extends Screen {
       u.searchParams.set('q', sel.value);
       location.href = u.toString();
     });
-    el('div', 'note', q).textContent = 'Changing quality reloads the city. Your score is safe.';
+    el('div', 'note', q).textContent = 'Changing quality reloads the city.';
 
     const right = el('div', undefined, grid);
     el('h4', undefined, right).textContent = 'Controls';

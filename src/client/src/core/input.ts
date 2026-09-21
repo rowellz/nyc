@@ -4,12 +4,12 @@
  * module sees the same edge flags and look deltas. Edge flags are true for exactly one frame.
  *
  * Mapping: WASD run, Shift sprint, Ctrl/Alt walk, C crouch, Space jump / handbrake, E interact,
- * R reload, F horn, H headlights, V camera, M map, Tab leaderboard (held), 1-4 weapon slots,
+ * R reload, F horn, H headlights, V camera, M map, 1-4 weapon slots,
  * wheel next/prev weapon, LMB fire, RMB aim. Vehicle throttle/steer are smoothed from W/S and A/D.
  */
 import type { InputState } from './context';
 
-const CAPTURE_KEYS = new Set(['Tab', 'Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+const CAPTURE_KEYS = new Set(['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 
 export class InputManager implements InputState {
   move = { x: 0, y: 0 };
@@ -27,7 +27,6 @@ export class InputManager implements InputState {
   handbrake = false;
   horn = false;
   map = false;
-  leaderboard = false;
   pointerLocked = false;
   throttle = 0;
   steer = 0;
@@ -203,7 +202,7 @@ export class InputManager implements InputState {
       // screenshot / free-fly mode: publish nothing. The fly camera reads `keys` + raw look itself.
       this.move.x = this.move.y = 0;
       this.sprint = this.jump = this.crouch = this.aim = this.fire = this.firePressed = false;
-      this.reload = this.interact = this.map = this.leaderboard = this.headlights = this.camToggle = this.handbrake = this.horn = false;
+      this.reload = this.interact = this.map = this.headlights = this.camToggle = this.handbrake = this.horn = false;
       this.weaponSlot = 0;
       this.nextWeapon = 0;
       this.look.dx = this.pendingLook.dx;
@@ -245,7 +244,6 @@ export class InputManager implements InputState {
     this.crouch = k.has('KeyC') || !!pad?.buttons[1];
     this.handbrake = k.has('Space') || !!pad?.buttons[0];
     this.horn = k.has('KeyF') || !!pad?.buttons[3];
-    this.leaderboard = k.has('Tab') || !!pad?.buttons[8];
     this.aim = (this.mouseButtons & 4) !== 0 || (pad ? pad.axes.length > 4 && false : false) || !!pad?.buttons[6];
     this.fire = (this.mouseButtons & 1) !== 0 || !!pad?.buttons[7];
 

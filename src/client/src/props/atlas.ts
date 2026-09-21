@@ -1,5 +1,5 @@
 /**
- * SignAtlas: one 4096x4096 canvas texture holding every sign face the props need.
+ * SignAtlas: a scaled 4096x4096 drawing layout holding every sign face the props need.
  *  - fixed slots (drawn once): ONE WAY, NO STANDING, NO PARKING, STOP, solid colors, the subway 'SUBWAY' base...
  *  - dynamic slots: street-name blades ("W 42 ST"), subway line signs ("B D F M"), bus route signs ("M42"),
  *    reference-counted per text; freed when the last tile using them unloads.
@@ -306,6 +306,7 @@ export class SignAtlas {
   private uploads = 0;
 
   constructor(private builds?: Pick<FrameBuildQueue, 'job'>, private canUpload = () => true, scale = 1) {
+    scale = Math.min(scale, 1920 / Math.max(ATLAS_W, ATLAS_H));
     this.canvas = document.createElement('canvas');
     this.canvas.width = ATLAS_W * scale;
     this.canvas.height = ATLAS_H * scale;

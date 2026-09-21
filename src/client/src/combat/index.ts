@@ -57,7 +57,7 @@ interface CharacterLike {
   remoteModel?(id: number): THREE.Object3D | null;
 }
 interface UiLike {
-  toast?(text: string, kind?: 'info' | 'score' | 'discover' | 'warn'): void;
+  toast?(text: string, kind?: 'info' | 'discover' | 'warn'): void;
   prompt?(text: string | null): void;
 }
 

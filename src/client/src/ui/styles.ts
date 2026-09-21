@@ -106,21 +106,12 @@ const CSS = `
   animation: nyc-toast 3s ease forwards;
 }
 #nyc .toast.discover { border-bottom-color: var(--amber); color: #fff; }
-#nyc .toast.score { border-bottom-color: var(--green); }
 #nyc .toast.warn { border-bottom-color: var(--red); }
 #nyc .toast small { display: block; font-family: var(--body); font-size: 12px; letter-spacing: 0.12em; color: var(--dim); text-transform: uppercase; }
 
-/* ---- score ---- */
-#nyc .score-label { font-size: var(--t-cap); letter-spacing: 0.22em; color: var(--dim); text-transform: uppercase; font-weight: 600; }
-#nyc .score-val { font-family: var(--head); font-size: var(--t-hl); font-weight: 700; line-height: 1; margin-top: 2px; }
+/* ---- online count ---- */
 #nyc .online { font-size: var(--t-meta); color: var(--dim); margin-top: 4px; letter-spacing: 0.02em; }
 #nyc .online i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); margin-right: 6px; vertical-align: 1px; box-shadow: 0 0 6px var(--green); }
-#nyc .pops { position: absolute; right: 0; top: 100%; margin-top: 4px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-#nyc .pop {
-  font-family: var(--head); font-size: 24px; font-weight: 700; color: var(--amber); letter-spacing: 0.03em; white-space: nowrap;
-  animation: nyc-pop 1.8s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
-}
-#nyc .pop small { font-family: var(--body); font-size: 11px; font-weight: 600; letter-spacing: 0.16em; color: var(--dim); margin-left: 8px; text-transform: uppercase; }
 
 /* ---- minimap + bars ---- */
 #nyc .minimap {
@@ -230,74 +221,6 @@ const CSS = `
 #nyc .intro .ver { position: absolute; right: 22px; bottom: 18px; font-size: 11px; letter-spacing: 0.16em; color: var(--dimmer); text-transform: uppercase; }
 #nyc .intro .err { margin-top: 10px; font-size: 12px; color: var(--red); height: 14px; }
 
-/* ---- leaderboard ---- */
-#nyc .lb-wrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
-#nyc .lb {
-  width: 620px; max-width: calc(100vw - 40px); max-height: calc(100vh - 60px); overflow: hidden; display: flex; flex-direction: column;
-  border-radius: 6px; border: 1px solid rgba(255,255,255,0.12); text-shadow: none;
-  background: linear-gradient(180deg, rgba(13,15,20,0.9), rgba(8,10,14,0.86));
-  backdrop-filter: blur(18px) saturate(1.2); -webkit-backdrop-filter: blur(18px) saturate(1.2);
-  box-shadow: 0 30px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.07);
-  animation: nyc-rise 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
-}
-#nyc .lb .lb-head { display: flex; align-items: flex-end; justify-content: space-between; padding: 18px 24px 14px; border-bottom: 1px solid rgba(255,255,255,0.1); }
-#nyc .lb .lb-kicker { font-size: var(--t-cap); letter-spacing: 0.26em; text-transform: uppercase; color: var(--dim); font-weight: 600; margin-bottom: 6px; }
-#nyc .lb .lb-kicker .lb-era { color: var(--gold); }
-#nyc .lb .lb-title { font-family: var(--head); font-size: 38px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; line-height: 0.9; }
-#nyc .lb .lb-online { font-size: var(--t-meta); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); font-weight: 500; padding-bottom: 2px; }
-#nyc .lb .lb-online b { color: var(--fg); font-weight: 700; font-variant-numeric: tabular-nums; }
-#nyc .lb .lb-online i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); margin-right: 8px; box-shadow: 0 0 8px var(--green); vertical-align: 1px; animation: nyc-pulse 2.4s ease-in-out infinite; }
-#nyc .lb .lb-cols, #nyc .lb .lb-row { display: grid; grid-template-columns: 64px 1fr 72px 128px; align-items: center; padding: 0 24px 0 0; }
-#nyc .lb .lb-cols { font-size: var(--t-cap); letter-spacing: 0.22em; text-transform: uppercase; color: var(--dimmer); font-weight: 600; padding-top: 10px; padding-bottom: 6px; }
-#nyc .lb .lb-cols > :first-child { padding-left: 24px; }
-#nyc .lb .lb-cols > :nth-child(n+3) { text-align: right; }
-#nyc .lb .lb-body { overflow-y: auto; }
-#nyc .lb .lb-row { height: 42px; border-top: 1px solid rgba(255,255,255,0.05); position: relative; }
-#nyc .lb .lb-row .rank { font-family: var(--head); font-size: 24px; font-weight: 800; color: var(--dimmer); padding-left: 24px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
-#nyc .lb .lb-row .who { display: flex; align-items: center; gap: 10px; min-width: 0; padding-right: 12px; }
-#nyc .lb .lb-row .name { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#nyc .lb .lb-row .on { flex: none; width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.14); }
-#nyc .lb .lb-row .on.live { background: var(--green); box-shadow: 0 0 6px rgba(95,217,119,0.7); }
-#nyc .lb .lb-row .sc { font-family: var(--head); font-size: 24px; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
-#nyc .lb .lb-row .k { font-size: 13px; color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
-#nyc .lb .lb-row.top::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
-#nyc .lb .lb-row.top .rank { font-size: 30px; color: var(--fg); }
-#nyc .lb .lb-row.r1 { height: 56px; background: linear-gradient(90deg, rgba(242,193,78,0.13), rgba(242,193,78,0.03) 45%, transparent 75%); }
-#nyc .lb .lb-row.r1::before { background: var(--gold); box-shadow: 0 0 12px rgba(242,193,78,0.45); }
-#nyc .lb .lb-row.r1 .rank { color: var(--gold); font-size: 38px; }
-#nyc .lb .lb-row.r1 .sc { font-size: 32px; color: var(--gold); }
-#nyc .lb .lb-row.r1 .name { font-size: 17px; font-weight: 600; color: #fff; }
-#nyc .lb .lb-row.r2::before { background: var(--silver); }
-#nyc .lb .lb-row.r2 .rank { color: var(--silver); }
-#nyc .lb .lb-row.r3::before { background: var(--bronze); }
-#nyc .lb .lb-row.r3 .rank { color: var(--bronze); }
-#nyc .lb .lb-row.you { background: rgba(92,178,255,0.1); }
-#nyc .lb .lb-row.you::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--blue); box-shadow: 0 0 10px rgba(92,178,255,0.5); }
-#nyc .lb .lb-row.you .name { color: #fff; font-weight: 600; }
-#nyc .lb .lb-row.you .name::after { content: 'you'; font-family: var(--head); font-size: 11px; letter-spacing: 0.18em; color: var(--blue); margin-left: 8px; font-weight: 700; text-transform: uppercase; }
-#nyc .lb .lb-row.you .sc { color: var(--blue); }
-#nyc .lb .lb-pin { border-top: 1px solid rgba(255,255,255,0.14); }
-#nyc .lb .lb-pin .lb-row { border-top: 0; }
-#nyc .lb .lb-foot { display: flex; justify-content: space-between; gap: 16px; padding: 8px 24px 10px; font-size: var(--t-cap); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dimmer); border-top: 1px solid rgba(255,255,255,0.06); white-space: nowrap; }
-#nyc .lb .lb-foot .hint { color: var(--dim); }
-#nyc .lb .lb-empty { padding: 28px; text-align: center; color: var(--dim); font-size: 13px; }
-#nyc .lb.compact { width: 560px; }
-#nyc .lb.compact .lb-head { padding: 12px 20px 10px; }
-#nyc .lb.compact .lb-title { font-size: 26px; }
-#nyc .lb.compact .lb-kicker { margin-bottom: 4px; }
-#nyc .lb.compact .lb-cols { display: none; }
-#nyc .lb.compact .lb-row { height: 36px; }
-#nyc .lb.compact .lb-row.r1 { height: 44px; }
-#nyc .lb.compact .lb-row .rank { font-size: 20px; padding-left: 20px; }
-#nyc .lb.compact .lb-row.top .rank { font-size: 24px; }
-#nyc .lb.compact .lb-row.r1 .rank { font-size: 30px; }
-#nyc .lb.compact .lb-row .sc { font-size: 20px; }
-#nyc .lb.compact .lb-row.r1 .sc { font-size: 26px; }
-#nyc .lb.compact .lb-row .name { font-size: 14px; }
-#nyc .lb.compact .lb-row.r1 .name { font-size: 15px; }
-#nyc .lb.compact .lb-foot { padding: 6px 20px 8px; justify-content: flex-end; }
-#nyc .lb.compact .lb-foot > span:first-child { display: none; }
-
 /* ---- death ---- */
 #nyc .death { background: radial-gradient(ellipse at center, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.88) 100%); backdrop-filter: saturate(0.12) contrast(1.05); -webkit-backdrop-filter: saturate(0.12) contrast(1.05); justify-content: center; gap: 0; overflow: hidden; padding: 3vh 0; }
 #nyc .death.environmental { background: #0b0e14; backdrop-filter: none; -webkit-backdrop-filter: none; animation: none; }
@@ -309,17 +232,9 @@ const CSS = `
 #nyc .death .by .weap::before { content: '·'; color: var(--dimmer); }
 #nyc .death .by .wg { width: 26px; height: 12px; }
 #nyc .death .where { margin-top: 4px; font-size: var(--t-meta); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dimmer); }
-#nyc .death .kept { margin-top: 20px; display: flex; align-items: baseline; gap: 12px; }
-#nyc .death .kept .lab { font-size: var(--t-cap); letter-spacing: 0.24em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
-#nyc .death .kept .val { font-family: var(--head); font-size: 40px; font-weight: 800; color: var(--gold); line-height: 1; letter-spacing: 0.02em; }
-#nyc .death .kept .gone { font-size: var(--t-cap); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dimmer); }
 #nyc .death .btn { margin: 18px 0 22px; min-width: 200px; height: 44px; font-size: 18px; display: inline-flex; align-items: center; justify-content: center; gap: 12px; }
 #nyc .death .btn .cd { font-weight: 800; color: #0b0e14; opacity: 0.55; padding-left: 12px; border-left: 1px solid rgba(11,14,20,0.25); font-variant-numeric: tabular-nums; }
 #nyc .death .btn:disabled { opacity: 0.6; }
-#nyc .death .lb-wrap { position: static; }
-#nyc .death .lb { animation: none; }
-#nyc .death .lb .lb-body { max-height: none; }
-#nyc .lb .lb-body { max-height: 472px; }
 
 #nyc .intro .privacy { max-width: 570px; padding: 0 20px; font-size: 12px; line-height: 1.7; color: var(--dim); text-align: center; }
 #nyc .intro .privacy a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
@@ -386,8 +301,8 @@ const CSS = `
 #nyc .loading .tip b { color: var(--fg); font-weight: 600; }
 
 @media (prefers-reduced-motion: reduce) {
-  #nyc .lb, #nyc .death .card, #nyc .screen, #nyc .feed .row, #nyc .prompt { animation: none !important; }
-  #nyc .lb .lb-online i, #nyc .clickhint, #nyc .weapon .reload { animation: none !important; }
+  #nyc .death .card, #nyc .screen, #nyc .feed .row, #nyc .prompt { animation: none !important; }
+  #nyc .clickhint, #nyc .weapon .reload { animation: none !important; }
 }
 @keyframes nyc-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 @keyframes nyc-fade { from { opacity: 1; } to { opacity: 0; } }
@@ -395,7 +310,6 @@ const CSS = `
 @keyframes nyc-fade-out { from { opacity: 1; } to { opacity: 0; } }
 @keyframes nyc-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 @keyframes nyc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
-@keyframes nyc-pop { 0% { opacity: 0; transform: translateY(6px) scale(0.9); } 12% { opacity: 1; transform: translateY(0) scale(1.05); } 70% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-16px); } }
 @keyframes nyc-toast { 0% { opacity: 0; transform: translateY(-8px); } 10% { opacity: 1; transform: none; } 85% { opacity: 1; } 100% { opacity: 0; transform: translateY(-6px); } }
 @keyframes nyc-hit { 0% { opacity: 1; transform: scale(1.35); } 100% { opacity: 0; transform: scale(1); } }
 `;

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { assets } from './sveltekit-assets.mjs';
-import { laneRanges, roadGroup, trafficKind, spawnTraffic, trafficRadius } from '../static/world/assets/traffic-distribution.js';
+import { laneRanges, roadGroup, trafficKind, spawnTraffic, trafficRadius, vehicleDrawDistance } from '../static/world/assets/traffic-distribution.js';
 
 const bundle = readFileSync(new URL('vehicles-_zJz3z3J.js', assets), 'utf8');
 // Exercise the actual served Traffic class, including its transform and queue logic.
@@ -52,6 +52,41 @@ assert(ranges.length && ranges[0][0]<100 && ranges[0][1]>100,'curved paths enter
 assert.equal(laneRanges(short,{x:500,z:0},20).length,0);
 for(const group of ['highway','ramp','arterial','street'])for(const r of [0,.1,.5,.999999])assert(kinds[trafficKind(group,r)]);
 console.log('PASS short/curved lanes, fleet mix, and density reduction');
+
+// Distant mobile traffic must be spawned, retained, and submitted to the far
+// fleet. Raising a draw cutoff alone leaves the farther roads empty.
+for (const [ios, drawDistance, expected] of [[true,384,768],[false,640,1280]]) {
+  const mobile = { ...ctx, quality: { level:'mobile', drawDistance, farDistance:ios?5000:6000, maxTraffic:6 }, world:{ios} };
+  assert.equal(vehicleDrawDistance(mobile),expected);
+  const lane = { key:'far-road', road:{cls:'primary',layer:0}, ax:600,az:-100,bx:600,bz:100,dx:0,dz:1,length:200,speed:10 };
+  const distant = new Traffic(mobile,{lanes:new Map([[lane.key,lane]]),outgoing:new Map()});
+  distant.update(0,0,[]);
+  assert(distant.cars.length>0,'mobile traffic spawns beyond the old local radius');
+  distant.update(0,.1,[]);
+  assert(distant.cars.length>0,'distant traffic survives retirement');
+  mobile.quality.drawDistance=256;
+  distant.update(0,.2,[]);
+  assert.equal(distant.cars.length,0,'reducing range retires distant traffic');
+}
+{
+  const start=bundle.indexOf('function he(e,i,a,o=0){'),end=bundle.indexOf('return typeof window',start);
+  assert(start>0&&end>start);
+  const mobile={quality:{level:'mobile',drawDistance:384,farDistance:5000},world:{ios:true},camera:{position:{x:0,z:0}}};
+  const writes=[];
+  const draw=vm.runInNewContext(bundle.slice(start,end)+'\nhe',{
+    t:mobile,$:distance2,$vehicleDrawDistance:vehicleDrawDistance,Z:{sedan:{height:2,length:4}},
+    D:{center:{set(){}}},T:{intersectsSphere:()=>true},N:null,c:{add(){}},
+    r:{scratch:()=>({matrix:{copy(){}},color:{copy(){}},lightA:[],lightB:[]}),write:(kind,data,lod)=>writes.push(lod)},
+  });
+  draw({kind:'sedan',x:500,y:0,z:0},0,0);
+  assert.deepEqual(writes,[140],'iPhone vehicles 500 m away use the simplified far fleet');
+  draw({kind:'sedan',x:900,y:0,z:0},0,0);
+  assert.equal(writes.length,1,'vehicles beyond the selected range are culled');
+  mobile.quality.drawDistance=600;
+  draw({kind:'sedan',x:900,y:0,z:0},0,0);
+  assert.deepEqual(writes,[140,140],'live range increases immediately affect vehicle drawing');
+}
+console.log('PASS mobile vehicle distance: spawning, retirement, far models and live culling');
 
 // Replay the user's Cross Bronx location with its real OSM lanes and bends.
 const { gunzipSync } = await import('node:zlib');

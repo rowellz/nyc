@@ -6,6 +6,7 @@ import { assets } from './sveltekit-assets.mjs';
 import { serveStatic } from '../src/lib/server/static.js';
 import { createRoadIndex, streetContext } from '../src/lib/server/street-context.js';
 import { CLIENT_REVISION } from '../src/lib/server/client-cache.js';
+import { alignStreetTrees } from '../static/world/assets/curb-placement.js';
 
 const layout = await import(new URL('lane-layout.js', assets));
 const paths = await import(new URL('lane-paths.js', assets));
@@ -42,7 +43,8 @@ assert.equal(response.headers.get('content-encoding'), null, 'decoder must recei
 assert.equal(Number(response.headers.get('content-length')), bytes.length);
 const served = JSON.parse(gunzipSync(bytes));
 const { streetContext: context, ...original } = served;
-assert.deepEqual(original, tile, 'planning data never changes scene ownership or map records');
+assert.deepEqual(original, alignStreetTrees(tile,tiles.filter(t=>Math.abs(t.tx-tile.tx)<=1&&Math.abs(t.tz-tile.tz)<=1)),
+  'planning preserves scene ownership and map records, including the served sidewalk-aligned trees');
 assert(context.roads.length > tile.roads.length);
 assert.equal(context.pedestrianTiles.length, 25);
 const head = await serveStatic('world/world/tiles/19_-40.json.gz', { method: 'HEAD' });
@@ -115,21 +117,52 @@ assert.equal(own.revision, 0); assert.equal(neighbor.revision, 1); assert.equal(
 invalidation.Z(served); assert.equal(own.revision, 1, 'explicit tile replacements still rebuild');
 
 const vehicles = readFileSync(new URL('vehicles-_zJz3z3J.js', assets), 'utf8');
+const { vehicleDrawDistance } = await import('../static/world/assets/traffic-distribution.js');
+let pathBuilds=0;
 const Roads = vm.runInNewContext(vehicles.slice(vehicles.indexOf('const node = (x'), vehicles.indexOf('const AVENUE_RADIUS')) + '\nRoads', {
+  $vehicleDrawDistance: vehicleDrawDistance,
   isHighway: layout.isHighway, laneCount: layout.laneCount, laneWidth: layout.laneWidth,
-  highwayLanePath: paths.highwayLanePath, KINDS: { sedan: { width: 2, parkedWeight: 1 } },
+  highwayLanePath: (...args)=>{pathBuilds++;return paths.highwayLanePath(...args);}, KINDS: { sedan: { width: 2, parkedWeight: 1 } },
   isIOS: () => true, TILE_SIZE: 256, removeBody() {},
 });
-const traffic = new Roads({ camera: { position: { x: 0, z: 0 } } });
+const traffic = new Roads({ quality: { level:'mobile', drawDistance:384, farDistance:5000 }, world:{ios:true}, camera: { position: { x: 0, z: 0 } } });
 traffic.load({ ...served, roads: served.roads.filter(layout.isHighway) });
 const snapshots = new Map([...traffic.lanes].map(([key, lane]) => [key, structuredClone(lane.path)]));
+const originalPaths = new Map([...traffic.lanes].map(([key, lane]) => [key, lane.path]));
 assert(snapshots.size > 0);
+pathBuilds=0;traffic.refreshHighways();
+assert.equal(pathBuilds,0,'unchanged contextual traffic does not redensify paths');
 const arrival = { ...readTile('20_-40'), roads: readTile('20_-40').roads.filter(layout.isHighway) };
 traffic.load(arrival);
-for (const [key, path] of snapshots) assert.deepEqual(structuredClone(traffic.lanes.get(key).path), path);
+for (const [key, path] of snapshots) {
+  assert.deepEqual(structuredClone(traffic.lanes.get(key).path), path);
+  assert.equal(traffic.lanes.get(key).path,originalPaths.get(key),'arrivals preserve existing path buffers');
+}
+pathBuilds=0;
 traffic.unload(arrival.key);
+assert.equal(pathBuilds,0,'retirement does not redensify remaining contextual lanes');
 for (const [key, path] of snapshots) assert.deepEqual(structuredClone(traffic.lanes.get(key).path), path);
-console.log('PASS contextual tiles skip neighbor rebuilds and traffic retains its original paths');
+for(let i=0;i<10;i++) {
+  traffic.load({key:'100_100',tx:100,tz:100,roads:[],props:[]});traffic.unload('100_100');
+}
+assert.equal(pathBuilds,0,'ten unrelated load/unload cycles allocate no replacement paths');
+
+// A changed lane position or a new road context still needs a new path. Compare
+// against the uncached builder so reuse cannot freeze a changed join in place.
+const lane=traffic.lanes.values().next().value, laneContext=traffic.streetContexts.get(lane.road);
+assert(laneContext);
+const checkPath=()=>assert.deepEqual(structuredClone(lane.path),
+  structuredClone(paths.highwayLanePath(lane.road,traffic.streetContexts.get(lane.road),lane.segment,lane.offset).path));
+lane.offset+=.25;traffic.refreshHighways();assert.equal(pathBuilds,1);checkPath();
+const newContext=structuredClone(laneContext);
+traffic.streetContexts.set(lane.road,newContext);
+const beforeContext=pathBuilds;
+traffic.refreshHighways();assert(pathBuilds>beforeContext,'replacement road context invalidates cached lanes');checkPath();
+const legacyTraffic=new Roads(traffic.ctx);
+legacyTraffic.load({...arrival,streetContext:undefined});pathBuilds=0;
+legacyTraffic.refreshHighways();assert(pathBuilds>0,'legacy roads still follow resident neighbours');
+legacyTraffic.dispose();traffic.dispose();
+console.log(`PASS contextual traffic: ${snapshots.size} original paths preserved; zero rebuilds for unrelated chunks; changed offsets/context and legacy roads refresh`);
 
 // Roads can cross the planning halo without owning a tile there or placing a
 // vertex inside it; selecting by whole-way bounds must still include them.

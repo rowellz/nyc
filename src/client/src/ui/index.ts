@@ -1,5 +1,5 @@
 /**
- * ui module: HTML/CSS overlay in ctx.uiRoot + canvas minimap. Owns name entry, HUD, leaderboard, death
+ * ui module: HTML/CSS overlay in ctx.uiRoot + canvas minimap. Owns name entry, HUD, death
  * screen, update banner, full map, loading screen and the pause menu. Never depends on another module
  * existing: everything it reads from combat/vehicles is optional-chained with a ctx.state fallback.
  *
@@ -11,7 +11,7 @@ import type { GameContext, GameModule } from '@/core/context';
 import { parseParams } from '@/core/params';
 import { isNewerVersion, type NetClientImpl } from '@/core/net';
 import type { AdminTools } from '@/core/admin';
-import { StateFlag, type LeaderboardEntry } from '@shared/protocol';
+import { StateFlag } from '@shared/protocol';
 import { WEAPONS } from '@shared/weapons';
 import { LANDMARKS } from '@shared/constants';
 import { lonLatToXZ } from '@shared/geo';
@@ -22,13 +22,12 @@ import { injectStyles } from './styles';
 import { Hud, weaponGlyph, type ToastKind } from './hud';
 import { Minimap } from './minimap';
 import { AreaIndex } from './areas';
-import { LeaderboardPanel } from './leaderboard';
 import { FullMap } from './fullMap';
 import { DeathScreen, LoadingScreen, NameEntry, PauseMenu, UpdateBanner, type JumpItem } from './screens';
 import { headingOf } from './mapDraw';
 
 export interface UiModule extends GameModule {
-  toast(text: string, kind?: 'info' | 'score' | 'discover' | 'warn'): void;
+  toast(text: string, kind?: 'info' | 'discover' | 'warn'): void;
   /** bottom-center interaction prompt; null hides */
   prompt(text: string | null): void;
   /** current street + neighborhood shown under the minimap */
@@ -84,8 +83,6 @@ export async function createUi(ctx: GameContext): Promise<UiModule> {
   hud.minimapSlot.appendChild(minimap.canvas);
   const areas = new AreaIndex();
   void areas.load(baseUrl);
-  const lb = new LeaderboardPanel();
-  root.appendChild(lb.el);
   const fullMap = new FullMap(ctx, baseUrl);
   root.appendChild(fullMap.el);
   const banner = new UpdateBanner(root, !st.screenshotMode);
@@ -106,10 +103,6 @@ export async function createUi(ctx: GameContext): Promise<UiModule> {
   let needName = !st.screenshotMode && !st.local.token;
   let gameplayLock = false;
   let statsVisible = true;
-  let lbPinned = false;
-  let lbDirty = true;
-  let lastYou: LeaderboardEntry | null = null;
-  let lastLbRequest = -Infinity;
   let locAcc = 0.4;
   let statsAcc = 0;
   let street: string | null = null;
@@ -153,9 +146,6 @@ export async function createUi(ctx: GameContext): Promise<UiModule> {
     if (o !== 'map') fullMap.hide();
     if (o !== 'death') {
       death.hide();
-      if (lb.el.parentElement !== root) root.appendChild(lb.el);
-      lb.setHint('Hold TAB');
-      lb.setMode('full');
     }
     switch (o) {
       case 'name':
@@ -200,12 +190,7 @@ export async function createUi(ctx: GameContext): Promise<UiModule> {
     go('death');
     const wname = weapon ? WEAPONS[weapon]?.name ?? null : null;
     const where = street ? `on ${street}${area ? ` · ${area}` : ''}` : area ? `in ${area}` : null;
-    death.show(killer, st.local.score, { weapon: wname, glyph: wname ? weaponGlyph(weapon) : null, where }, pending);
-    death.slot.appendChild(lb.el);
-    lb.setHint('Your score is still on the board');
-    lb.setMode('death');
-    lbDirty = true;
-    requestLeaderboard(true);
+    death.show(killer, { weapon: wname, glyph: wname ? weaponGlyph(weapon) : null, where }, pending);
   }
   /** teleport (pause menu "Jump to"): face the spot's heading, land on the ground, back into the game */
   function jumpTo(it: JumpItem): void {
@@ -248,13 +233,6 @@ export async function createUi(ctx: GameContext): Promise<UiModule> {
     if (!st.local.dead) go('none'); // test path (window.__ui.showDeath) or a stale screen
     requestLock(true);
   }
-  function requestLeaderboard(force = false): void {
-    const now = performance.now() / 1000;
-    if (!force && now - lastLbRequest < 1) return;
-    lastLbRequest = now;
-    ctx.net.send({ t: 'leaderboard' });
-  }
-
   const onLockChange = () => {
     const isLocked = locked();
     const lostGameplayLock = gameplayLock && !isLocked;
@@ -300,10 +278,6 @@ export async function createUi(ctx: GameContext): Promise<UiModule> {
 
   // ---- events ---------------------------------------------------------------------------------
   const off: (() => void)[] = [
-    ctx.events.on('score', (m) => {
-      hud.setScore(m.score);
-      hud.popScore(m.delta, m.reason);
-    }),
     // 'death' fires just before its 'feed' line: remember the weapon so the feed row can show its glyph
     ctx.events.on('death', (m) => {
       lastDeathWeapon = m.weapon;
@@ -312,7 +286,7 @@ export async function createUi(ctx: GameContext): Promise<UiModule> {
       hud.feed(text, kind, kind === 'kill' ? lastDeathWeapon : undefined);
       lastDeathWeapon = 0;
     }),
-    ctx.events.on('discover', (m) => hud.toast(m.name, 'discover', m.first ? `First to find · +${m.delta}` : `${m.kind === 'landmark' ? 'Landmark' : 'Neighborhood'} · +${m.delta}`)),
+    ctx.events.on('discover', (m) => hud.toast(m.name, 'discover', m.first ? 'First to find' : m.kind === 'landmark' ? 'Landmark' : 'Neighborhood')),
     ctx.events.on('hit', (m) => {
       if (m.damage <= 0) return;
       if (combatHudPresent()) return; // combat draws its own marker + arcs
@@ -328,16 +302,11 @@ export async function createUi(ctx: GameContext): Promise<UiModule> {
     }),
     ctx.events.on('localDeath', (killer, weapon) => showDeath(killer, weapon)),
     ctx.events.on('localRespawn', () => {
-      hud.setScore(st.local.score, true);
       if (overlay === 'death' || overlay === 'pause') {
         go('none');
         // Never request lock from this network callback. The Respawn click already requested it;
         // hook/server respawns without a gesture still resume, with a click-to-lock hint.
       }
-    }),
-    ctx.events.on('leaderboard', (m) => {
-      lastYou = m.you;
-      lbDirty = true;
     }),
     ctx.events.on('versionAvailable', (v, required) => banner.show(v, required)),
   ];
@@ -413,7 +382,6 @@ export async function createUi(ctx: GameContext): Promise<UiModule> {
       adminChip.textContent = st.adminFlying ? 'ADMIN · FLY' : 'ADMIN';
       pause.setAdminAllowed(!!st.admin, !!st.adminFlying);
       if (overlay === 'name') nameEntry.setError(net.registrationError);
-      hud.update(dt);
       updateLoading();
       if (loadingActive) return;
       if (st.welcomed && !welcomeShown && !st.screenshotMode) {
@@ -430,19 +398,6 @@ export async function createUi(ctx: GameContext): Promise<UiModule> {
           requestLock();
         }
       }
-      const wantLb = overlay === 'death' || lbPinned || (overlay === 'none' && ctx.input.leaderboard);
-      if (wantLb && !lb.isVisible) {
-        lb.show();
-        lbDirty = true;
-        requestLeaderboard();
-      } else if (!wantLb && lb.isVisible) lb.hide();
-      if (lb.isVisible && lbDirty) {
-        lbDirty = false;
-        let you = lastYou;
-        if (!you && L.name) you = st.leaderboard.find((e) => e.name === L.name) ?? null;
-        lb.render(st.leaderboard, you, st.online, L.name, L.score, st.era);
-      }
-
       const hudOn = overlay === 'none';
       hud.setVisible(hudOn);
       if (!hudOn) {
@@ -452,7 +407,6 @@ export async function createUi(ctx: GameContext): Promise<UiModule> {
 
       // vitals
       hud.setHealth(L.state.health, L.armor);
-      hud.setScore(L.score);
       hud.setOnline(st.online);
       const prot = (L.state.flags & StateFlag.Protected) !== 0 && !L.dead;
       const protLeft = prot ? Math.max(0, L.protectedUntil - st.serverTime()) : null;
@@ -495,7 +449,7 @@ export async function createUi(ctx: GameContext): Promise<UiModule> {
         statsAcc = 0;
         hud.setStats(statsVisible ? `${st.ping} ms · ${Math.round(ctx.stats.fps)} fps` : null);
       }
-      hud.showClickHint(!input.touch && !net.interrupted && !st.screenshotMode && !locked() && !L.dead && !lb.isVisible);
+      hud.showClickHint(!input.touch && !net.interrupted && !st.screenshotMode && !locked() && !L.dead);
       minimap.update(dt, t, groundSpeed);
     },
     toast(text, kind: ToastKind = 'info') {
@@ -523,9 +477,6 @@ export async function createUi(ctx: GameContext): Promise<UiModule> {
 
   // test hooks
   (window as unknown as { __ui: unknown }).__ui = {
-    openLeaderboard(open = true) {
-      lbPinned = open;
-    },
     openMap() {
       if (overlay === 'map') return;
       go('map');
@@ -561,7 +512,7 @@ export async function createUi(ctx: GameContext): Promise<UiModule> {
       if (it) jumpTo(it);
       return !!it;
     },
-    state: () => ({ overlay, loadingActive, needName, prompt: promptText, street, area, leaderboard: lb.isVisible }),
+    state: () => ({ overlay, loadingActive, needName, prompt: promptText, street, area }),
   };
 
   return mod;

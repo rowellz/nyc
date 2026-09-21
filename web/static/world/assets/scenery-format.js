@@ -34,6 +34,10 @@ export function decodeScenery(buffer) {
   if (size > 1048576 || size + 4 > buffer.byteLength) throw Error('Invalid scenery header');
   const chunk = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 4, size)));
   if (chunk.version !== SCENERY_VERSION || chunk.tiles.length > 16) throw Error('Unsupported scenery');
+  if (chunk.treeTiles && (!Array.isArray(chunk.treeTiles) || chunk.treeTiles.length > 16
+    || chunk.treeTiles.some(tile => !chunk.tiles.includes(tile.key) || !Array.isArray(tile.trees)
+      || tile.trees.some(tree => ![tree.x,tree.z,tree.height,tree.dbh].every(Number.isFinite)
+        || typeof tree.species !== 'string' || typeof tree.park !== 'boolean')))) throw Error('Invalid scenery trees');
   const start = (4 + size + 3) & ~3;
   chunk.layers = chunk.layers.map(layer => {
     if (!['buildings', 'roads', 'ground'].includes(layer.kind)) throw Error('Invalid scenery layer');
@@ -72,10 +76,46 @@ export function prepareSceneryGeometry(chunk) {
         + (layer.position[i+1]-center[1])**2 + (layer.position[i+2]-center[2])**2);
     }
     layer.bounds = layer.position.length ? { center, radius: Math.sqrt(radiusSquared) } : { center: [0,0,0], radius: 0 };
-    layer.renderIndex = layer.features.length ? layer.index.slice() : layer.index;
+    // Independent draw indices let mobile remove covered tiles from submission,
+    // including roads and ground, instead of shading them just to discard.
+    layer.renderIndex = layer.index.slice();
     for (const value of Object.values(layer)) if (ArrayBuffer.isView(value)) buffers.add(value.buffer);
     chunk.triangles += layer.index.length / 3;
   }
   chunk.byteLength = [...buffers].reduce((n, b) => n + b.byteLength, 0);
+  chunk.gpuBytes = chunk.layers.reduce((n,l)=>n+l.position.byteLength+l.normal.byteLength
+    +l.color.byteLength+l.owner.byteLength+l.renderIndex.byteLength,0);
+  chunk.residentBytes = chunk.byteLength + chunk.gpuBytes;
   return chunk;
+}
+
+/** Bound inflated data while reading, before arrayBuffer can allocate an
+ * arbitrarily large reply. The second allocation joins the bounded pieces. */
+export async function readSceneryBuffer(stream, limit = 32 * 1024 * 1024) {
+  const reader=stream.getReader(),parts=[];let length=0;
+  try {
+    while(true) {
+      const {done,value}=await reader.read();if(done)break;
+      length+=value.byteLength;
+      if(length>limit)throw Error('Scenery decode budget exceeded');
+      parts.push(value);
+    }
+    const buffer=new Uint8Array(length);let offset=0;
+    for(const part of parts){buffer.set(part,offset);offset+=part.byteLength;}
+    return buffer.buffer;
+  } catch(error) {await reader.cancel().catch(()=>{});throw error;}
+  finally {reader.releaseLock();}
+}
+
+/** Keep one spatial batch per layer, but submit only uncovered owners. */
+export function compactSceneryIndex(layer, coverage, landmarks) {
+  const source=layer.sourceIndex, target=layer.renderIndex;
+  const hidden=(layer.features??[]).filter(f=>landmarks.has(f.id)).sort((a,b)=>a.start-b.start);
+  let count=0,feature=0;
+  for(let i=0;i<source.length;i+=3) {
+    while(feature<hidden.length&&i>=hidden[feature].start+hidden[feature].count)feature++;
+    if(coverage[layer.owner[source[i]]]>.5 || (feature<hidden.length&&i>=hidden[feature].start))continue;
+    target[count++]=source[i];target[count++]=source[i+1];target[count++]=source[i+2];
+  }
+  return count;
 }

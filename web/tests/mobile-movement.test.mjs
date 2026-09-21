@@ -3,11 +3,15 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { assets } from './sveltekit-assets.mjs';
 import { createMobileProps } from '../static/world/assets/mobile-props.js';
+import { vehicleDrawDistance } from '../static/world/assets/traffic-distribution.js';
+import { parkingOffset } from '../static/world/assets/curb-placement.js';
 
 const bundle = readFileSync(new URL('vehicles-_zJz3z3J.js', assets), 'utf8');
 const roadsStart = bundle.indexOf('const node = (x'), roadsEnd = bundle.indexOf('const AVENUE_RADIUS', roadsStart);
 let highwayBuilds = 0, created = 0, removed = 0, insideChecks = 0, ios = true;
 const Roads = vm.runInNewContext(bundle.slice(roadsStart, roadsEnd) + '\nRoads', {
+  $vehicleDrawDistance: vehicleDrawDistance,
+  $parkingOffset: parkingOffset,
   isIOS: () => ios, TILE_SIZE: 256, isHighway: () => false,
   highwayLanePath: () => { highwayBuilds++; return null; },
   KINDS: { sedan: { length: 4, width: 2, parkedWeight: 1 } },
@@ -15,13 +19,14 @@ const Roads = vm.runInNewContext(bundle.slice(roadsStart, roadsEnd) + '\nRoads',
   makeCar: (key, kind, x, y, z) => { created++; return { key, kind, x, y, z }; },
   removeBody: () => { removed++; },
 });
-const ctx = { camera: { position: { x: 110, z: 100 } },
+const ctx = { quality: { level: 'mobile', drawDistance: 384, farDistance: 5000 }, world: { ios: true }, camera: { position: { x: 110, z: 100 } },
   modules: new Map([['buildings', { isInside: () => { insideChecks++; return false; } }]]) };
 const road = { id: 1, cls: 'residential', pts: [[10, 100], [245, 100]], width: 15, lanes: 2, layer: 0 };
 const tile = { key: '0_0', tx: 0, tz: 0, roads: [road], props: [] };
 const roads = new Roads(ctx); roads.load(tile);
 const originalLanes = [...roads.lanes.values()], originalCars = new Map(roads.tiles.get(tile.key).parked.map(c => [c.key, c]));
 assert(originalCars.size > 0);
+assert([...originalCars.values()].some(car => Math.abs(car.x-ctx.camera.position.x)>80), 'iPhone creates parked cars past the old 80 m window');
 const builds = highwayBuilds, allocations = created;
 roads.refreshParking(tile);
 assert.equal(highwayBuilds, builds, 'parking refresh never rebuilds highway paths');
@@ -33,7 +38,7 @@ assert.deepEqual([...roads.lanes.values()], originalLanes, 'moving the parking w
 assert.equal(highwayBuilds, builds);
 for (const car of roads.tiles.get(tile.key).parked) if (originalCars.has(car.key)) assert.equal(car, originalCars.get(car.key));
 insideChecks = 0;
-ctx.camera.position.x = 1000;
+ctx.camera.position.x = 2000;
 roads.refreshParking(tile);
 assert.equal(insideChecks, 0, 'distant tiles skip parking clearance queries');
 assert.equal(roads.tiles.get(tile.key).parked.length, 0);
@@ -41,7 +46,7 @@ assert(removed > 0);
 assert(bundle.includes('i.refreshParking(e)'), 'actual vehicle refresh uses parking-only updates');
 ios = false;
 const desktop = new Roads(ctx); desktop.load(tile);
-assert(desktop.tiles.get(tile.key).parked.length > originalCars.size, 'desktop still generates parking throughout the tile');
+assert.equal(desktop.tiles.get(tile.key).parked.length, originalCars.size, 'desktop still generates parking throughout the tile');
 assert(insideChecks > 0, 'desktop keeps its clearance checks outside the mobile window');
 
 // Use real Three buffers and the real shared build queue. Only workers and

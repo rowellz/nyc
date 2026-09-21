@@ -1,5 +1,5 @@
-/** iOS only. Retire upload sources after the driver has consumed them.
- * Context restoration is deliberately replaced by the crash guard's bounded retry.
+/** Cap image uploads on every platform; retire consumed upload sources on iOS.
+ * On iOS, context restoration is replaced by the crash guard's bounded retry.
  */
 import * as THREE from 'three';
 type UploadImage = CanvasImageSource & { width: number; height: number; depth?: number;
@@ -92,9 +92,10 @@ export function installTextureRelease(): void {
   (window as any).__textureRelease = textureReleaseStats;
 }
 function capTexture(texture: THREE.Texture): void {
+  const limit = installed ? 512 : 1920;
   const image = texture.image as UploadImage | null;
-  if (texture.isRenderTargetTexture || !image || image.cpuReleased || image.depth || !image.width || !image.height || Math.max(image.width, image.height) <= 512) return;
-  const scale = 512 / Math.max(image.width, image.height);
+  if (texture.isRenderTargetTexture || !image || image.cpuReleased || image.depth || !image.width || !image.height || Math.max(image.width, image.height) <= limit) return;
+  const scale = limit / Math.max(image.width, image.height);
   const width = Math.max(1, Math.round(image.width * scale)), height = Math.max(1, Math.round(image.height * scale));
   if (image.data && ArrayBuffer.isView(image.data)) {
     const src = image.data as Uint8Array;

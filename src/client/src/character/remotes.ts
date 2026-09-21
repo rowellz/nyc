@@ -23,7 +23,6 @@ interface Entry {
   dead: boolean;
   lastAnim: number;
   lastName: string;
-  lastScore: number;
   visible: boolean;
   headPos: THREE.Vector3;
 }
@@ -60,10 +59,10 @@ export class RemoteManager {
     const inst = new CharacterInstance(randomAppearance(r.id * 7919 + 13), this.shared);
     inst.root.name = `remote:${r.id}`;
     this.group.add(inst.root);
-    const tag = createNameTag(r.name, r.score);
+    const tag = createNameTag(r.name);
     tag.sprite.name = `tag:${r.id}`;
     this.group.add(tag.sprite);
-    const e: Entry = { inst, tag, dead: false, lastAnim: -1, lastName: r.name, lastScore: r.score, visible: true, headPos: new THREE.Vector3() };
+    const e: Entry = { inst, tag, dead: false, lastAnim: -1, lastName: r.name, visible: true, headPos: new THREE.Vector3() };
     const id = r.id;
     inst.onFootstep = () => {
       const now = this.ctx.now ?? 0;
@@ -158,10 +157,9 @@ export class RemoteManager {
       inst.update(dt, full);
 
       // name tag
-      if (r.name !== e.lastName || r.score !== e.lastScore) {
+      if (r.name !== e.lastName) {
         e.lastName = r.name;
-        e.lastScore = r.score;
-        e.tag.set(r.name, r.score);
+        e.tag.set(r.name);
       }
       const dist = Math.sqrt(d2);
       const tagVisible = dist < TAG_MAX;

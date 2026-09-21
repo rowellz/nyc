@@ -7,7 +7,7 @@
  *
  * Authority:
  *   - Movement is client-authoritative with server sanity checks (speed caps, teleport detection).
- *   - Hits, damage, death, score, pickups, vehicle ownership, time, weather are SERVER-authoritative.
+ *   - Hits, damage, death, pickups, vehicle ownership, time, weather are SERVER-authoritative.
  */
 import { WeaponId } from './weapons';
 
@@ -172,8 +172,6 @@ export interface WeatherState {
   source: string; // 'nws' or 'fallback'
 }
 
-export interface LeaderboardEntry { rank: number; name: string; score: number; kills: number; online: boolean; }
-
 export interface Pickup { id: number; kind: 'weapon' | 'health' | 'armor'; weapon?: WeaponId; x: number; y: number; z: number; }
 
 export interface VehicleInfo { id: number; key: string; driverId: number; kind: string; }
@@ -194,7 +192,6 @@ export type ClientMessage =
   | { t: 'switchWeapon'; w: WeaponId }
   | { t: 'reload' }
   | { t: 'ping'; ct: number }
-  | { t: 'leaderboard' }
   | { t: 'setName'; name: string };
 
 /** server -> client */
@@ -202,17 +199,15 @@ export type ServerMessage =
   | { t: 'registrationRequired'; reason: string }
   | { t: 'welcomeRefused'; reason: string; retryAfterS: number }
   | { t: 'adminState'; admin: boolean; flying: boolean }
-  | { t: 'welcome'; id: number; token: string; name: string; version: string; protocol: number; restored: boolean; health: number; armor: number; dead: boolean; vehicle: VehicleInfo | null; serverTime: number; dayFraction: number; dayLength: number; weather: WeatherState; spawn: { x: number; y: number; z: number; yaw: number }; safeZone: { x: number; z: number; radius: number }; protectedUntil: number; score: number; inventory: InventoryState; playersOnline: number; era: string }
-  | { t: 'join'; id: number; name: string; score: number }
+  | { t: 'welcome'; id: number; token: string; name: string; version: string; protocol: number; restored: boolean; health: number; armor: number; dead: boolean; vehicle: VehicleInfo | null; serverTime: number; dayFraction: number; dayLength: number; weather: WeatherState; spawn: { x: number; y: number; z: number; yaw: number }; safeZone: { x: number; z: number; radius: number }; protectedUntil: number; inventory: InventoryState; playersOnline: number; era: string }
+  | { t: 'join'; id: number; name: string }
   | { t: 'leave'; id: number }
-  | { t: 'names'; players: { id: number; name: string; score: number }[] } // names for ids in AOI you haven't seen
+  | { t: 'names'; players: { id: number; name: string }[] } // names for ids in AOI you haven't seen
   | { t: 'hit'; shooterId: number; victimId: number; damage: number; headshot: boolean; x: number; y: number; z: number; seq: number }
   | { t: 'miss'; shooterId: number; x: number; y: number; z: number; surface: 'building' | 'ground' | 'none'; seq: number }
   | { t: 'health'; health: number; armor: number }
   | { t: 'death'; victimId: number; killerId: number; killerName: string; weapon: WeaponId }
   | { t: 'respawned'; x: number; y: number; z: number; yaw: number; protectedUntil: number; inventory: InventoryState }
-  | { t: 'score'; score: number; delta: number; reason: string }
-  | { t: 'leaderboard'; entries: LeaderboardEntry[]; you: LeaderboardEntry | null; online: number }
   | { t: 'pickups'; add: Pickup[]; remove: number[] }
   | { t: 'inventory'; inventory: InventoryState }
   | { t: 'vehicle'; v: VehicleInfo } // ownership change (driverId 0 = released)
@@ -221,7 +216,7 @@ export type ServerMessage =
   | { t: 'pong'; ct: number; st: number }
   | { t: 'version'; version: string; protocol: number; mustUpdate: boolean }
   | { t: 'restart'; inSeconds: number } // freeze input, retain the rendered world, reconnect by token
-  | { t: 'discover'; kind: 'landmark' | 'neighborhood'; name: string; first: boolean; delta: number }
+  | { t: 'discover'; kind: 'landmark' | 'neighborhood'; name: string; first: boolean }
   | { t: 'kick'; reason: string }
   | { t: 'online'; count: number };
 

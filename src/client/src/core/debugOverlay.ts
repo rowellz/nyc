@@ -36,7 +36,7 @@ export function createDebugOverlay(ctx: GameContext, deps: { net: NetClientImpl;
         `player ${s.x.toFixed(1)}, ${s.y.toFixed(2)}, ${s.z.toFixed(1)}  hdg ${yawToHeading(s.yaw).toFixed(0)}°  ${ll.lat.toFixed(5)}, ${ll.lon.toFixed(5)}`,
         `camera ${cam.x.toFixed(1)}, ${cam.y.toFixed(1)}, ${cam.z.toFixed(1)}  ${cll.lat.toFixed(5)}, ${cll.lon.toFixed(5)}`,
         `time ${formatTimeOfDay(ctx.time.dayFraction)}${ctx.time.frozen ? ' (frozen)' : ''}  sun ${((ctx.time.sunElevation * 180) / Math.PI).toFixed(1)}°  daylight ${ctx.time.daylight.toFixed(2)}  ${ctx.state.weather.condition}`,
-        `net ${n.status}${n.status === 'welcomed' ? `  id ${ctx.state.local.id}  ping ${ctx.state.ping} ms` : n.reconnectAttempt ? `  retry #${n.reconnectAttempt}` : ''}  online ${ctx.state.online}  nearby ${ctx.state.remotes.size}  score ${ctx.state.local.score}`,
+        `net ${n.status}${n.status === 'welcomed' ? `  id ${ctx.state.local.id}  ping ${ctx.state.ping} ms` : n.reconnectAttempt ? `  retry #${n.reconnectAttempt}` : ''}  online ${ctx.state.online}  nearby ${ctx.state.remotes.size}`,
         `modules ${Array.from(ctx.modules.keys()).join(' ')}`,
         hint,
       ];

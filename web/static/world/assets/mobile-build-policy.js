@@ -13,6 +13,29 @@ export const MOBILE_STREET_BUDGET = Object.freeze({
 
 export const MOBILE_BUILDING_BUDGET = Object.freeze({ mapSize: 64, anisotropy: 1 });
 
+/** Custom towers can allocate large construction arrays before their first
+ * yield. Limit those models before construction; ordinary facades keep drawing
+ * until a selected landmark actually commits and publishes its building IDs. */
+export function selectDetailedLandmarks(ctx, landmarks) {
+  if(ctx.quality.level!=='mobile')return null;
+  const ios=ctx.world?.ios===true,limit=ios?2:3;
+  const range=Math.min(ctx.quality.drawDistance,ios?192:256);
+  const selected=new Set(),candidates=[];
+  for(const landmark of landmarks) {
+    // Parks, bridges and standalone street structures carry walkable surfaces
+    // or have no ordinary building replacement; retain their existing rules.
+    if(!landmark.bins.length||landmark.radius>100||landmark.id==='bryant-park') {
+      selected.add(landmark);continue;
+    }
+    const distance=Math.max(0,Math.hypot(ctx.camera.position.x-landmark.center[0],
+      ctx.camera.position.z-landmark.center[1])-landmark.radius);
+    if(distance<=range+(landmark.root?32:0))candidates.push({landmark,rank:distance-(landmark.root?24:0)});
+  }
+  candidates.sort((a,b)=>a.rank-b.rank||a.landmark.id.localeCompare(b.landmark.id));
+  for(const {landmark} of candidates.slice(0,limit))selected.add(landmark);
+  return selected;
+}
+
 /** Keep scene uploads/collider commits progressing, with more room for rendering
  * while crossing tiles quickly. An individual native operation can still overrun. */
 export function sceneBuildBudgetMs(ctx) {

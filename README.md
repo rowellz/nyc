@@ -86,7 +86,7 @@ mirrored client, the world tiles, the REST endpoints and the game socket itself.
 /                          overview, rendered from the live world
 /play                      launcher: quality, time, weather, viewpoint
 /spots                     the client's 29 named cameras
-/status                    players, weather, leaderboard, landmarks (polls every 2 s)
+/status                    players, weather, landmarks (polls every 2 s)
 
 GET  /world/*              static client + tiles          src/routes/world/[...file]
 GET  /world/api/admin/me   { admin: boolean }             src/routes/world/api/admin/me
@@ -99,9 +99,15 @@ The game is implemented from `src/shared/protocol.ts`: the handshake
 (`hello`/`welcome`, token-based reconnect), 15 Hz area-of-interest snapshots
 within 350 m, the 34-byte state codec, hitscan combat with the real weapon table,
 headshots, armor, the 115 m Bryant Park safe zone, 120 s spawn protection,
-scoring, landmark discovery, leaderboard, a 2-hour day cycle, and drifting
+landmark discovery, a 2-hour day cycle, and drifting
 weather. Everything is in-memory: **restarting the container resets all
 progress.**
+
+There are no player scores, point rewards, or leaderboards. Combat and landmark
+discovery still work, and reconnect tokens retain the public handle. The client
+serving path removes the retired UI, state, and audio from the mirrored bundles
+as well as the recovered source. Run `npm --prefix web run test:score-free` for
+the server and served-client regression checks.
 
 Four things decided the shape of it:
 
@@ -156,6 +162,17 @@ the iPhone default of six cars. `?mobilemap=1`
 exposes the map control on desktop for testing, while `?mobilemap=0` disables
 the addon.
 
+A **Render distance** slider beside the map is available to every player on
+desktop and mobile. It adjusts nearby detail and the distant skyline from
+50–100% of the device's default on mobile and 50–200% on desktop, applies live, and remembers the choice in this
+browser. The control displays the requested distances and includes a reset to
+100%. Nearby detail has a 256 m minimum; skyline limits are 5 km on iOS,
+6 km on the mobile preset, and up to 8 km on desktop.
+Tile and scenery memory limits still apply, so a
+higher setting can cost FPS without guaranteeing every distant tile is loaded.
+The immediate surrounding tiles remain loaded for movement and collisions.
+Run `npm --prefix web run test:ui` for the control and persistence checks.
+
 The SvelteKit vehicle transform in `traffic-assets.js` loads
 `traffic-distribution.js` to distribute traffic by available lane length and
 occupancy across highways, ramps, arterials, and side streets. It includes short
@@ -163,7 +180,13 @@ OSM segments and follows curved lane paths when choosing spawn points. Camera
 views favor roads ahead without excluding the surrounding network. Vehicle mixes
 vary by road type, with fewer taxis and more passenger and delivery vehicles on
 highways. The rendering pools allow more simultaneous cars, including distant
-models on iOS. Run `cd web && npm run test:traffic` for the Cross Bronx replay.
+models on iOS. Mobile vehicle visibility reaches twice the detailed tile range:
+768 m on iPhone and 1,280 m on Android by default, capped at 1,200 / 1,600 m.
+The render-distance slider updates parked cars, moving traffic and their spawn
+radius live. Vehicles require resident road tiles, and traffic counts remain
+controlled by the traffic-density slider. Parked cars beyond iPhone's former
+80 m cutoff use simplified distant models; collision bodies remain local.
+Run `cd web && npm run test:traffic` for the Cross Bronx replay.
 
 Traffic signals group poles by road junction and level, so wide intersections
 share a controller and overpasses do not control the street below. Opposing
@@ -181,12 +204,14 @@ placement/rendering/vehicle hooks after source edits or reapplying mirror patche
 
 The SvelteKit streaming transform in `streaming-assets.js` installs
 `predictive-streaming.js` before the first tile request. iOS loads detailed tiles within
-a **256 m radius**, Android uses **512 m**, and desktop presets use **768 m**.
+a **384 m radius**, Android uses **640 m**, and desktop presets use **768 m**.
 The immediate 3×3 tiles are always included.
 Distance is measured to tile edges, so tiles intersecting the radius are included.
 Prebuilt visual scenery extends beyond those detailed, simulated tiles.
-The mobile atmosphere keeps its 180–700 m near-scene fog; distant scenery has
-its own fade to the horizon color over its larger range.
+Mobile scenery and nearby meshes share one fog range: 2,500–5,000 m on iOS
+and 3,000–6,000 m on the other mobile presets at the default render distance.
+Fog starts halfway to the selected scenery limit, keeping nearby streets clear
+while fading out the edge of the loaded skyline.
 Mobile keeps the simplified roads and existing device-specific effects budgets.
 Detailed landmarks also use the local tile range, measured from their approximate edge
 so nearby bridge spans remain visible. Distant landmarks release after an extra
@@ -194,8 +219,19 @@ tile of hysteresis once their owning tiles unload. Distant building landmarks
 use the prebuilt scenery instead. Landmark cleanup releases instanced furniture buffers as well
 as geometry; shared materials live until the landmark module is disposed.
 
-iOS allows up to **16 resident tiles** to accommodate the local 3×3, one
-additional route tile and three recently used tiles. `IOS_STREAMING` in
+On iOS, at most two custom architectural landmarks are constructed near the
+camera (192 m from their approximate edge); other mobile presets allow three
+within 256 m. Existing models get a small distance preference to avoid churn.
+Unselected models and unfinished construction jobs retire before another model
+starts allocating. Their ordinary building facades/colliders remain the fallback.
+The Empire State fallback preserves its stepped base, cross-shaped shaft, crown
+and 443.2 m antenna in the nearby batch and both scenery tiers (under 500 triangles);
+its shell shares the detailed model’s frame and setback dimensions.
+Parks, bridges and structures without a building replacement retain their normal
+rules. This bounds simultaneous custom models, not their total memory in bytes.
+
+iOS allows up to **12 resident tiles** to accommodate the local 3×3, one
+additional route tile, one recently used tile and retirement overlap. `IOS_STREAMING` in
 `predictive-streaming.js` holds its resident and request limits. The immediate
 surrounding nine tiles take priority over farther work; startup waits for only
 those nine before expanding.
@@ -215,7 +251,23 @@ scene building is backed up. On iOS, an already-decoded missing occupied tile ca
 pass the busy-job gate; neighboring tiles still wait for builders to catch up.
 When memory permits, that occupied tile also precedes further scene retirement.
 The occupied-tile exception also applies to desktop/admin camera and Android
-travel; neighboring tiles still wait for the ordinary scene build budget.
+travel; neighboring tiles normally wait for the ordinary scene build budget.
+Occupied vehicles also reserve the tiles under their swept chassis and request
+up to three seconds of road ahead (at most 512 m). Their immediate collision
+tiles can bypass that gate and reclaim decoder slots held by unrelated replies.
+Road workers and scene commits use the same driving priority, including while
+the car is stationary waiting for a surface.
+
+`driving-streaming.js` checks road collision completion before each vehicle
+physics step. If required land or street colliders are pending, it temporarily
+holds the car as a collidable kinematic body at its current pose, then restores
+its velocity once all required surfaces are ready. Mesh visibility alone is
+insufficient: sidewalks, bridge decks and tunnel colliders commit in stages.
+Exiting the vehicle releases its streaming reservations. Known water remains
+fallable; the guard does not create a safety floor. The streaming test suite
+uses the shipped Rapier engine at 120 m/s with ten-second collision delays,
+including reverse travel, elevated roads and tunnels.
+
 Async shader compilation retains its original program references and tolerates
 their disposal when a tile unloads. The original renderer timer read a deleted
 material's current program, throwing without settling its promise; enough such
@@ -230,13 +282,27 @@ The streaming tests include repeated city-length trips, callback/worker cleanup,
 late replies and recovery from a fully stalled request pool. Run
 `node tools/patch-streamer-worker.mjs` after changing the recovered tile decoder.
 
-Run `cd web && npm run test:streaming` for the served quality/fog settings, mobile
-512 m and desktop 768 m coverage, actual GWB upper-level road data, nearby
+Run `cd web && npm run test:streaming` for the served quality/fog settings,
+384 m iOS / 640 m Android and desktop 768 m coverage, actual GWB upper-level road data, nearby
 priority, blocked builders, turns, teleports, retries and memory bounds. These simulations check scheduling
 and data availability; they do not measure Safari frame rates or real device
 scene-construction latency.
 Run `cd web && npm run test:memory` for repeated landmark travel and resource
 disposal checks against the served client.
+
+### Street furniture placement
+
+Signs, litter baskets and other sidewalk furniture are checked against surface
+road widths, intersection roadbed polygons and parking areas. Generated stop signs,
+baskets, meters and bike-dock pieces are checked at their final position and
+orientation, including their ground footprint. Unsafe pieces are omitted before
+creating meshes or colliders; clear existing positions are retained. Ground
+furniture can remain beneath elevated roads, and flush manholes/grates keep their
+road positions. Local road arrivals recheck neighboring furniture; iOS sends the
+same roadbed and road-context data to its placement worker and fallback.
+Run `node web/tests/road-fixtures.test.mjs` for the West 177th Street replay,
+source/bundle agreement, traffic islands, grade separation and worker invalidation.
+`node tools/patch-fixtures.mjs` republishes the shared planner and placement hooks.
 
 ### Distant scenery
 
@@ -249,28 +315,43 @@ traffic, pedestrians and physics remain the responsibility of nearby tiles.
 
 | Preset | Detailed tiles | Middle scenery | Far scenery |
 |---|---:|---:|---:|
-| iOS | 256 m | 256 m | 1,500 m |
-| Android / mobile | 512 m | 512 m | 2,500 m |
+| iOS | 384 m | 256 m | 5,000 m |
+| Android / mobile | 640 m | 512 m | 6,000 m |
 | Low | 768 m | 2,200 m | 4,000 m |
 | Medium | 768 m | 2,200 m | 5,000 m |
 | High | 768 m | 2,200 m | 6,000 m |
 | Ultra | 768 m | 2,200 m | 8,000 m |
 
+Mobile render distance is limited to 50–100% (revision `mobile-distance-cap-80`).
+The defaults in the table are also the mobile maximums: 384 m detail / 5 km skyline
+on iOS and 640 m / 6 km on the mobile preset. Previously saved settings above 100%
+are clamped and saved on startup. Desktop retains the 50–200% slider range.
+
+Mobile scenery ranges and residency were extended in client revision
+`mobile-render-distance-70`. iPhone's former 2.5 km hard cap is removed from the
+render-distance control and scenery layer. The larger budgets let real geometry
+fill more of the requested range. Detailed tiles retain staggered publication.
 Ranges are measured to chunk edges; the shader fades and clips the outer edge.
 The middle tier has 256 m of hysteresis to avoid repeated replacements on turns.
-The resident scenery budget is 16 chunks / 8 MiB of decoded buffers on iOS,
-48 chunks / 24 MiB on other mobile devices and 192 chunks / 96 MiB on desktop,
-plus at most one/two pending chunks. iOS caps resident scenery at 80,000 triangles;
-other mobile devices allow 160,000 triangles. Mobile uses vertex lighting
-instead of the desktop physically based shader. GPU copies consume additional
-memory. When a dense view reaches the byte or triangle cap,
+The resident scenery budget is 64 chunks / 32 MiB on iOS,
+96 chunks / 48 MiB on other mobile devices and 192 chunks / 96 MiB on desktop,
+including decoded buffers and GPU copies, plus at most one/two pending chunks.
+iOS caps resident scenery at 320,000 triangles; other mobile devices allow
+480,000 triangles. Mobile uses vertex lighting instead of the desktop physically
+based shader. When a dense view reaches the byte or triangle cap,
 nearer chunks take priority, so the maximum visible range is a budget ceiling.
 
 The client fetches compressed binary geometry, with normals and colors already
 prepared, instead of fetching every world tile into the old skyline worker.
 A dedicated worker fetches, decompresses, validates and measures the geometry,
 then transfers the buffers to the animation thread without copying them.
-Each chunk uses at most three draw calls and no colliders, shadows or textures.
+Each chunk uses at most three draw calls with no colliders or shadows.
+Building walls and roofs use the detailed baker's per-building palettes; filtered
+window marks retain facade contrast. Mobile vertex lighting follows the scene's
+sun and hemisphere colors and intensities. Ground preserves park outlines and
+water holes, sharing the nearby asphalt, concrete and grass albedo textures,
+world-space variation, season and wetness without extra texture uploads.
+Scan bands with matching surfaces and straight sides are merged to limit geometry.
 Publication/retirement is paced to one chunk per frame; under detailed-scene
 pressure, publication is limited to twice per second so driving cannot starve
 scenery indefinitely. Abandoned requests are cancelled, failures retry, and replaced
@@ -278,6 +359,10 @@ or retired chunks release their GPU resources. A coarse tile remains visible
 until the corresponding building, street or ground mesh is actually present.
 Landmark proxies disappear when their detailed landmark is ready. The skyline
 water reflection keeps proxies for near meshes that its reflection pass hides.
+Near-tile and landmark handoffs only rewrite the affected chunk/layer indices;
+unrelated skyline meshes retain their GPU buffers. Mobile uploads only the live
+index prefix, and fully covered layers hide without an upload. The scenery
+regression suite checks local handoffs and restoration against real Midtown chunks.
 
 `npm run prepare:world` writes scenery under `generated/scenery/` alongside the
 road catalog and compressed client. Production reads those files directly;
@@ -298,12 +383,12 @@ Software-rendered browser tests verify correctness, not device FPS.
 
 ### Mobile frame rate
 
-iPhone/iPad rendering starts at a pixel ratio of **0.85** (about 28% fewer
-shaded pixels than ratio 1); `?q=low` now keeps its **0.75** ceiling on iOS.
-During direct rendering, `mobile-frame-budget.js` samples frame intervals from
-the existing loop. After a three-second warmup, sustained averages above 23 ms
-reduce resolution in 0.1 steps, down to 0.65. Ten seconds below 18 ms recover
-0.05 at a time, up to the starting ratio. Changes have a three-second cooldown.
+iPhone/iPad rendering starts at pixel ratio **0.75** (**0.65** for `?q=low`).
+The adaptive controller targets a stable 30 FPS: after a 1.5-second warmup,
+one-second averages over 35 ms lower resolution in 0.1 steps, down to **0.5**.
+Changes have a 1.5-second cooldown; sustained headroom below 24 ms recovers
+0.05 at a time. Android retains its 0.85 initial ratio (0.75 for low), 0.65
+floor, three-second warmup/cooldown and existing 23/18 ms thresholds.
 Loading screens, hidden tabs, menus and long pauses reset sampling; disconnects
 pause adaptation in play mode. Interactive free camera (`?spot` / `?fly`) adapts
 too, even though the original client calls it `screenshotMode`. Rendering through
@@ -313,13 +398,41 @@ retains the drawing buffer; ordinary iOS free camera no longer preserves it.
 The HUD and touch controls retain their CSS size. Viewport and resolution changes
 resize the drawing buffer once and retain the selected ratio after rotation.
 
-Mobile buildings use the existing filtered facade layout at every distance,
-with the room/shop interior and parallax code removed and a flat roof material.
-Window layout, shopfront bands, signs and night lights remain. The filtered
-facades use vertex colors, so mobile skips unused facade photo fetches/uploads
+Client revision `mobile-ground-building-range-65` extends mobile building detail.
+Mobile buildings select facade detail per surface point using the full 3D distance
+to the camera. Detail fades from 144 to 240 metres; subpixel detail fades sooner.
+Driving past a tower keeps nearby lower floors detailed, while flying beside it
+moves that detail band up to the camera. Beyond the band, ordinary walls return
+a simpler window-and-wall surface before shading reveals, weathering and shopfront
+bands. Window layout, signs, night lights and building geometry remain. This
+requires no extra meshes, textures, draw calls or camera-triggered rebuilds.
+The room/shop interior and parallax code stays removed, with a flat roof material. Mobile
+window lights use one occupancy hash for homes and two for offices,
+reusing those samples for warm/cool color instead of the desktop's multi-level
+occupancy, color and interior shading. Solid wall pixels and daytime skip the
+light calculation; unresolved lights fade away instead of tinting entire walls.
+This reduces shader work without adding textures, geometry or scene lights.
+Custom landmarks use a separate facade material; its mobile window lighting
+now follows the same cheap occupancy path, including the day/coverage checks
+and subpixel fade. Their surface noise and pane variation also fade with 3D
+camera distance, skipping the noise samples beyond the band; Empire State
+Building steel strips fade to mean coverage while its windows and crown lights
+remain. Ordinary-building shader changes alone do not affect those towers.
+The browser regression renders dense home/office facades to check night/day,
+stable light colors, blank party walls, roofs and the subpixel fade. It also
+reads GPU detail weights on a 400-metre wall at street, mid-tower and crown
+heights for ordinary buildings and the Empire State Building material.
+The filtered facades use vertex colors, so mobile skips unused facade photo fetches/uploads
 and the subsequent photo-material compilation. This trades close-up surface
 detail and some sharpness for less GPU work.
 The served import revision changes so Safari fetches the updated code.
+The existing five-second iOS `renderer_memory` telemetry now also reports the
+client revision, quality, tile count, game position, draw calls, triangles and
+resident scene attribute bytes by module, deduplicating shared buffers.
+`webgl_context_lost` reports the same snapshot before stopping the render loop.
+These are diagnostic counters, not Safari process-memory measurements; an OS
+termination may still happen without a context-loss event. With `VERBOSE=1`,
+the local server logs these alongside startup stages.
 
 Mobile trees are static: their near-leaf and distant-crown vertex shaders omit
 wind lean, sway and flutter, and skip per-frame wind-bound updates. Desktop
@@ -328,6 +441,18 @@ leaf lighting and tile arrival/removal still update normally. This removes four
 wind sine evaluations per leaf vertex, but keeps the same geometry and textures;
 it does not materially reduce resident tree memory. `npm run test:fps` checks
 both shader variants and the tree instance lifecycle.
+
+Trees also stream with the lightweight scenery chunks, reaching 3,000 m on
+Android, 2,000 m on iOS by default, and 2,000 m on desktop. Mobile tree range
+scales with the render-distance slider, including while the camera is stationary.
+The closest 8,000 / 4,000 / 10,000 trees respectively can be instanced. A middle
+LOD keeps up to 40 clusters from the detailed leaf geometry through 220 / 150 /
+320 m; the farther crowns retain cheap trunks and horizontal canopy cards for
+overhead views. Species, size, tint and leaf textures stay shared across LODs.
+Detailed tiles replace matching scenery trees without duplicates, and retiring
+a scenery chunk releases its tree records. `npm run test:scenery-browser` checks
+these LODs in WebGL. The SvelteKit service uses the extended tree policy in
+`web/static/world/assets/tree-lod.js`; the shared mirror retains its original policy.
 
 Run `cd web && npm run test:fps` for frame-rate replays, slow/fast recovery,
 iOS free camera/low mode, orientation, buffer allocations, the simplified
@@ -338,14 +463,16 @@ city to finish loading, and compare FPS during standing, turning and travel.
 The debug overlay's DPR follows adaptive changes. Repeat after several minutes
 to check sustained performance as the phone heats up.
 
-During travel above 24 m/s, background tile additions/removals are paced
+During travel above 12 m/s (43 km/h / 27 mph), background tile additions/removals are paced
 150 ms apart on mobile and 50 ms apart on desktop. New tile publication pauses
 at six outstanding scene jobs on mobile and ten on desktop (normally sixteen).
-Missing terrain under the camera keeps its urgent bypass; the 32-tile iOS memory
+Missing terrain under the camera keeps its urgent bypass; the iOS resident-tile
 cap still applies. All devices share one tile addition or removal per frame,
 alternating cleanup with publication so an old row cannot block upcoming tiles.
 The shared scene commit queue uses a 1 ms cooperative budget on mobile and 2 ms
-on desktop during fast travel, returning to 3 ms when movement slows.
+on desktop during fast travel, returning to 3 ms below 9 m/s. Vehicle speed feeds
+this policy directly so camera smoothing does not delay it. Rail, water and the
+main client share one queue even when imported through different cache URLs.
 Background scenery may finish later while moving quickly. These budgets bound
 scheduled work, not the duration of an individual native GPU/physics call.
 
@@ -463,7 +590,8 @@ The mobile pedestrian startup grace period uses four seconds of wall time;
 slow frames no longer stretch that wait and delay the HUD. Crowd spawning keeps
 running after the startup gate is released.
 Mobile parking refreshes keep lane references and highway paths intact, update
-only parking inside the 80 m window, and reuse cars that remain in that window.
+only parking inside the vehicle visibility range plus 64 m of padding, and reuse
+cars that remain in that window.
 `mobile-props.js` moves lamp-clearance geometry to `mobile-props.worker.js`,
 caches placements across camera movement, and stages terrain queries and buffer
 updates through the shared scene queue. Rounded instance capacity avoids
@@ -472,6 +600,20 @@ reallocating meshes when a kind gains or loses a single prop. Run
 per-frame work, cancellation and instance reuse checks.
 Run `cd web && npm run test:textures` for texture dimensions, a dense-building
 queue replay, cancellation, upload limits and static-serving checks.
+
+Mobile procedural atlases also use smaller source canvases: Times Square screens
+512×512 (previously 1024×1024), prop signs/ads 512×512 (previously 1024×1024),
+and each vehicle kind's color and emissive maps 256×256 (previously 1024×1024).
+The full prop worker paints scaffolding plywood at 256×64 on mobile and 512×128
+on desktop, and mobile metal grime at 128×128. Atlas layouts stay in their original drawing coordinates, scaled into
+the smaller canvases, preserving UV placement without a full-size temporary.
+Image textures have a 1920-pixel maximum on either axis across quality levels.
+Desktop Times Square and prop sign atlases are 1920×1920; pedestrian signals
+use a 1920×60 strip. The 20 larger asphalt/sidewalk images are resized to
+1920×1920. Decoders and the renderer upload guard enforce the same ceiling,
+while retaining smaller mobile budgets. Atlas drawing coordinates can exceed
+1920 because they are scaled into the actual canvas. The lightweight iPhone
+prop renderer uses untextured materials for its simplified furniture.
 
 For remaining iPhone stalls, record an actual device through
 [Safari remote Web Inspector](https://webkit.org/web-inspector/enabling-web-inspector/)
@@ -642,6 +784,17 @@ Other parameters, from `src/client/src/core/params.ts`:
 | `?nohud=1` | hide the HUD |
 | `?modules=none` | disable game modules (useful for isolating a problem) |
 
+The address bar updates every five seconds using `history.replaceState`, without
+reloading or adding Back-button entries. `pos=x,y,z,heading` records the player;
+`view=x,y,z,heading,pitch,fov` records the camera independently. Coordinates are
+world metres, headings are compass degrees, and positive pitch looks upward.
+Existing query options and the hash are preserved. Opening the link restores
+position and view once the game is ready; normal play links stay in play mode.
+Free-camera and admin-flight snapshots also update `fly` (replacing a stale
+named `spot`), so shared flight links open in camera mode without requiring admin
+access. `node web/tests/url-state.test.mjs` covers updates, restoration, history,
+invalid values and page lifecycle.
+
 In the browser console, `__game.teleport(x, z)` moves you anywhere in the city;
 `__stats()` reports renderer counters.
 
@@ -782,6 +935,18 @@ Measured under SwiftShader (software GL) at ~12–22 fps, where a cold start tak
     the Highbridge tiles, and that the two Trans-Manhattan approaches keep
     their inner traffic lanes a lane apart.
 
+Sharp motorway turns now share a level surface across the overlapping junction
+pavement, including connections to ordinary streets. This prevents a sloping
+neighboring deck from cutting through the driving lane. The motorway crossing
+regression includes 720 bumper/body sweeps through the Amsterdam Avenue ramp,
+as well as stacked-deck clearance, road grades, and independently built tile seams.
+
+Iron bridge railings also omit sections that intrude into another road's
+vehicle clearance, including pedestrian bridge railings. Visible rails, posts,
+and colliders use the same openings; exposed and grade-separated railings remain.
+`node web/tests/bridge-railings.test.mjs` checks the served worker's geometry and
+collision passages in both road arrival orders.
+
 ## Developing on the client
 
 ### Rail network
@@ -909,6 +1074,25 @@ Platform assignment prefers the mapped layer over tiny differences in distance
 to stacked tracks. `tools/refine-rail-platforms.mjs` applies that correction to an
 existing snapshot without another download.
 
+Park Avenue narrows from six-metre track centres at island platforms to 3.4 metres
+between stops, with smooth station approaches and the compact corridor centred
+between the carriageways near East 97th Street. Rails, sleepers, retaining walls,
+terrain cuts, collision, trains and passengers use the same lateral profile.
+A building-footprint index raises the deck over intersecting roofs with bounded
+grades and omits support columns inside buildings. Station levels and branch
+junctions remain fixed. The index uses rendered foundation heights; tile
+`groundElev` metadata is not applied by the building renderer. After changing
+these map tiles or the authored corridor, regenerate both indexes in order:
+
+```bash
+node tools/index-rail-clearance.mjs
+node tools/index-rail-footprints.mjs
+```
+
+`web/tests/rail-corridor.test.mjs` checks the actual 97th Street carriageways,
+building roof clearance, support columns, deck collision, generated terrain cuts,
+and all four commuter train paths through the narrow and raised sections.
+
 `web/static/world/assets/rail/network.js` owns the routes, bounded grades, station
 levels, train schedules and portal/stair footprints. Geometry and train carriages
 sample those same routes. Track sections have fixed tile owners and a neighbor halo;
@@ -927,6 +1111,22 @@ Workers import the compact footprint index rather than the full rail graph;
 terrain and water cuts are selected from spatial buckets for resident tiles.
 The geometry/runtime Three.js imports carry the same
 revision as `client-cache.js`; keep those in step when updating the client revision.
+
+The Broadway approach to 125th Street uses an explicit height control near
+West 122nd Street. It keeps the bore below the 120th–123rd Street crossings,
+then rises in the long block before the elevated station. This accommodates
+the world's flat streets without cutting a trench through intersections;
+the elevations are simulation clearances, not a terrain survey. Regenerate
+`tools/index-rail-footprints.mjs` after changing the profile so worker paving
+cuts agree with the track geometry. `broadway-clearance.test.mjs` checks the
+vendored street crossings, paving, track collision and generated cutouts.
+
+The Park Avenue portal also leaves the far sidewalk of East 97th Street
+covered. Open tunnel approaches have 1.2 m metal railings on their retaining
+walls and across the covered end, with continuous collision barriers between
+posts. The opening index determines those end locations independently of tile
+arrival order. `rail-portal.test.mjs` checks the actual sidewalk through the
+served worker and verifies the side/end barriers and train headroom.
 
 Run `npm --prefix web run test:rail` for grades, seams, train spacing and stopping,
 station collision, connected entrance clearance, boarding and riding, NPC visits
@@ -1005,8 +1205,8 @@ and offline use; check with the origin before redistributing or hosting it.
 
 All mobile devices now use the direct mobile atmosphere. Android previously
 used the desktop atmosphere/composer, which also prevented the resolution
-controller from adapting. Android now shares the 0.85 initial pixel ratio
-(0.75 with `q=low`) and disabled shadows used by the mobile renderer.
+controller from adapting. Android uses a 0.85 initial pixel ratio (0.75 with `q=low`) and disabled
+shadows. iOS uses the stricter adaptive budget described above.
 
 The iOS texture upload preflight inspects each shared material once per render,
 instead of repeating its property and uniform scan for every mesh. It still
@@ -1015,3 +1215,133 @@ receive the texture cap. `npm run test:fps` includes a shared-material regressio
 and a host CPU replay; its timings do not measure phone FPS. Scenery decoding,
 geometry validation, bounds and landmark index copies now run in a worker;
 `npm run test:scenery` checks cancellation, late replies and worker failures.
+
+### Dense-city mobile geometry budgets
+
+Mobile buildings now have a shell tier that retains footprints, pitched roofs,
+setbacks and foundations while dropping fine parapet/coping geometry. A shared
+selection admits roof-edge detail within 192 m of the camera (256 m to retain it),
+including vertical distance to the roof. iOS admits at most 24 detailed buildings
+and 192 footprint edges; other mobile devices admit 40 and 320. The controller
+checks every 750 ms and pauses cosmetic replacements during fast travel. After
+slowing down, it waits for scene work to drain, schedules one replacement at a
+time, and keeps the previous mesh visible until publication. Detail-only
+replacements reuse the original colliders, so changing detail never opens a gap
+in a wall or walkable roof.
+
+The worker packs normals and colors into normalized byte attributes and releases
+unsplit collision/lookup scratch after creating collision chunks and the query
+grid. Near buildings remain one material batch per 256 m tile. Existing merged
+skyline chunks provide the next level of detail. On mobile, their draw indices
+exclude owners covered by nearby tiles and buildings replaced by custom landmarks;
+those triangles no longer reach the GPU merely to be discarded by the shader.
+
+Scenery residency counts both CPU backing buffers and estimated GPU attribute/index
+storage. iOS permits 32 MiB resident and reserves up to 38 MiB including one bounded
+2 MiB inflated request; other mobile devices permit 48 MiB resident and 60 MiB with
+a 4 MiB request. Decoding checks the inflated limit while streaming. An oversized
+middle-tier chunk falls back to its coarse tier. These are geometry accounting
+budgets, not measurements or limits of Safari's total process memory: textures,
+physics, drivers, JavaScript objects and garbage-collection timing add overhead.
+Nearby simulation tiles use a 20-tile iOS cap and a 40-tile cap on
+other mobile devices, with the occupied tile and its immediate neighbors first.
+
+The mobile renderer uses the adaptive pixel budgets documented above and disables
+dynamic shadows and composed postprocessing. Building meshes now also respect the shadow setting.
+The diagnostic beacon reports building CPU buffer bytes, scenery resident bytes,
+reserved scenery bytes and coarse-tier downgrades. Client revision
+`mobile-rail-budget-55` invalidates affected module and worker imports.
+
+Run `npm --prefix web run test:memory`, `test:scenery`, `test:streaming`, and
+`test:fps` for budget, lifecycle, collision, and renderer regressions. The six-tile
+Midtown shell fixture reduces 15,094 triangles to 6,662 and CPU geometry buffers
+from 2.93 MiB to 1.07 MiB, compared with the previous low-detail building builder;
+selected nearby roofs retain detail, so actual savings vary with the viewpoint.
+`SCENERY_IOS=1 npm --prefix web run test:scenery-browser` checks the actual packed
+building worker, WebGL shader rendering, proxy handoff and repeated travel/disposal.
+Software WebGL tests establish correctness, not iPhone FPS or crash-free operation.
+
+
+### Mobile rail rendering and frame pacing
+
+A full-scene replay of the logged Midtown position (-145, 2, -591) found rail
+responsible for 277 of 348 draw calls and about 448,000 of 633,000 triangles.
+The old surface tile halo also constructed every stacked subway line beneath it:
+186 rail sections and 16 stations in this fixture. Mobile rail now admits nearby
+sections using three-dimensional bounds. Buried corridors load near entrances or
+while underground; surface tracks, open cuts and elevated tracks retain a wider
+range. Entrance and distance hysteresis avoid repeated construction at boundaries.
+iOS caps detail at 32 rail sections and four stations; other mobile devices use
+48 and six. Collision is built and retired with the corresponding visible scene.
+
+Five train cars now share instanced body/door batches on mobile: subway trains
+use 12 draws instead of 60, and commuter trains 13 instead of 65. Cars still
+follow track curvature and grades, with the original independently sliding doors.
+Instance buffers are released when a train unloads; shared geometry stays with
+the model. Mobile sleepers retain their spacing and visible top surface using
+two triangles instead of twelve; collision geometry is unchanged.
+
+The same local replay after these changes recorded 132 draw calls and about
+264,000 triangles, with 18 rail sections and two stations resident. These counts
+vary with the camera, service clock and traffic. They are not iPhone FPS results.
+The render diagnostic beacon now preserves up to 4 KiB of JSON instead of cutting
+it at 160 characters, and includes frame intervals, CPU frame time, pixel ratio
+and rail counts. Ordinary startup messages retain the shorter limit.
+
+`npm --prefix web run test:rail` covers mobile budgets, real station approaches,
+underground/elevated stair support, train-door matrices, bounds, buffer disposal,
+and unchanged collision. With the dev service running on port 5174,
+`npm --prefix web run test:city-browser` profiles the complete scene in an isolated
+Chromium session, using a test name/email only against that local service. It writes
+`/tmp/nyc-city-profile.json` and `.png`; `CITY_URL` selects another local viewpoint.
+`CHROMIUM` overrides the browser executable. Software-rendered timings should not
+be compared with physical iPhone frame rates.
+
+### Water cutouts during mobile streaming
+
+Chunk arrivals previously subtracted every resident tunnel and railway opening
+from the city-wide water plane synchronously. Even its two input triangles can
+produce thousands of polygon fragments. Mobile now runs subtraction in the
+shared scene build queue, yielding within the fragment loop, and publishes the
+replacement only when complete. Identical cutouts reuse the current geometry;
+unloading or replacing the water cancels obsolete publication. Ground collision
+continues to receive its existing synchronous cuts.
+
+`npm --prefix web run test:streaming` includes a nine-tile Midtown replay with
+955 railway water openings, plus frame scheduling, cancellation, restoration
+and unchanged-cut checks. These checks validate work distribution and geometry,
+not physical phone FPS. The client revision is `mobile-chunk-pacing-62`.
+
+The streaming busy gate also admits an already-decoded tile required by the
+occupied car, even while the car is held on the loaded side of the boundary.
+Unrelated scenery remains subject to backpressure, and the one-tile publication
+and resident-tile limits still apply.
+
+Highway chunk arrivals also reuse motorway lane plans when street workers publish
+new elevations. Tunnel profiles build their lane envelopes on demand, and terrain
+cuts skip approaches that stay above ground. Lane planning indexes nearby sibling
+segments instead of comparing every pair of sampled stations. Desktop water cuts
+now use the same frame-budgeted queue as mobile, retaining the previous surface
+until the replacement is ready. Ground collision remains synchronous.
+
+`npm --prefix web run test:streaming` includes real nine-tile GWB and Cross Bronx
+replays, checking more than 34,000 lane stations against the original planner,
+profile cache invalidation, and unchanged tunnel cuts. These checks validate
+geometry and work scheduling, not device FPS. Client revision
+`highway-chunk-pacing-66` refreshes the affected browser imports.
+
+Mobile rail construction now shares the scene build queue with streets and water.
+Tracks yield between segments, station access yields between stairs and enclosure
+panels, and mesh publication yields between buffer operations. Geometry and
+collision become resident together; retiring a tile cancels its unfinished build
+and releases partial buffers. Desktop retains synchronous rail construction.
+
+Highway lane plans are cached by connected component and road content, so a new
+chunk's independently decoded copies of unchanged roads reuse the plan. Changed
+lane widths, geometry, or endpoint connections invalidate it; the recent-component
+cache retains at most 64 plans. The streaming regressions compare every sampled
+lane against the full-network planner and check reuse, invalidation, and eviction.
+Rail regressions drive the shared frame queue through real station visits and
+verify yielding, cancellation, support, and disposal. Revision
+`rail-chunk-pacing-79` also aligns the water/rail queue and Three imports with the
+main client so versioned module URLs do not create separate queues or renderers.

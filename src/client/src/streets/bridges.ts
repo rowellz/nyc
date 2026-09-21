@@ -383,27 +383,33 @@ export function buildBridges(env: TileEnv, gb: GroundBuilder, sb: StructBuilder,
               solid(sb, [b0, b1, b2, b3], [t0, t1, t2, t3], CONCRETE, 0, out, true);
             }
           } else {
-            // iron railing: rails + posts + balusters
-            const off = 0.12;
-            const railW = 0.06;
-            const base0 = [T0[0] + inx * off, T0[1], T0[2] + inz * off], base1 = [T1[0] + inx * off, T1[1], T1[2] + inz * off];
-            const railH = foot ? 1.1 : 1.05;
-            bar(sb, base0, base1, inx, inz, railW, railH - 0.06, railH, IRON, 2, out);
-            bar(sb, base0, base1, inx, inz, railW, 0.1, 0.16, IRON, 2, out);
-            if (!low) {
-              const nb = Math.max(1, Math.round(len / 0.2));
-              for (let k = 0; k < nb; k++) {
-                const t = (k + 0.5) / nb;
-                const cx = base0[0] + (base1[0] - base0[0]) * t, cy = base0[1] + (base1[1] - base0[1]) * t, cz = base0[2] + (base1[2] - base0[2]) * t;
-                post(sb, cx, cy, cz, ux, uz, 0.022, 0.16, railH - 0.06, IRON, 2);
+            // Iron rails need the same carriageway clearance as concrete
+            // barriers, including footbridges that are not deck neighbours.
+            const off = 0.12, railW = 0.06, railH = foot ? 1.1 : 1.05;
+            const runs = barrierRuns(T0, T1, mid => pavement.obstructs(
+              mid[0] + inx * (off + railW / 2), mid[2] + inz * (off + railW / 2), 0.12,
+              (other, floor) => other.id !== r.id && VEHICULAR.has(other.cls)
+                && mid[1] + railH + 0.04 > floor + ROAD_Y + 0.05 && mid[1] < floor + ROAD_Y + 4.2));
+            for (const [A, B] of runs) {
+              const runLength = Math.hypot(B[0] - A[0], B[2] - A[2]);
+              const base0 = [A[0] + inx * off, A[1], A[2] + inz * off], base1 = [B[0] + inx * off, B[1], B[2] + inz * off];
+              bar(sb, base0, base1, inx, inz, railW, railH - 0.06, railH, IRON, 2, out);
+              bar(sb, base0, base1, inx, inz, railW, 0.1, 0.16, IRON, 2, out);
+              if (!low) {
+                const nb = Math.max(1, Math.round(runLength / 0.2));
+                for (let k = 0; k < nb; k++) {
+                  const t = (k + 0.5) / nb;
+                  const cx = base0[0] + (base1[0] - base0[0]) * t, cy = base0[1] + (base1[1] - base0[1]) * t, cz = base0[2] + (base1[2] - base0[2]) * t;
+                  post(sb, cx, cy, cz, ux, uz, 0.022, 0.16, railH - 0.06, IRON, 2);
+                }
               }
-            }
-            const np = Math.max(1, Math.round(len / 2));
-            for (let k = 0; k <= np; k++) {
-              const t = k / np;
-              if (k === np && i + 2 < left.length) continue; // the next piece starts with this post
-              const cx = base0[0] + (base1[0] - base0[0]) * t, cy = base0[1] + (base1[1] - base0[1]) * t, cz = base0[2] + (base1[2] - base0[2]) * t;
-              post(sb, cx, cy, cz, ux, uz, 0.08, 0, railH + 0.04, IRON, 2);
+              const np = Math.max(1, Math.round(runLength / 2));
+              for (let k = 0; k <= np; k++) {
+                const t = k / np;
+                if (k === np && i + 2 < left.length && B.every((v, j) => v === T1[j])) continue; // the next piece starts with this post
+                const cx = base0[0] + (base1[0] - base0[0]) * t, cy = base0[1] + (base1[1] - base0[1]) * t, cz = base0[2] + (base1[2] - base0[2]) * t;
+                post(sb, cx, cy, cz, ux, uz, 0.08, 0, railH + 0.04, IRON, 2);
+              }
             }
           }
         }

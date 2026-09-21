@@ -1,5 +1,6 @@
-import { deckEdges } from './edges.js';
-import { holesForTile as railHolesForTile, waterHolesForTiles } from './rail/footprints.js?v=station-layout-32';
+import { t as buildScope } from './loading-DS_gLujL.js?v=mobile-facade-shortcut-84';
+import { deckEdges } from './edges.js?v=rail-portal-guards-76';
+import { holesForTile as railHolesForTile, waterHolesForTiles } from './rail/footprints.js?v=rail-portal-guards-76';
 
 /** Shared by the geometry worker and traffic. Heights are synthetic: OSM layers
  * describe stacking, not surveyed elevations. Keep grades continuous across ways. */
@@ -65,7 +66,12 @@ export function tunnelNetwork(roads) {
   for (const [id, p] of profiles) if (p.approach && Math.min(p.a.approach, p.b.approach) >= APPROACH_REACH) profiles.delete(id);
   // Approaches share their lane envelope with the motorway renderer and traffic.
   // Raw constant-width ribbons overlap at fans and put walls through live lanes.
-  for (const p of profiles.values()) if (p.approach) p.edges = deckEdges(p.road, roads, Math.max(3.2, p.road.width / 2));
+  for (const p of profiles.values()) if (p.approach) {
+    let edges;
+    Object.defineProperty(p, 'edges', { enumerable: true, get() {
+      return edges ??= deckEdges(p.road, roads, Math.max(3.2, p.road.width / 2));
+    } });
+  }
   networkCache.set(roads, profiles);
   return profiles;
 }
@@ -145,9 +151,19 @@ export function worldTunnels(world) {
     || t.approachProfiles !== cached.elevations[i] || t.streetContext !== cached.contexts[i])) {
     // Streets build with complete nearby ways, including tunnels whose owner
     // tiles are not resident. Terrain and support must use that same network.
-    const roads = [...new Map(tiles.flatMap(t => [...(t.streetContext?.roads ?? []), ...t.roads])
+    const sameRoads = cached && tiles.length === cached.tiles.length && tiles.every((t, i) =>
+      t.roads === cached.tiles[i].roads && t.streetContext === cached.contexts[i]);
+    const roads = sameRoads ? cached.roads : [...new Map(tiles.flatMap(t => [...(t.streetContext?.roads ?? []), ...t.roads])
       .map(road => [road.id, road])).values()];
-    cached = { tiles, profiles: tunnelNetwork(roads), contexts: tiles.map(t => t.streetContext) };
+    // Worker elevations arrive after the tile. Keep the expensive lane plan
+    // for unchanged road inputs, but publish fresh profiles to invalidate cuts.
+    const network = tunnelNetwork(roads);
+    const profiles = new Map([...network].map(([id, profile]) => {
+      const copy = Object.create(Object.getPrototypeOf(profile), Object.getOwnPropertyDescriptors(profile));
+      copy.elevation = undefined; copy.samples = null; copy.surface = null;
+      return [id, copy];
+    }));
+    cached = { tiles, roads, profiles, contexts: tiles.map(t => t.streetContext) };
     cached.elevations = tiles.map(t => t.approachProfiles);
     // A worker profiles the whole way for stable interpolation, but owns only
     // its tile. Prefer the owner at each station instead of letting whichever
@@ -258,6 +274,10 @@ function edgePoint(a, side, margin = 0) {
 export function tunnelHoles(profiles, surfaceY = 0) {
   const holes = [];
   for (const p of profiles.values()) {
+    // Only descending approaches intersect the ground. Most of the extended
+    // highway planning halo stays above it and needs no ribbon construction.
+    if (!p.approach || (p.elevation ? p.elevation.every(q => q.h >= 0)
+      : Math.min(p.a.approach, p.b.approach) * APPROACH_GRADE >= PORTAL_DEPTH)) continue;
     const pts = samples(p);
     for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1], b = pts[i];
@@ -281,6 +301,7 @@ export function tunnelHoles(profiles, surfaceY = 0) {
 export function tunnelWaterHoles(profiles) {
   const holes = [], margin = 2;
   for (const p of profiles.values()) {
+    if (p.approach && Math.min(p.a.approach, p.b.approach) * APPROACH_GRADE >= PORTAL_DEPTH) continue;
     let along = 0;
     const hw = Math.max(2, p.road.width / 2, ...samples(p).flatMap(a =>
       [a.left, a.right].map(e => Math.hypot(e[0] - a.x, e[1] - a.z)))) + margin;
@@ -312,6 +333,15 @@ export function tunnelWaterHoles(profiles) {
 /** Subtract convex approach footprints from triangles, interpolating every
  * attribute. Used for both rendered paving and the actual ground collider. */
 export function cutGround(attributes, indices, holes, heightRange = [-0.5, 0.3]) {
+  const steps = cutGroundSteps(attributes, indices, holes, heightRange);
+  let step;
+  do { step = steps.next(); } while (!step.done);
+  return step.value;
+}
+
+/** The water plane spans the city: a single triangle can intersect hundreds of
+ * holes. Yield within polygon subtraction, not just between input triangles. */
+export function* cutGroundSteps(attributes, indices, holes, heightRange = [-0.5, 0.3]) {
   if (!holes.length) return null;
   const entries = Object.entries(attributes), posSlot = entries.findIndex(([name]) => name === 'position');
   const bounds = holes.map(r => ({ r, minX: Math.min(...r.map(p => p[0])), maxX: Math.max(...r.map(p => p[0])), minZ: Math.min(...r.map(p => p[1])), maxZ: Math.max(...r.map(p => p[1])) }));
@@ -330,17 +360,21 @@ export function cutGround(attributes, indices, holes, heightRange = [-0.5, 0.3])
     }
     return out;
   };
+  let operations = 0;
   for (let i = 0; i < indices.length; i += 3) {
+    if (++operations % 32 === 0) yield;
     let pieces = [[point(indices[i]), point(indices[i + 1]), point(indices[i + 2])]];
     const xyz = pieces[0].map(v => v[posSlot]);
     const minX = Math.min(...xyz.map(p => p[0])), maxX = Math.max(...xyz.map(p => p[0])), minZ = Math.min(...xyz.map(p => p[2])), maxZ = Math.max(...xyz.map(p => p[2]));
     for (const h of bounds) {
       if (h.maxX < minX || h.minX > maxX || h.maxZ < minZ || h.minZ > maxZ || xyz.some(p => p[1] > heightRange[1] || p[1] < heightRange[0])) continue;
-      pieces = pieces.flatMap(poly => {
+      const remaining = [];
+      for (const poly of pieces) {
+        if (++operations % 32 === 0) yield;
         // Earlier cuts create pieces far from this hole. Do not subdivide
         // those pieces along the infinite extensions of its clipping edges.
         if (poly.every(v => v[posSlot][0] < h.minX) || poly.every(v => v[posSlot][0] > h.maxX)
-          || poly.every(v => v[posSlot][2] < h.minZ) || poly.every(v => v[posSlot][2] > h.maxZ)) return [poly];
+          || poly.every(v => v[posSlot][2] < h.minZ) || poly.every(v => v[posSlot][2] > h.maxZ)) { remaining.push(poly); continue; }
         const outside = [];
         let inside = poly;
         for (let j = 0; j < h.r.length && inside.length >= 3; j++) {
@@ -349,10 +383,12 @@ export function cutGround(attributes, indices, holes, heightRange = [-0.5, 0.3])
           if (part.length >= 3) outside.push(part);
           inside = clip(inside, a, b, 1);
         }
-        return outside;
-      });
+        for (const part of outside) remaining.push(part);
+      }
+      pieces = remaining;
     }
     for (const poly of pieces) {
+      if (++operations % 32 === 0) yield;
       const base = output[posSlot].length / 3;
       for (const v of poly) v.forEach((attr, j) => output[j].push(...attr));
       for (let j = 1; j + 1 < poly.length; j++) index.push(base, base + j, base + j + 1);
@@ -449,6 +485,61 @@ function recut(mesh, holes) {
 }
 
 const waterProfiles = new WeakMap();
+const waterBuilds = new WeakMap();
+function syncWater(ctx, mesh, profiles, holes) {
+  // Tile/profile identity changes even when the visible cutouts are identical.
+  // Canonicalize ordering so unrelated arrivals never rebuild the whole sea.
+  const signature = holes.map(ring => JSON.stringify(ring)).sort().join(';');
+  const previous = waterProfiles.get(mesh);
+  if (previous?.signature === signature) { previous.profiles = profiles; return; }
+  const record = { profiles, signature, job: null };
+  waterProfiles.set(mesh, record);
+  previous?.job?.cancel();
+  if (!holes.length && !terrainBases.has(mesh)) return;
+  let scope = waterBuilds.get(ctx);
+  if (!scope) { scope = buildScope(ctx); waterBuilds.set(ctx, scope); }
+  const attached = () => {
+    let root = mesh;
+    while (root.parent) root = root.parent;
+    return root === ctx.scene;
+  };
+  const job = record.job = scope.job('water cutouts');
+  job.run((function* () {
+    let next, published = false;
+    try {
+      let base = terrainBases.get(mesh);
+      if (!base) { base = mesh.geometry.clone(); terrainBases.set(mesh, base); }
+      const steps = cutGroundSteps(base.attributes, base.index.array, holes);
+      let result;
+      do {
+        if (!attached()) return;
+        result = steps.next();
+        if (!result.done) yield;
+      } while (!result.done);
+      next = base.clone();
+      const cut = result.value;
+      if (cut) {
+        const Attribute = next.getAttribute('position').constructor;
+        for (const [name, a] of Object.entries(cut.attributes)) {
+          next.setAttribute(name, new Attribute(a.array, a.itemSize));
+          yield;
+        }
+        next.setIndex(new Attribute(cut.index, 1));
+        next.computeBoundingSphere();
+        yield;
+      }
+      if (!attached()) return;
+      mesh.geometry.dispose(); mesh.geometry = next;
+      published = true;
+    } finally {
+      if (!published) {
+        next?.dispose();
+        if (waterProfiles.get(mesh) === record) waterProfiles.delete(mesh);
+      }
+      record.job = null;
+    }
+  })());
+}
 const terrainStates = new WeakMap();
 /** Rebuild from original surfaces, so streamed neighbours can reveal or remove
  * portals without accumulating holes. The collider gets the very same cuts. */
@@ -479,8 +570,8 @@ export function syncTunnelTerrain(ctx, tile = null) {
     state.tiles.set(current.key, { tile: current, ground, signature, cut: local.length > 0, colliderReady });
   }
   const water = ctx.scene.getObjectByName('env-water');
-  if (water && waterProfiles.get(water) !== profiles) {
-    recut(water, [...tunnelWaterHoles(profiles), ...waterHolesForTiles(ctx.world.tiles.values())]); waterProfiles.set(water, profiles);
+  if (water && waterProfiles.get(water)?.profiles !== profiles) {
+    syncWater(ctx, water, profiles, [...tunnelWaterHoles(profiles), ...waterHolesForTiles(ctx.world.tiles.values())]);
   }
 }
 

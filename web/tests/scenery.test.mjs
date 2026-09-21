@@ -25,6 +25,9 @@ const empty=(tx=0,tz=0)=>({key:`${tx}_${tz}`,tx,tz,buildings:[],roads:[],water:[
 const square=(x,z,w)=>[[x,z],[x+w,z],[x+w,z+w],[x,z+w]];
 const tile=empty();tile.water=[[square(80,80,96),square(112,112,32)]];
 tile.buildings=[{id:1,height:50,footprint:[square(10,10,30)]},{id:2,height:8,footprint:[square(190,10,20)]}];
+tile.parks=[[square(0,0,32)]];
+tile.trees=[{x:10,z:10,dbh:20,height:16,species:'London plane'},{x:40,z:10,dbh:8,height:9,species:'ginkgo'},
+  {x:NaN,z:10,dbh:8,height:9,species:'ginkgo'}];
 tile.roads=[{id:1,cls:'primary',width:10,pts:[[0,50],[256,50]]},{id:2,cls:'residential',width:6,pts:[[0,60],[256,60]]},
   {id:3,cls:'primary',tunnel:true,width:10,pts:[[0,70],[256,70]]}];
 {
@@ -44,6 +47,8 @@ tile.roads=[{id:1,cls:'primary',width:10,pts:[[0,50],[256,50]]},{id:2,cls:'resid
       for(let i=0;i<layer.position.length;i+=3)assert(Math.hypot(...layer.position.slice(i,i+3).map((v,j)=>v-layer.bounds.center[j]))<=layer.bounds.radius+1e-4);
     }
     assert.equal(decoded.key,c.key);assert.equal(decoded.tier,c.tier);
+    assert.deepEqual(decoded.treeTiles,c.treeTiles,'tree records survive worker binary transport');
+    assert.deepEqual(decoded.treeTiles[0].trees.map(t=>t.park),[true,false],'park forms and valid street trees reach distant chunks');
     c.layers.forEach((layer,i)=>{
       assert.deepEqual([...decoded.layers[i].index],layer.index);
       assert.deepEqual(decoded.layers[i].features,layer.features);
@@ -82,6 +87,37 @@ tile.roads=[{id:1,cls:'primary',width:10,pts:[[0,50],[256,50]]},{id:2,cls:'resid
     assert.equal((await service('world/world/lod/99_99.mid.bin')).status,404);
     assert.equal(await service('world/world/lod/../../secret'),null);
   }finally{await rm(directory,{recursive:true,force:true});}
+}
+// Both proxy tiers must inherit the actual detailed baker's palette, including
+// per-building variation, reclassified row houses and independently colored roofs.
+{
+  const styles=await import(new URL('styles-CD9VAM0e.js',assets));
+  const roofs=await import(new URL('builder-Ct8y1lc-.js',assets));
+  const sample=empty();
+  sample.buildings=['brick','brownstone','limestone','castiron','prewar-office','glass','concrete','modern-brick','industrial','civic','shed']
+    .flatMap((style,i)=>Array.from({length:4},(_,j)=>({id:1000+i*4+j,style,height:24,floors:6,bldgClass:'C0',footprint:[square(i*20,j*30,12)]})));
+  for(const tier of ['mid','far']) {
+    const layer=compileScenery('0_0',[sample],tier,tools).layers.find(l=>l.kind==='buildings');
+    for(const feature of layer.features) {
+      const building=sample.buildings.find(b=>b.id===feature.id),seed=styles.p(building.id);
+      const wall=styles.i(building,seed).tint,roof=roofs.i(seed,roofs.r(seed));
+      for(const vertex of layer.index.slice(feature.start,feature.start+feature.count)) {
+        const expected=layer.normal[vertex*3+1]===127?roof:wall;
+        for(let c=0;c<3;c++) assert(Math.abs(layer.color[vertex*3+c]/255-expected[c])<=.5/255+1e-7,`${tier} ${building.style} color channel ${c}`);
+      }
+    }
+  }
+}
+// Classifying parks must preserve land area, park holes and coastal water cuts.
+{
+  const sample=empty();sample.parks=[[square(0,0,128),square(16,16,16)]];
+  sample.water=[[square(64,0,128)]];
+  const faces=landFaces(sample,tools.inside,true);
+  const area=ring=>Math.abs(ring.reduce((s,p,i)=>s+p[0]*ring[(i+1)%ring.length][1]-ring[(i+1)%ring.length][0]*p[1],0))/2;
+  assert.equal(faces.reduce((sum,f)=>sum+area(f),0),256*256-128*128);
+  assert.equal(faces.filter(f=>f.grass).reduce((sum,f)=>sum+area(f),0),64*128-16*16);
+  const ground=compileScenery('0_0',[sample],'mid',tools).layers.find(l=>l.kind==='ground');
+  assert(ground.color.some((c,i)=>i%3===1&&c===255),'parks reach the shader as grass');
 }
 function fixture({bytes=1000,requests=2,triangles=Infinity}={}) {
   let time=0,changes=0;
@@ -129,15 +165,67 @@ function fixture({bytes=1000,requests=2,triangles=Infinity}={}) {
   f.stream.dispose();
 }
 {
-  const {nearSceneryCoverage}=await import(new URL('scenery.js',assets));
+  const {nearSceneryCoverage,createScenery}=await import(new URL('scenery.js',assets));
+  const {Z:Group}=await import(new URL('textureRelease-2U-gT89r.js',assets));
+  for(const [level,ios,expected] of [['mobile',false,[3000,6000]],['mobile',true,[2500,5000]],['high',false,[180,700]]]) {
+    const fog={isFog:true,near:180,far:700};
+    const context={quality:{level,farDistance:ios?5000:6000},world:{ios},worldGroup:new Group(),scene:{fog}};
+    const scenery=createScenery(context);
+    assert.deepEqual([fog.near,fog.far],expected,'near and far mobile objects use one atmosphere');
+    context.quality.farDistance /= 2;
+    scenery.update();
+    assert.deepEqual([fog.near,fog.far],level==='mobile'?expected.map(v=>v/2):expected,
+      'changing render distance updates mobile haze without changing desktop weather');
+    context.quality.farDistance = 8000;
+    scenery.update();
+    assert.deepEqual([fog.near,fog.far],level==='mobile'?[4000,8000]:expected,
+      'live mobile scenery and fog can expand to 8 km, including iPhone');
+    scenery.dispose();
+    assert.deepEqual([fog.near,fog.far],[180,700],'disposing scenery restores the original fog');
+    assert.equal(context.worldGroup.children.length,0);
+  }
   const coverage=nearSceneryCoverage({children:[{name:'buildings',visible:true,children:[{name:'bld-0_0',visible:true}]},
     {name:'streets',visible:true,children:[{name:'streets:1_0',visible:false}]},
     {name:'environment',visible:true,children:[{name:'env-ground-0_0',visible:true}]}]});
   assert(coverage.buildings.has('0_0'));assert(coverage.ground.has('0_0'));assert.equal(coverage.roads.size,0);
   const source=await readFile(new URL('buildings-BDmduZ8y.js',assets),'utf8');
   assert(source.includes('x=$createScenery(t,y)'),'served client replaces the all-world skyline worker');
-  assert(sceneryBudget(true,2500).bytes<sceneryBudget(false,6000).bytes);
-  const ios=sceneryBudget(true,2500,true);
-  assert.equal(ios.bytes,8*1024*1024);assert.equal(ios.distance,1500);assert.equal(ios.triangles,80000);
+  assert(sceneryBudget(true,6000).bytes<sceneryBudget(false,6000).bytes);
+  const ios=sceneryBudget(true,8000,true);
+  assert.equal(ios.bytes,32*1024*1024);assert.equal(ios.distance,8000);assert.equal(ios.triangles,320000);
 }
 console.log('PASS scenery binary format, coastline holes, tiers, production serving, bounded streaming, teleports, cancellation and visible-mesh handoff');
+
+// CPU backing arrays, copied draw indices and GPU uploads all count as resident.
+{
+  const {prepareSceneryGeometry,compactSceneryIndex}=await import('../static/world/assets/scenery-format.js');
+  const sample=empty();sample.buildings=[{id:1,height:30,footprint:[square(0,0,20)]},{id:2,height:50,footprint:[square(40,0,20)]}];
+  const chunk=prepareSceneryGeometry(decodeScenery(encodeScenery(compileScenery('0_0',[sample],'mid',tools))));
+  assert.equal(chunk.residentBytes,chunk.byteLength+chunk.gpuBytes);assert(chunk.gpuBytes>0);
+  const layer=chunk.layers.find(l=>l.kind==='buildings');layer.sourceIndex=layer.index;
+  const original=layer.index.slice(),coverage=new Float32Array(16);
+  assert.equal(compactSceneryIndex(layer,coverage,new Set()),original.length);
+  coverage[0]=1;assert.equal(compactSceneryIndex(layer,coverage,new Set()),0,'covered owners submit no triangles');
+  coverage[0]=0;
+  const count=compactSceneryIndex(layer,coverage,new Set([1]));
+  assert.equal(count,original.length-layer.features[0].count,'built landmark is removed from submissions');
+  assert.equal(compactSceneryIndex(layer,coverage,new Set()),original.length,'retired landmarks restore proxy');
+  assert.deepEqual(layer.renderIndex,original);
+}
+{
+  let time=0;const requests=[],published=[];
+  const stream=createSceneryStream({budget:{distance:1000,middle:500,chunks:2,requests:1,bytes:100,
+    triangles:100,decodeBytes:30,peakBytes:190},now:()=>time,
+    fetchChunk:(key,tier)=>new Promise(resolve=>requests.push({key,tier,resolve})),
+    publish:data=>{published.push(data);return data},remove:()=>{}});
+  stream.setManifest({chunks:[{key:'0_0'}]});
+  stream.update(0,0);assert.equal(stream.stats.reservedBytes,90);
+  requests.shift().resolve({byteLength:70,residentBytes:140,triangles:80});await Promise.resolve();
+  time+=100;stream.update(0,0);assert.equal(published.length,0,'GPU copy exceeds resident cap');
+  assert.equal(requests[0].tier,'far','oversized mid falls back immediately');
+  requests.shift().resolve({byteLength:30,residentBytes:60,triangles:40});await Promise.resolve();
+  time+=100;stream.update(0,0);assert.equal(stream.stats.bytes,60);
+  assert.equal(stream.stats.downgraded,1);assert.equal(stream.stats.reservedBytes,60);
+  stream.dispose();assert.equal(stream.stats.reservedBytes,0);
+}
+console.log('PASS scenery CPU/GPU accounting, decode reservations, coarse fallback and hidden-geometry compaction');

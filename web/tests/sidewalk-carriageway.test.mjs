@@ -73,7 +73,9 @@ const sandbox = { console, performance, self: { postMessage: r => { result = r; 
   $tunnelBuild: tunnels.buildTunnels, $tunnelNetwork: tunnels.tunnelNetwork, $tunnelCut: tunnels.cutBuilder,
   $carriagewayIndex: carriagewayIndex, $pathHalfWidth: pathHalfWidth, $pathPieceClear: pathPieceClear, $resolveRoadOverlaps: resolveRoadOverlaps, $pedestrianClearance: pedestrianClearance };
 vm.createContext(sandbox);
-vm.runInContext(readFileSync(new URL('../../public/world/assets/tile.worker-Ai2ZdmRL.js', import.meta.url), 'utf8').replace(/^import .*$/gm, ''), sandbox);
+vm.runInContext(readFileSync(new URL('../../public/world/assets/tile.worker-Ai2ZdmRL.js', import.meta.url), 'utf8')
+  .replace(/^import .*$/gm, '')
+  .replace('const $sidewalkModule=', 'globalThis.pavingGeometry={clip:nr,area:Jn};const $sidewalkModule='), sandbox);
 async function build(tile, roads = tile.roads) {
   await sandbox.self.onmessage({ data: { id: 1, input: { tile, roads, quality: { level: 'mobile', shadows: false } } } });
   assert(!result.error, result.error);
@@ -87,7 +89,7 @@ function slabs(built) {
     const v = [idx[i] * 3, idx[i + 1] * 3, idx[i + 2] * 3];
     if (!v.every(a => nrm[a + 1] > 0.99 && Math.abs(pos[a + 1] - 0.15) < 1e-3)) continue;
     const p = v.map(a => [pos[a], pos[a + 2]]);
-    out.push({ p, area: Math.abs((p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[2][0] - p[0][0]) * (p[1][1] - p[0][1])) / 2,
+    out.push({ p, kind: m.attributes.aA.data[idx[i] * 4], area: Math.abs((p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[2][0] - p[0][0]) * (p[1][1] - p[0][1])) / 2,
       cx: (p[0][0] + p[1][0] + p[2][0]) / 3, cz: (p[0][1] + p[1][1] + p[2][1]) / 3 });
   }
   return out;
@@ -130,6 +132,50 @@ console.log('PASS an overhanging slab is trimmed at the roadbed, curbed on the t
 // --- the reported blocks ---------------------------------------------------------------------------
 
 const loadTile = key => JSON.parse(gunzipSync(readFileSync(new URL(`../../public/world/world/tiles/${key}.json.gz`, import.meta.url))));
+
+// Measure triangle intersections, not just their centers: the reported Times Square
+// flicker comes from partial overlaps between concrete flags and dark plaza pavers.
+const { clip: clipTriangle, area: signedArea } = sandbox.pavingGeometry;
+function overlappingArea(left, right) {
+  let total = 0;
+  const bounds = t => ({ ...t, minX: Math.min(...t.p.map(p => p[0])), maxX: Math.max(...t.p.map(p => p[0])),
+    minZ: Math.min(...t.p.map(p => p[1])), maxZ: Math.max(...t.p.map(p => p[1])) });
+  const targets = right.map(bounds);
+  for (const a of left.map(bounds)) for (const b of targets) {
+    if (a.maxX <= b.minX || a.minX >= b.maxX || a.maxZ <= b.minZ || a.minZ >= b.maxZ) continue;
+    total += Math.abs(signedArea(clipTriangle(a.p, b.p)));
+  }
+  return total;
+}
+for (const fixture of [
+  { name: 'partial overlap', sidewalks: [square(0, 0, 4, 10)], plazas: [square(2, 0, 12, 10)], flags: 40, pavers: 80 },
+  { name: 'contained plaza', sidewalks: [square(0, 0, 10, 10)], plazas: [square(2, 2, 8, 8)], flags: 100, pavers: 0 },
+  { name: 'sidewalk hole', sidewalks: [[...square(0, 0, 10, 10), square(3, 3, 7, 7)[0]]],
+    plazas: [square(2, 2, 8, 8)], flags: 84, pavers: 16 },
+  { name: 'median overlap', sidewalks: [], medians: [square(0, 0, 4, 10)],
+    plazas: [square(2, 0, 12, 10), square(2, 0, 12, 10)], flags: 40, pavers: 80 },
+]) {
+  const tops = slabs(await build(emptyTile(fixture)));
+  const flags = tops.filter(t => t.kind === 1), pavers = tops.filter(t => t.kind === 5);
+  for (const [name, triangles] of [['flags', flags], ['pavers', pavers]]) {
+    const area = triangles.reduce((sum, t) => sum + t.area, 0);
+    assert(Math.abs(area - fixture[name]) < 0.001, `${fixture.name}: ${name} keeps ${area} m2, expected ${fixture[name]}`);
+  }
+  assert(overlappingArea(flags, pavers) < 0.001, `${fixture.name}: concrete and pavers must not overlap`);
+}
+console.log('PASS partial paving overlaps are trimmed exactly, preserving uncovered areas and polygon holes');
+
+for (const key of ['-1_-2', '-1_-3']) {
+  const tile = loadTile(key);
+  const tops = slabs(await build(tile));
+  const flags = tops.filter(t => t.kind === 1), pavers = tops.filter(t => t.kind === 5);
+  assert(flags.length && pavers.length, `${key}: Times Square retains both paving materials`);
+  const overlap = overlappingArea(flags, pavers);
+  assert(overlap < 0.01, `${key}: ${overlap.toFixed(4)} m2 of coplanar flags and pavers remain`);
+  console.log(`  Times Square ${key}: ${overlap.toFixed(4)} m2 of overlapping sidewalk and plaza paving`);
+}
+console.log('PASS real Times Square sidewalks and plaza pavers do not overlap');
+
 const inRing = (x, z, r) => {
   let inside = false;
   for (let i = 0, j = r.length - 1; i < r.length; j = i++) {

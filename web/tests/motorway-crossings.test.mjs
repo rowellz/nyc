@@ -46,6 +46,27 @@ assert.equal(clearanceProfile(clearEnv,alreadyClear[0],stacked).hAt(300),7);
 assert.equal(clearanceProfile(clearEnv,alreadyClear[1],stacked).hAt(300),21);
 console.log('PASS same-layer stacks separate, real merges stay connected, and clear crossings retain their heights');
 
+// A sharp turn shares an area of pavement, not only its OSM endpoint.
+// Matching only longitudinal stations left a sloping deck across that area.
+const turnBase = (_env, r) => ({hw:4,H:r.id===92?7:14,hAt:()=>r.id===92?7:14});
+for (const extra of [{}, {bridge:false,layer:0,cls:'secondary'}]) {
+  const turn = [road(92, [[-300,0],[0,0]],{bridge:false,layer:0}), road(93, [[0,0],[0,300]],extra)];
+  for (const order of [turn, [...turn].reverse()]) {
+    const turnEnv = makeEnv(order), incoming = clearanceProfile(turnEnv,turn[0],turnBase), outgoing = clearanceProfile(turnEnv,turn[1],turnBase);
+    for (let s=0;s<=4;s+=.5) assert(Math.abs(incoming.hAt(300-s)-outgoing.hAt(s))<1e-6,
+      'overlapping pavement stays level throughout a turning junction');
+    assert.equal(incoming.hAt(0),7,'retain the incoming road away from the junction');
+    assert.equal(outgoing.hAt(300),14,'retain the outgoing road away from the junction');
+  }
+}
+const surfaceCross = [road(94,[[-300,0],[300,0]],{bridge:false,layer:0}),
+  road(95,[[0,-300],[0,300]],{bridge:false,layer:0,cls:'secondary'})];
+const surfaceEnv = makeEnv(surfaceCross);
+for (const r of surfaceCross) assert.equal(clearanceProfile(surfaceEnv,r,flat).hAt(300),7,
+  'a surface street crossing alone does not create an overpass');
+console.log('PASS turning junctions share level pavement through their overlapping widths');
+
+
 const tiles=[];
 for(let x=12;x<=23;x++)for(let z=-45;z<=-37;z++) {
   try { tiles.push(JSON.parse(gunzipSync(readFileSync(new URL(`../../public/world/world/tiles/${x}_${z}.json.gz`,import.meta.url))))); }
@@ -306,3 +327,39 @@ profile=tunnels.worldTunnels(streamedWorld).get(90);
 assert.equal(tunnels.tunnelHeight(profile,200),6);
 assert.equal(tunnels.tunnelHeight(profile,450),20);
 console.log('PASS streamed approach heights respect tile ownership, arrival order, and geometry replacement');
+
+// The Amsterdam Avenue turn used to have its neighbour's sloped deck at
+// bumper height. Sweep along the lane: vertical floor rays miss this wall.
+const sub = (a, b) => a.map((v, i) => v - b[i]);
+const dot = (a, b) => a.reduce((s, v, i) => s + v * b[i], 0);
+const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+function intersects(a, b, pts) {
+  const d = sub(b, a), e = sub(pts[1], pts[0]), f = sub(pts[2], pts[0]);
+  const p = cross(d, f), det = dot(e, p);
+  if (Math.abs(det) < 1e-8) return false;
+  const t = sub(a, pts[0]), u = dot(t, p) / det;
+  if (u < 0 || u > 1) return false;
+  const q = cross(t, e), v = dot(d, q) / det, s = dot(f, q) / det;
+  return v >= 0 && u + v <= 1 && s > 1e-5 && s <= 1;
+}
+
+const turningRoad = roads.find(r=>r.id===8119530000), turningEdges = deckEdges(turningRoad,roads,turningRoad.width/2);
+const turningTile = built.get('17_-41'), turningColliders = colliders.get('17_-41');
+let turnRays=0;
+for (const offset of [-.9,0,.9]) for (const clearance of [.2,.5,1.5]) {
+  let previous;
+  for (let s=0;s<=20;s+=.25) {
+    const [x,z]=turningEdges.line(s,offset),floor=roadDeckHeight(turningTile.decks,turningRoad.id,x,z),p=[x,floor+clearance,z];
+    assert(Math.abs(tunnels.trafficHeight(world,turningRoad,x,z,floor)-floor)<.03,'NPCs use the corrected junction height');
+    const near = turningColliders.get(`${Math.floor(x/16)},${Math.floor(z/16)}`)??[];
+    if (previous) {
+      const triangles = new Set([...near,...(turningColliders.get(`${Math.floor(previous[0]/16)},${Math.floor(previous[2]/16)}`)??[])]);
+      assert(![...triangles].some(tri=>intersects(previous,p,tri)),`Amsterdam motorway turn blocked at ${s}, offset ${offset}, clearance ${clearance}`);
+      turnRays++;
+    }
+    assert(near.some(tri=>{const h=triangleHeight(tri,x,z);return h?.inside&&Math.abs(h.height-floor)<.04;}),`the turning lane retains a collision floor at ${s}, ${offset}: ${x}, ${z}, ${floor}; nearest: ${near.map(tri=>triangleHeight(tri,x,z)).filter(h=>h?.inside).map(h=>h.height)}`);
+    previous=p;
+  }
+}
+assert.equal(turnRays,720);
+console.log(`PASS ${turnRays} bumper/body sweeps through the Amsterdam Avenue motorway junction`);

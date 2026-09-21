@@ -6,6 +6,8 @@ export function tunnelAssetTransform(rel, source) {
     source = source.replace(before, after);
   };
   if (rel === 'world/assets/tile.worker-Ai2ZdmRL.js') {
+    source = "import { resolveRoadCollision as $resolveRoadCollision } from './road-collision.js';\n" + source;
+    replace('$resolveRoadOverlaps(c,a,o);', '$resolveRoadOverlaps(c,a,o);$resolveRoadCollision(s,a,o);');
     source = "import { finishTunnelApproaches as $tunnelFinish, surfaceMarkingAllowed as $tunnelSurfaceMarking } from './tunnels.js';\n" + source;
     replace('const paving = Math.max(0, baseAt(x, z) - deckAt(x, z));',
       'if(!$tunnelSurfaceMarking(env.tile.roads,currentRoad,x,z))return;const paving = Math.max(0, baseAt(x, z) - deckAt(x, z));');
@@ -18,11 +20,19 @@ export function tunnelAssetTransform(rel, source) {
       'const $profileRoad=r.find(r=>!r.tunnel&&dr.has(r.cls)&&r.pts.length>1);if($profileRoad)$clearanceProfile(p,$profileRoad,$baseDeckProfile);const $profiles=$tunnelNetwork(r);');
     replace('decks:s.decks,colliders:', 'decks:s.decks,approachProfiles:s.approachProfiles,colliders:');
   } else if (rel === 'world/assets/streets-CfYSUqyW.js') {
+    // Road ribbons meet at duplicated vertices just like sidewalk polygons.
+    // Weld them in Rapier and suppress artificial contacts on triangle seams.
+    replace('r.RAPIER.ColliderDesc.trimesh(t.position,t.index).setFriction(.85)',
+      'r.RAPIER.ColliderDesc.trimesh(t.position,t.index,r.RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES|r.RAPIER.TriMeshFlags.MERGE_DUPLICATE_VERTICES).setFriction(.85).setRestitution(0)');
     replace('n.decks=i.decks,$tunnelTerrain(e,n.tile)',
       'n.decks=i.decks,n.tile.approachProfiles=i.approachProfiles,$tunnelTerrain(e,n.tile)');
     replace('e.events.on(`tileUnloaded`,ee)',
       'e.events.on(`tileUnloaded`,t=>{ee(t);$tunnelTerrain(e)})');
   } else if (rel === 'world/assets/lane-layout.js') {
+    source = "import { createLanePlanCache } from './lane-plan-cache.js';\n" + source;
+    replace('const cache = new WeakMap();', 'let cachedPlan;');
+    replace('  let layouts = cache.get(roads);\n  if (!layouts) { layouts = plan(roads); cache.set(roads, layouts); }\n  return layouts.get(road.id) ?? null;',
+      '  cachedPlan ??= createLanePlanCache(plan, isHighway, key);\n  return cachedPlan(road, roads);');
     source = "import { taperGore } from './lane-transitions.js';\n" + source;
     // A fan shifts the whole lane envelope sideways. Carry the outside shoulder
     // with it too; shifting only the shared edge can invert a narrow ramp's deck.
@@ -31,7 +41,23 @@ export function tunnelAssetTransform(rel, source) {
     replace('pts.push({...pointAt(record,s,l.base(s,q)),d:from+d})',
       'pts.push({...pointAt(record,s,l.base(s,q)),d:from+d,laneSpan:l.count*l.width})');
     replace('const tables=(links,side,other,paints)=>{\n    let from=0;',
-      'const tables=(links,side,other,paints)=>{\n    const taper=[];let from=0;');
+      `const tables=(links,side,other,paints)=>{
+    // Only sibling segments within GORE_NEAR can win the nearest-point test.
+    // Index their bounds once instead of scanning the entire sampled sibling
+    // for every lane station (quadratic on long interchange ramps).
+    const cells=new Map();
+    for(let i=1;i<other.length;i++){
+      const a=other[i-1],b=other[i];
+      for(let x=Math.floor((Math.min(a.x,b.x)-GORE_NEAR)/GORE_NEAR);x<=Math.floor((Math.max(a.x,b.x)+GORE_NEAR)/GORE_NEAR);x++){
+        for(let z=Math.floor((Math.min(a.z,b.z)-GORE_NEAR)/GORE_NEAR);z<=Math.floor((Math.max(a.z,b.z)+GORE_NEAR)/GORE_NEAR);z++){
+          const key=\`\${x},\${z}\`,bucket=cells.get(key)??[];
+          bucket.push(i);cells.set(key,bucket);
+        }
+      }
+    }
+    const taper=[];let from=0;`);
+    replace('        for(let i=1;i<other.length;i++){',
+      '        for(const i of cells.get(`${Math.floor(p.x/GORE_NEAR)},${Math.floor(p.z/GORE_NEAR)}`)??[]){');
     replace('record.gores[side].push({gaps,paints,end:link?-1:end});',
       'record.gores[side].push({gaps,paints,end:link?-1:end});taper.push({gaps,from,end,length:record.length,laneSpan:l.count*l.width});');
     replace('from+=record.length;\n    }\n  };\n  for(const [left,right] of fans)',

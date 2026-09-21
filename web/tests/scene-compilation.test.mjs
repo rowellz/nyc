@@ -81,3 +81,30 @@ async function drain() {
   owner.dispose();
 }
 console.log('PASS served shader compilation: disposed tile materials, stable program snapshots, twenty-job streaming deadlock, rejection cleanup');
+
+// The main client, rail and water may have different import cache queries.
+// That must never multiply the per-frame queue or texture-upload allowance.
+{
+  const originalRAF=globalThis.requestAnimationFrame, originalPerformance=globalThis.performance;
+  let clock=0,frames=[],uploads=0;
+  globalThis.requestAnimationFrame=fn=>{frames.push(fn);return 1;};
+  globalThis.performance={now:()=>clock+=.05};
+  try {
+    const {t:first}=await import(new URL('loading-DS_gLujL.js?v=scene-main',assets));
+    const {t:second}=await import(new URL('loading-DS_gLujL.js?v=scene-addon',assets));
+    const ctx={busy:0,quality:{level:'mobile'},world:{stats:{fastTravel:true}},renderer:{initTexture(){uploads++;}}};
+    const a=first(ctx),b=second(ctx);
+    a.job('streets:0_0').run((function*(){yield {};} )());
+    b.job('rail:0_0').run((function*(){yield {};} )());
+    assert.equal(frames.length,1,'cache URL variants share one scheduled frame callback');
+    for(let i=0;i<10&&ctx.busy;i++) {
+      const previous=uploads,batch=frames;frames=[];
+      batch.forEach(fn=>fn());
+      assert(uploads-previous<=1,'one texture upload per frame across module copies');
+      assert(frames.length<=1,'one shared frame budget remains after yielding');
+    }
+    assert.equal(uploads,2);assert.equal(ctx.busy,0);
+    a.dispose();b.dispose();
+  } finally {globalThis.requestAnimationFrame=originalRAF;globalThis.performance=originalPerformance;}
+}
+console.log('PASS duplicate import URLs share the scene frame budget and texture-upload allowance');

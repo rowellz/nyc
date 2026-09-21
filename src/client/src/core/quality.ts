@@ -8,8 +8,8 @@ export type QualityLevel = Quality['level'];
 
 const TABLE: Record<QualityLevel, Omit<Quality, 'level' | 'pixelRatio'> & { pixelRatio: (dpr: number) => number }> = {
   mobile: { pixelRatio: (d) => Math.min(d, 1.25), shadows: true, shadowMapSize: 1024, ssao: false, bloom: false, reflections: false, drawDistance: 512, farDistance: 768, maxTraffic: 20, maxPeds: 30 },
-  ultra: { pixelRatio: (d) => Math.min(d, 2), shadows: true, shadowMapSize: 4096, ssao: true, bloom: true, reflections: true, drawDistance: 1200, farDistance: 6000, maxTraffic: 120, maxPeds: 300 },
-  high: { pixelRatio: (d) => Math.min(d, 1.5), shadows: true, shadowMapSize: 2048, ssao: true, bloom: true, reflections: false, drawDistance: 1000, farDistance: 5000, maxTraffic: 80, maxPeds: 220 },
+  ultra: { pixelRatio: (d) => Math.min(d, 2), shadows: true, shadowMapSize: 1920, ssao: true, bloom: true, reflections: true, drawDistance: 1200, farDistance: 6000, maxTraffic: 120, maxPeds: 300 },
+  high: { pixelRatio: (d) => Math.min(d, 1.5), shadows: true, shadowMapSize: 1920, ssao: true, bloom: true, reflections: false, drawDistance: 1000, farDistance: 5000, maxTraffic: 80, maxPeds: 220 },
   medium: { pixelRatio: () => 0.8, shadows: true, shadowMapSize: 1024, ssao: false, bloom: false, reflections: false, drawDistance: 700, farDistance: 3000, maxTraffic: 30, maxPeds: 40 },
   low: { pixelRatio: () => 0.75, shadows: true, shadowMapSize: 512, ssao: false, bloom: false, reflections: false, drawDistance: 600, farDistance: 2500, maxTraffic: 20, maxPeds: 20 },
 };

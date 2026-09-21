@@ -14,7 +14,7 @@ export function createSceneryTransport(makeWorker = () => new Worker(new URL('./
     for (const id of pending.keys()) finish(id, error);
   }
   return {
-    load(url, key, tier, signal) {
+    load(url, key, tier, signal, maxBytes) {
       if (disposed || signal.aborted) return Promise.reject(new Error('Scenery cancelled'));
       return new Promise((resolve, reject) => {
         try {
@@ -28,7 +28,7 @@ export function createSceneryTransport(makeWorker = () => new Worker(new URL('./
           const abort = () => { worker?.postMessage({ type: 'cancel', id }); finish(id, new Error('Scenery cancelled')); };
           pending.set(id, { resolve, reject, signal, abort });
           signal.addEventListener('abort', abort, { once: true });
-          worker.postMessage({ type: 'load', id, url, key, tier });
+          worker.postMessage({ type: 'load', id, url, key, tier, maxBytes });
         } catch (error) { stop(error); reject(error); }
       });
     },

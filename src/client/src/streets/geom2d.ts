@@ -85,7 +85,10 @@ function splitConvex(poly: Ring, a: Pt, b: Pt, sign: number): [Ring, Ring] {
   for (let i = 0; i < poly.length; i++) {
     const p = poly[i], q = poly[(i + 1) % poly.length];
     const dp = distance(p), dq = distance(q);
-    (dp >= 0 ? inside : outside).push(p);
+    // A vertex on the cut belongs to both pieces; otherwise an outside piece
+    // can lose its boundary corner (or disappear entirely along a shared edge).
+    if (dp >= 0) inside.push(p);
+    if (dp <= 0) outside.push(p);
     if ((dp > 0 && dq < 0) || (dp < 0 && dq > 0)) {
       const t = dp / (dp - dq);
       const hit: Pt = [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];

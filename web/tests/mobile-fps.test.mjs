@@ -56,8 +56,8 @@ assert(main.includes('$createMobileFrameBudget(k,x,t.raw.get(`adaptive`)!==`0`&&
 assert(main.includes('preserveDrawingBuffer:t.screenshotMode&&(!c||t.raw.get(`capture`)===`1`)'));
 assert(main.includes(`./mobile-frame-budget.js?v=${CLIENT_REVISION}`));
 for (const [ua, touch, override, ratio] of [
-  ['iPhone', 5, undefined, .85], ['iPhone', 5, 'low', .75],
-  ['Macintosh', 5, undefined, .85], ['Android', 5, undefined, .85],
+  ['iPhone', 5, undefined, .75], ['iPhone', 5, 'low', .65],
+  ['Macintosh', 5, undefined, .75], ['Android', 5, undefined, .85],
   ['Desktop', 0, 'high', 1.5],
 ]) {
   const scope = vm.createContext({ navigator: { userAgent: ua, platform: ua, maxTouchPoints: touch },
@@ -139,7 +139,7 @@ for (const [ua, touch, override, ratio] of [
   const start = source.indexOf('function le('), end = source.indexOf('function ', start + 9);
   const scope = vm.createContext({ O: () => [], B: 1, b: class {}, g: class {}, o: class {} });
   vm.runInContext(source.slice(start, end), scope);
-  for (const [level, distance] of [['mobile', 96], ['low', 260], ['medium', 380], ['high', 520]]) {
+  for (const [level, distance] of [['mobile', 192], ['low', 260], ['medium', 380], ['high', 520]]) {
     const uniforms = scope.le({ quality: { level }, modules: new Map() }, {});
     assert.equal(uniforms.uDetailDist.value, distance);
   }
@@ -151,3 +151,20 @@ for (const name of ['main-D_3aygO4.js', 'quality-BuEwAkMy.js', 'buildings-BDmduZ
   assert.equal(await response.text(), readFileSync(new URL(name, assets), 'utf8'));
 }
 console.log('PASS mobile FPS: resolution adaptation, pauses/recovery, iOS low mode, single resize, orientation, facade LOD and served cache revision');
+
+{
+  globalThis.document={hidden:false};
+  const applied=[],ctx={quality:{level:'mobile',pixelRatio:.75},world:{ios:true},state:{},net:{}};
+  const bundle={applyPixelRatio:r=>applied.push(r),renderer:{getPixelRatio:()=>applied.at(-1)}};
+  const sample=createMobileFrameBudget(ctx,bundle);
+  let now=0;
+  for(;now<10000;now+=1000/30)sample(now,true);
+  assert.equal(applied.length,0,'steady 30 FPS keeps iPhone resolution');
+  for(;now<20000;now+=1000/15)sample(now,true);
+  assert.equal(ctx.quality.pixelRatio,.5,'sustained low FPS reaches the iPhone emergency floor');
+  assert(ctx.mobileFrameMs>60&&ctx.mobileFrameMs<70,'diagnostics use real frame intervals');
+  for(;now<95000;now+=1000/60)sample(now,true);
+  assert.equal(ctx.quality.pixelRatio,.75,'recovery respects the iPhone ceiling');
+  delete globalThis.document;
+}
+console.log('PASS iPhone 30 FPS budget, faster downshift, 0.5 floor and bounded recovery');

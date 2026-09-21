@@ -20,6 +20,8 @@ import { disposeTextures, loadManifestTextures, type StreetTextures } from './te
 import type { BuildRequest, BuildResponse, BuiltStreetTile, TileInput } from './tile';
 
 export interface StreetsModule extends GameModule {
+  /** True only after all road/sidewalk colliders have committed. */
+  collisionReady(key: string): boolean;
   /** 'asphalt' | 'concrete' | 'cobblestone' | 'metal' | 'paint' | null */
   surfaceAt(x: number, z: number): string | null;
   /** Highest street support: elevated roadway, 0.15 m sidewalk, curb-cut slope, or zero on road/ground. */
@@ -41,6 +43,7 @@ interface TileRecord {
   decks: BuiltStreetTile['decks'];
   walkCollision: WalkCollision | null;
   collider: boolean;
+  collisionReady?: boolean;
   job?: BuildJob;
 }
 
@@ -122,6 +125,7 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
     rec.decks = [];
     rec.walkCollision = null;
     rec.collider = false;
+    rec.collisionReady = false;
   }
 
   function accept(message: BuildResponse): void {
@@ -336,6 +340,7 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
         rec.collider = true;
         yield;
       }
+      rec.collisionReady = true;
     } catch (error) {
       console.warn(`[streets] could not commit ${rec.tile.key}`, error);
     } finally {
@@ -364,6 +369,7 @@ export async function createStreets(ctx: GameContext): Promise<StreetsModule> {
         rec.markings.visible = dx * dx + dz * dz <= detailDistanceSq;
       }
     },
+    collisionReady(key) { return tiles.get(key)?.collisionReady === true; },
     surfaceAt(x, z) {
       if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
       return tiles.get(tileKey(Math.floor(x / TILE_SIZE), Math.floor(z / TILE_SIZE)))?.grid?.query(x, z) ?? null;

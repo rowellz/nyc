@@ -4,11 +4,14 @@ import { pathToFileURL } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { encodeScenery, CHUNK_TILES, CHUNK_SIZE, SCENERY_VERSION } from '../../../static/world/assets/scenery-format.js';
+import { landmarkShell } from '../../../static/world/assets/landmark-shells.js';
 
 export async function sceneryTools(publicDir) {
   const polygon = await import(pathToFileURL(path.join(publicDir, 'world/assets/polygon-BtfRVykj.js')).href);
   const { buildingFoundation } = await import(pathToFileURL(path.join(publicDir, 'world/assets/foundations.js')).href);
-  return { normalize: polygon.i, simplify: polygon.l, triangulate: polygon.u, inside: polygon.o, foundation: buildingFoundation };
+  const styles = await import(pathToFileURL(path.join(publicDir, 'world/assets/styles-CD9VAM0e.js')).href);
+  const roofs = await import(pathToFileURL(path.join(publicDir, 'world/assets/builder-Ct8y1lc-.js')).href);
+  return { buildingParams: styles.i, seedOf: styles.p, roofMaterial: roofs.r, roofPalette: roofs.i, normalize: polygon.i, simplify: polygon.l, triangulate: polygon.u, inside: polygon.o, foundation: buildingFoundation };
 }
 
 export function sceneryChunks(keys) {
@@ -24,11 +27,12 @@ export function sceneryChunks(keys) {
 
 // Same scan-band land subtraction as the collision land mesh. In particular,
 // far ground never covers rivers, coastal water or holes in water polygons.
-export function landFaces(tile, inside) {
+export function landFaces(tile, inside, classifyParks = false) {
   const x0 = tile.tx * 256, x1 = x0 + 256, z0 = tile.tz * 256, z1 = z0 + 256;
   const cuts = new Set([z0, z1]);
   const edges = [{ x: () => x0, lo: z0, hi: z1 }, { x: () => x1, lo: z0, hi: z1 }];
-  for (const poly of tile.water ?? []) for (const ring of poly) for (let i = 0; i < ring.length; i++) {
+  const boundaries = [...(tile.water ?? []), ...(classifyParks ? tile.parks ?? [] : [])];
+  for (const poly of boundaries) for (const ring of poly) for (let i = 0; i < ring.length; i++) {
     const a = ring[i], b = ring[(i + 1) % ring.length];
     if (a[1] === b[1]) continue;
     const lo = Math.max(z0, Math.min(a[1], b[1])), hi = Math.min(z1, Math.max(a[1], b[1]));
@@ -44,14 +48,35 @@ export function landFaces(tile, inside) {
   }
   const bands = [...cuts].sort((a, b) => a - b), faces = [];
   const clamp = x => Math.max(x0, Math.min(x1, x));
+  let previous = new Map();
   for (let i = 1; i < bands.length; i++) {
     const lo = bands[i - 1], hi = bands[i], mid = (lo + hi) / 2;
     const active = edges.filter(e => e.lo <= mid && e.hi >= mid).sort((a, b) => a.x(mid) - b.x(mid));
+    const runs = [];
     for (let j = 1; j < active.length; j++) {
       const a = active[j - 1], b = active[j], x = (a.x(mid) + b.x(mid)) / 2;
       if (x <= x0 || x >= x1 || b.x(mid) - a.x(mid) < 1e-7 || (tile.water ?? []).some(p => inside(x, mid, p))) continue;
-      faces.push([[clamp(a.x(lo)), lo], [clamp(b.x(lo)), lo], [clamp(b.x(hi)), hi], [clamp(a.x(hi)), hi]]);
+      const face = [[clamp(a.x(lo)), lo], [clamp(b.x(lo)), lo], [clamp(b.x(hi)), hi], [clamp(a.x(hi)), hi]];
+      if (classifyParks) face.grass = (tile.parks ?? []).some(p => inside(x, mid, p));
+      const last = runs.at(-1);
+      if (classifyParks && last && last.grass === face.grass && Math.abs(last[1][0]-face[0][0])<1e-7 && Math.abs(last[2][0]-face[3][0])<1e-7) {
+        last[1]=face[1];last[2]=face[2];
+      } else runs.push(face);
     }
+    // Merge scan bands with collinear sides; distant parks need their outline,
+    // not the internal subdivisions introduced by every edge elsewhere in a tile.
+    const next = new Map();
+    const edgeKey = (a,b,grass) => `${a[0].toFixed(6)},${b[0].toFixed(6)},${grass}`;
+    const straight = (a,b,c) => Math.abs((b[0]-a[0])*(c[1]-a[1])-(c[0]-a[0])*(b[1]-a[1]))<1e-6;
+    for (const face of runs) {
+      const prior = classifyParks && previous.get(edgeKey(face[0],face[1],face.grass));
+      let merged = face;
+      if(prior && straight(prior[0],prior[3],face[3]) && straight(prior[1],prior[2],face[2])) {
+        prior[3]=face[3];prior[2]=face[2];merged=prior;
+      } else faces.push(face);
+      next.set(edgeKey(merged[3],merged[2],merged.grass),merged);
+    }
+    previous=next;
   }
   return faces;
 }
@@ -84,7 +109,7 @@ export function compileScenery(key, tiles, tier, tools) {
   };
   const seenBuildings = new Set();
   for (const tile of tiles) {
-    for (const quad of landFaces(tile, tools.inside)) face(layers[0], quad.slice().reverse().map(([x,z]) => [x, -0.15, z]), [92, 100, 87]);
+    for (const quad of landFaces(tile, tools.inside, true)) face(layers[0], quad.slice().reverse().map(([x,z]) => [x, -0.15, z]), quad.grass ? [0, 255, 0] : [255, 0, 0]);
     for (const road of tile.roads ?? []) {
       if (road.tunnel || (tier === 'far' && !['motorway','trunk','primary','secondary'].includes(road.cls))) continue;
       if (['footway','steps','path','cycleway'].includes(road.cls)) continue;
@@ -104,24 +129,54 @@ export function compileScenery(key, tiles, tier, tools) {
       if (tier === 'far' && h < 12) continue;
       let poly = tools.normalize(b.footprint);
       if (!poly) continue;
-      poly = tools.normalize(poly.map(r => tools.simplify(r, tier === 'far' ? 4 : .8))) ?? poly;
-      const y0 = tools.foundation(b), top = y0 + h;
+      const shell = landmarkShell(b.id, poly[0]);
+      if (!shell) poly = tools.normalize(poly.map(r => tools.simplify(r, tier === 'far' ? 4 : .8))) ?? poly;
+      const y0 = tools.foundation(b);
       const start = layers[2].index.length;
-      const tint = b.style === 'glass' ? [87,111,121] : b.style === 'brick' ? [135,105,89] : [157,151,137];
-      for (const ring of poly) for (let i=0; i<ring.length; i++) {
-        const a=ring[i], q=ring[(i+1)%ring.length];
-        face(layers[2], [[a[0],y0,a[1]],[a[0],top,a[1]],[q[0],top,q[1]],[q[0],y0,q[1]]], tint);
+      // Use the detailed baker's deterministic palettes, in linear vertex color space.
+      const seed = tools.seedOf(b.id), params = tools.buildingParams(b, seed);
+      const bytes = color => color.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255));
+      const tint = bytes(params.tint);
+      const roof = bytes(tools.roofPalette(seed, tools.roofMaterial(seed)));
+      for (const part of shell ?? [{ring:poly[0], holes:poly.slice(1), base:0, top:h}]) {
+        for (const ring of [part.ring, ...part.holes]) for (let i=0; i<ring.length; i++) {
+          const a=ring[i], q=ring[(i+1)%ring.length];
+          face(layers[2], [[a[0],y0+part.base,a[1]],[a[0],y0+part.top,a[1]],
+            [q[0],y0+part.top,q[1]],[q[0],y0+part.base,q[1]]], tint);
+        }
+        cap(layers[2], [part.ring,...part.holes], y0+part.top, roof);
       }
-      cap(layers[2], poly, top, [112,112,107]); buildings++;
+      buildings++;
       layers[2].features.push({ id:b.id, start, count:layers[2].index.length-start });
     }
     owner++;
   }
-  return { key, tier, ox, oz, tiles: tiles.map(t => t.key), buildings, layers: layers.filter(l => l.index.length) };
+  // Lightweight tree records travel with bounded scenery chunks, without loading
+  // distant road/building tiles or allocating their collision and detail meshes.
+  const treeTiles = tiles.map(tile => ({ key:tile.key, roads:[], parks:[], trees:(tile.trees ?? [])
+    .filter(t => [t.x,t.z,t.height,t.dbh].every(Number.isFinite))
+    .map(t => ({ x:t.x,z:t.z,height:t.height,dbh:t.dbh,species:t.species ?? 'tree',
+      park:(tile.parks ?? []).some(p => tools.inside(t.x,t.z,p)) })) }));
+  return { key, tier, ox, oz, tiles: tiles.map(t => t.key), treeTiles, buildings, layers: layers.filter(l => l.index.length) };
 }
 
 export async function readSceneryTiles(publicDir, keys) {
-  return Promise.all(keys.map(async key => JSON.parse(gunzipSync(await readFile(path.join(publicDir, `world/world/tiles/${key}.json.gz`))))));
+  const { alignStreetTrees } = await import('../../../static/world/assets/curb-placement.js');
+  // Use the same one-tile halo as the detailed tile service, including at LOD
+  // chunk boundaries, so trunks do not jump when their detailed pits load.
+  const wanted = new Set(keys), halo = new Set(keys);
+  for (const key of keys) {
+    const [tx,tz] = key.split('_').map(Number);
+    for(let x=tx-1;x<=tx+1;x++)for(let z=tz-1;z<=tz+1;z++)halo.add(`${x}_${z}`);
+  }
+  const tiles = (await Promise.all([...halo].map(async key => {
+    try { return JSON.parse(gunzipSync(await readFile(path.join(publicDir, `world/world/tiles/${key}.json.gz`)))); }
+    catch(error) { if(error.code==='ENOENT'&&!wanted.has(key))return null;throw error; }
+  }))).filter(Boolean);
+  return keys.map(key => {
+    const tile=tiles.find(t=>t.key===key);
+    return alignStreetTrees(tile,tiles.filter(t=>Math.abs(t.tx-tile.tx)<=1&&Math.abs(t.tz-tile.tz)<=1));
+  });
 }
 
 export async function prepareScenery(publicDir, output) {

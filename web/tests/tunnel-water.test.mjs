@@ -61,7 +61,7 @@ class Geometry {
   clone() { return new Geometry(this.attributes, this.index.array); }
   getAttribute(name) { return this.attributes[name]; }
   setAttribute(name, value) { this.attributes[name] = value; }
-  setIndex(value) { this.index.array = Uint32Array.from(value); }
+  setIndex(value) { this.index.array = Uint32Array.from(value.array ?? value); }
   computeBoundingSphere() {}
   dispose() {}
 }
@@ -70,11 +70,18 @@ const tile = { key: '16_-41', tx: 16, tz: -41, roads: [bore, approach] };
 const ctx = { world: { tiles: new Map([[tile.key, tile]]) },
   scene: { getObjectByName: name => name === 'env-water' ? water : null },
   physics: { ready: false } };
+water.parent = ctx.scene;
+const oldRAF = globalThis.requestAnimationFrame, frames = [];
+globalThis.requestAnimationFrame = callback => { frames.push(callback); return 1; };
 syncTunnelTerrain(ctx, tile);
+while (frames.length) frames.shift()();
 assert(!covered({ attributes: water.geometry.attributes, index: water.geometry.index.array }, 4240, -10400));
 ctx.world.tiles.clear();
 syncTunnelTerrain(ctx, tile);
+while (frames.length) frames.shift()();
 assert(covered({ attributes: water.geometry.attributes, index: water.geometry.index.array }, 4240, -10400));
+
+if (oldRAF === undefined) delete globalThis.requestAnimationFrame; else globalThis.requestAnimationFrame = oldRAF;
 
 const tiles = [];
 for (let x = 14; x <= 18; x++) for (let z = -42; z <= -40; z++) {

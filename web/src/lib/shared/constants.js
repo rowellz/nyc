@@ -21,13 +21,6 @@ export const PLAYER_MAX_HEALTH = 100;
 export const PLAYER_HEIGHT = 1.8;
 export const PLAYER_RADIUS = 0.35;
 
-export const SCORE = {
-  KILL: 100, ASSIST: 25, SURVIVE_PER_MINUTE: 2,
-  DISTANCE_DRIVEN_PER_KM: 5, DISTANCE_WALKED_PER_KM: 3,
-  NEIGHBORHOOD_DISCOVERED: 25, LANDMARK_DISCOVERED: 50,
-  LANDMARK_FIRST_FINDER: 250, WEAPON_FIRST_PICKUP: 10,
-};
-
 export const SPAWN_POINTS = [
   { ...lonLatToXZ(-73.98380, 40.75335), yawDeg: 30,  name: 'Bryant Park, 6th Ave side' },
   { ...lonLatToXZ(-73.98213, 40.75416), yawDeg: 210, name: 'Bryant Park, 42nd St side' },

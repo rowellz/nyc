@@ -1,8 +1,10 @@
-import {signData} from './sign-data.js?v=station-layout-32';
-import {passageVolume} from './enclosure.js?v=station-layout-32';
-import { metroNorthData } from './metro-north-data.js?v=station-layout-32';
-import { mappedData } from './mapped-data.js?v=station-layout-32';
-import {accessSurfaceHoles,accessWaterHoles,hubs} from './access.js?v=station-layout-32';
+import {compactFactor,trackOffset,clearanceHeight} from './corridor.js?v=rail-portal-guards-76';
+import {railClearance} from './clearance-data.js?v=rail-portal-guards-76';
+import {signData} from './sign-data.js?v=rail-portal-guards-76';
+import {passageVolume} from './enclosure.js?v=rail-portal-guards-76';
+import { metroNorthData } from './metro-north-data.js?v=rail-portal-guards-76';
+import { mappedData } from './mapped-data.js?v=rail-portal-guards-76';
+import {accessSurfaceHoles,accessWaterHoles,hubs} from './access.js?v=rail-portal-guards-76';
 // Rail corridors in the world's Bryant Park projection.
 // OSM supplies general track geometry; explicit corridor overrides are below.
 // Elevations and service are simulation data, not surveys or live timetables.
@@ -99,6 +101,8 @@ export function sample(route, distance, offset = 0) {
   return { x: lerp(a.x,b.x,t)-dz*offset, z: lerp(a.z,b.z,t)+dx*offset, y: route.height(s), dx, dz, s };
 }
 
+export function sampleTrack(route,distance,offset=0) { return sample(route,distance,trackOffset(route,distance,offset)); }
+
 export function stationAt(route, s) { return route.stations.find(p => Math.abs(p.s-s) <= (p.length??route.platformLength??PLATFORM_LENGTH)/2); }
 
 // A speed profile integrates constant acceleration, cruise, and braking exactly.
@@ -187,13 +191,43 @@ function setProfile(route, anchors) {
 }
 
 export const route = createRoute();
+// The Manhattan Valley portal is north of W 122nd St. Interpolating only
+// between 116th and 125th put its open trench through 121st/122nd, and the
+// emerging deck through 123rd. Our streets are flat: retain a buried bore
+// through those crossings, then rise in the long block before 125th.
+// These are simulation clearances, not surveyed elevations.
+const broadwayPortalApproach=nearestDistance(route.points,1864,-6437)+12;
+const broadwayProfile=route.stations.flatMap(station=>[
+  [station.s-PLATFORM_LENGTH/2-12,station.y],
+  [station.s+PLATFORM_LENGTH/2+12,station.y],
+]);
+broadwayProfile.push([broadwayPortalApproach,-7.5]);
+setProfile(route,broadwayProfile.sort((a,b)=>a[0]-b[0]));
 export const parkAvenue = mappedRoute('metro-north-park-avenue',metroNorthData.trunk,['1','4'],[-9,-3,3,9],{terminal:true});
 export const hudson = mappedRoute('metro-north-hudson',metroNorthData.hudson,['622','9','10','11','14'],[-9,-3]);
 export const harlem = mappedRoute('metro-north-harlem',metroNorthData.harlem,['54','55'],[3,9],{openCut:true});
 // East 97th Street/Park Avenue in the mirrored street projection. The bore roof
 // clears ground at this portal; the elevated deck is reached near 103rd Street.
-const portal=nearestDistance(parkAvenue.points,2645,-3707);
+// Include the far sidewalk, not only the road centre, in the covered crossing.
+const portal=nearestDistance(parkAvenue.points,2645,-3707)+25;
 setProfile(parkAvenue,[[0,-14],[portal-350,-14],[portal+490,8],[parkAvenue.length,8]]);
+// Retain the wider island platforms and branch junction, closing to 3.4 m
+// centres between stations. GTFS follows a service path, slightly west of the
+// street median; centre the compact corridor within the two carriageways.
+parkAvenue.compactTracks=true;
+for(const p of parkAvenue.points) {
+  const shift=1.8*compactFactor(parkAvenue,p.s);
+  p.x-=p.dz*shift;p.z+=p.dx*shift;
+}
+for(let i=0;i<parkAvenue.points.length;i++) {
+  const a=parkAvenue.points[Math.max(0,i-1)],b=parkAvenue.points[Math.min(parkAvenue.points.length-1,i+1)],d=Math.hypot(b.x-a.x,b.z-a.z);
+  parkAvenue.points[i].dx=(b.x-a.x)/d;parkAvenue.points[i].dz=(b.z-a.z)/d;
+}
+parkAvenue.obstacles=railClearance[parkAvenue.id]??[];
+parkAvenue.baseHeight=parkAvenue.height;
+parkAvenue.height=s=>clearanceHeight(parkAvenue.baseHeight,s,parkAvenue.obstacles);
+parkAvenue.points.forEach(p=>p.y=parkAvenue.height(p.s));
+
 const yankees=hudson.stations[0].s;
 setProfile(hudson,[[0,8],[yankees+110,8],[yankees+810,2],[hudson.length,2]]);
 setProfile(harlem,[[0,8],[100,8],[harlem.stations[0].s-110,-8],[harlem.length,-8]]);
@@ -224,8 +258,10 @@ export const mapStats=mappedData.stats;
 export const routes=[...authoredRoutes,...mappedRoutes];
 export const routeById=new Map(routes.map(r=>[r.id,r]));
 
-export function layout(route,station) {
-  const tracks=route.tracks??[-2,2];let min=Math.min(...tracks)-2.3,max=Math.max(...tracks)+2.3;
+export function layout(route,station,s=station?.s) {
+  const compact=Number.isFinite(s)?compactFactor(route,s):0;
+  const tracks=(route.tracks??[-2,2]).map(offset=>Number.isFinite(s)?trackOffset(route,s,offset):offset);
+  const margin=2.3-.65*compact;let min=Math.min(...tracks)-margin,max=Math.max(...tracks)+margin;
   const platforms=route.island?(route.mapped?(station?[station.offset]:[]):route.platformOffsets).map(offset=>({offset,width:2.8,edges:route.mapped?[offset-Math.sign(offset)*1.15]:[offset-1.15,offset+1.15]}))
     :[-1,1].map(side=>({offset:side*6.4,width:5.8,side,edges:[side*3.8]}));
   const hub=station&&hubs.get(station.key),direct=hub?.direct&&Number.isFinite(hub.platformWidth);
@@ -274,7 +310,7 @@ export function railPassageVolumes(a,b,owner=null) {
    const [p,q]=segment;
    if(Math.max(p.x,q.x)<Math.min(a.x,b.x)-25||Math.min(p.x,q.x)>Math.max(a.x,b.x)+25||Math.max(p.z,q.z)<Math.min(a.z,b.z)-25||Math.min(p.z,q.z)>Math.max(a.z,b.z)+25)continue;
    let volume=chamberCache.get(segment);
-   if(!volume){volume=splitStationSegments(item.route,[segment]).map(([p,q])=>{const l=layout(item.route,stationAt(item.route,(p.s+q.s)/2));return passageVolume(p,q,!item.route.island&&stationAt(item.route,(p.s+q.s)/2)?9.2:l.width/2-.05,-.5,5.15,l.center);});chamberCache.set(segment,volume);}
+   if(!volume){volume=splitStationSegments(item.route,[segment]).map(([p,q])=>{const l=layout(item.route,stationAt(item.route,(p.s+q.s)/2),(p.s+q.s)/2);return passageVolume(p,q,!item.route.island&&stationAt(item.route,(p.s+q.s)/2)?9.2:l.width/2-.05,-.5,5.15,l.center);});chamberCache.set(segment,volume);}
    result.push(...volume);
   }
  }
@@ -290,7 +326,7 @@ export function railPassageAt(owner,x,z,y) {
       const vx=b.x-a.x,vz=b.z-a.z,d=vx*vx+vz*vz,t=((x-a.x)*vx+(z-a.z)*vz)/(d||1);
       if(t<0||t>1)continue;
       const floor=lerp(a.y,b.y,t);if(y<floor-.2||y>floor+4.8)continue;
-      const offset=((z-a.z)*vx-(x-a.x)*vz)/Math.sqrt(d||1),station=stationAt(item.route,lerp(a.s,b.s,t)),l=layout(item.route,station);
+      const offset=((z-a.z)*vx-(x-a.x)*vz)/Math.sqrt(d||1),station=stationAt(item.route,lerp(a.s,b.s,t)),l=layout(item.route,station,lerp(a.s,b.s,t));
       if(l.tracks.some(track=>Math.abs(offset-track)<1.9)||l.platforms.some(p=>Math.abs(offset-p.offset)<p.width/2+.2))return true;
     }
   }
@@ -319,13 +355,25 @@ export function ringAt(a,b,width) {
   return [[a.x+a.dz*width,a.z-a.dx*width],[b.x+b.dz*width,b.z-b.dx*width],
     [b.x-b.dz*width,b.z+b.dx*width],[a.x-a.dz*width,a.z+a.dx*width]];
 }
+export function openPortal(route,a,b) {
+  return Math.min(a.y,b.y)<.3&&(route.openCut||a.structure==='cutting'||Math.max(a.y,b.y)>-5.5);
+}
 export const portalHoles = [];
 export const waterHoles = [];
 for(const r of routes) {
   const l=layout(r);
-  for(const [a,b] of [...r.segmentsByTile.values()].flat()) {
-    if(Math.min(a.y,b.y)<0.3&&(r.openCut||a.structure==='cutting'||Math.max(a.y,b.y)>-5.5))
-      portalHoles.push(ringAt(sample(r,a.s,l.center),sample(r,b.s,l.center),l.width/2+.2));
+  r.portalCaps=[];
+  for(let i=1;i<r.points.length;i++) {
+    const a=r.points[i-1],b=r.points[i];
+    if(openPortal(r,a,b)) {
+      // Only cap the buried end. The other end opens along the rising tracks.
+      if(i>1&&!openPortal(r,r.points[i-2],a)&&a.y< -5.5)r.portalCaps.push(a.s);
+      if(i+1<r.points.length&&!openPortal(r,b,r.points[i+1])&&b.y< -5.5)r.portalCaps.push(b.s);
+      const la=layout(r,null,a.s),lb=layout(r,null,b.s);
+      const pa=sample(r,a.s,la.center),pb=sample(r,b.s,lb.center),wa=la.width/2+.2,wb=lb.width/2+.2;
+      portalHoles.push([[pa.x+pa.dz*wa,pa.z-pa.dx*wa],[pb.x+pb.dz*wb,pb.z-pb.dx*wb],
+        [pb.x-pb.dz*wb,pb.z+pb.dx*wb],[pa.x-pa.dz*wa,pa.z+pa.dx*wa]]);
+    }
   }
   // Coarser water footprints keep clipping the city-wide plane inexpensive.
   for(let s=0;s<r.length;s+=50) {

@@ -1,4 +1,4 @@
-import {pathFrom,pathFloor} from './access-plan.js?v=station-layout-32';
+import {pathFrom,pathFloor} from './access-plan.js?v=rail-portal-guards-76';
 
 // Route a level passage around the occupied volumes of neighboring stair
 // flights. This runs before tile ownership, against the complete station plan.
