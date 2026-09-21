@@ -107,9 +107,18 @@ export function curbPlanner(tiles) {
 }
 const planners=new WeakMap();
 export function parkingOffset(tile,road,segment,d,side,width,length) {
-  let plan=planners.get(tile);
-  if(!plan){plan=curbPlanner([tile]);planners.set(tile,plan);}
-  return plan.parking(road,segment,d,side,width,length);
+  let entry=planners.get(tile);
+  if(!entry){entry={plan:curbPlanner([tile]),roads:new WeakMap()};planners.set(tile,entry);}
+  // The moving parking window revisits the same deterministic slots. Curb
+  // sampling depends only on this tile and the vehicle footprint, not camera
+  // position. Cache rejected slots too; they are often the most costly scans.
+  // Tile/road identity scopes the cache to resident data and invalidates it on
+  // replacement, even when the replacement has the same key or OSM road ID.
+  let offsets=entry.roads.get(road);
+  if(!offsets){offsets=new Map();entry.roads.set(road,offsets);}
+  const key=`${segment}:${d}:${side}:${width}:${length}`;
+  if(!offsets.has(key))offsets.set(key,entry.plan.parking(road,segment,d,side,width,length));
+  return offsets.get(key);
 }
 export function alignStreetTrees(tile,neighbors=[tile]) {
   if(!tile.trees?.length)return tile;

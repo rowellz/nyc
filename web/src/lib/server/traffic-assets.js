@@ -7,7 +7,7 @@ export function trafficAssetTransform(rel, source) {
     if (source.split(before).length !== 2) throw new Error(`Traffic override anchor changed in ${rel}: ${before}`);
     source = source.replace(before, after);
   };
-  source = "import { spawnTraffic as $spawnTraffic, trafficRadius as $trafficRadius, vehicleDrawDistance as $vehicleDrawDistance } from './traffic-distribution.js';\n" + source;
+  source = "import { spawnTraffic as $spawnTraffic, trafficRadius as $trafficRadius, vehicleDrawDistance as $vehicleDrawDistance, parkedDrawDistance as $parkedDrawDistance } from './traffic-distribution.js';\n" + source;
   source = "import { parkingOffset as $parkingOffset } from './curb-placement.js';\n" + source;
   replace('const offset = (r.width / 2 - PARKING_INSET) * side;',
     'const offset = $parkingOffset(tile, r, i, d, side, spec.width, spec.length); if (offset === null) continue;');
@@ -31,8 +31,8 @@ export function trafficAssetTransform(rel, source) {
   replace('$(e,C)<580**2&&x.push(e)', '$(e,C)<(t.quality.level===`mobile`?$parkingRange+60:580)**2&&x.push(e)');
   replace('I=!1}function ce(', 't.quality.level===`mobile`&&x.sort((a,b)=>$(a,C)-$(b,C));I=!1}function ce(');
   replace('for(let e of x)!_.has(e.key)&&(!n||$(e,t.camera.position)<=6400)&&he(e,0,0)',
-    'for(let e of x)!_.has(e.key)&&he(e,0,0)');
+    'for(let e of x)!_.has(e.key)&&$(e,t.camera.position)<=$parkingRange**2&&he(e,0,0)');
   // Rebuild the parked draw list immediately when the user changes range.
-  replace('I||$(C,t.camera.position)>2500', 'I||$parkingRange!==$vehicleDrawDistance(t)||$(C,t.camera.position)>2500');
+  replace('I||$(C,t.camera.position)>2500', 'I||$parkingRange!==$parkedDrawDistance(t)||$(C,t.camera.position)>2500');
   return source;
 }

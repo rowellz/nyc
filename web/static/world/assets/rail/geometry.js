@@ -2,7 +2,7 @@ import {platformSignInfo,combineSignInfo,paintSign,boardPosition} from './signs.
 import {panelMesh,wallPanel} from './enclosure.js?v=rail-portal-guards-76';
 import { g as BufferGeometry, h as BufferAttribute, kt as Mesh, Z as Group,
   Pt as MeshStandardMaterial, At as MeshBasicMaterial, y as CanvasTexture,
-  rt as InstancedMesh, Ot as Matrix4 } from '../textureRelease-2U-gT89r.js?v=mobile-facade-shortcut-84';
+  rt as InstancedMesh, Ot as Matrix4 } from '../textureRelease-2U-gT89r.js?v=parked-car-distance-86';
 import { route as defaultRoute, routeById, layout, sample, sampleTrack, stationAt, openPortal, railPassageVolumes, splitStationSegments, PLATFORM_LENGTH, TRAIN_CARS, CAR_LENGTH, CAR_SPACING } from './network.js?v=rail-portal-guards-76';
 import { supportPlanner } from '../supports.js';
 import {appendAccessGeometrySteps,platformOpening,platformStairAt,hubs,accessPassageVolumes,stationDestinations,transfers,accessesByStation} from './access.js?v=rail-chunk-pacing-79';

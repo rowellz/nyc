@@ -20,7 +20,7 @@
     "test:traffic": "node tests/traffic-distribution.test.mjs",
     "test:scenery": "node tests/scenery.test.mjs && node tests/scenery-handoff.test.mjs && node tests/scenery-transport.test.mjs && node tests/tree-lod.test.mjs && node tests/tree-pits.test.mjs && node tests/curb-placement.test.mjs",
     "test:scenery-browser": "node tests/scenery-browser.mjs",
-    "test:streaming": "node tests/predictive-streaming.test.mjs && node tests/driving-streaming.test.mjs && node tests/tile-requests.test.mjs && node tests/scene-compilation.test.mjs && node tests/mobile-chunk-pacing.test.mjs && node tests/highway-chunk-pacing.test.mjs",
+    "test:streaming": "node tests/predictive-streaming.test.mjs && node tests/driving-streaming.test.mjs && node tests/tile-requests.test.mjs && node tests/scene-compilation.test.mjs && node tests/mobile-chunk-pacing.test.mjs && node tests/highway-chunk-pacing.test.mjs && node tests/parking-streaming.test.mjs",
     "test:memory": "node tests/mobile-memory.test.mjs && node tests/geometry-residency.test.mjs && node tests/mobile-building-lod.test.mjs && node tests/renderer-diagnostics.test.mjs",
     "test:fps": "node tests/mobile-fps.test.mjs && node tests/mobile-preflight.test.mjs && node tests/mobile-facade.test.mjs && node tests/mobile-trees.test.mjs",
     "test:movement": "node tests/mobile-movement.test.mjs",

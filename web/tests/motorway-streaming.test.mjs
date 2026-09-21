@@ -117,10 +117,10 @@ assert.equal(own.revision, 0); assert.equal(neighbor.revision, 1); assert.equal(
 invalidation.Z(served); assert.equal(own.revision, 1, 'explicit tile replacements still rebuild');
 
 const vehicles = readFileSync(new URL('vehicles-_zJz3z3J.js', assets), 'utf8');
-const { vehicleDrawDistance } = await import('../static/world/assets/traffic-distribution.js');
+const { vehicleDrawDistance, parkedDrawDistance } = await import('../static/world/assets/traffic-distribution.js');
 let pathBuilds=0;
 const Roads = vm.runInNewContext(vehicles.slice(vehicles.indexOf('const node = (x'), vehicles.indexOf('const AVENUE_RADIUS')) + '\nRoads', {
-  $vehicleDrawDistance: vehicleDrawDistance,
+  $vehicleDrawDistance: vehicleDrawDistance, $parkedDrawDistance: parkedDrawDistance,
   isHighway: layout.isHighway, laneCount: layout.laneCount, laneWidth: layout.laneWidth,
   highwayLanePath: (...args)=>{pathBuilds++;return paths.highwayLanePath(...args);}, KINDS: { sedan: { width: 2, parkedWeight: 1 } },
   isIOS: () => true, TILE_SIZE: 256, removeBody() {},

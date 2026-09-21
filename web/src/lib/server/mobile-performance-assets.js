@@ -225,7 +225,7 @@ export function mobilePerformanceAssetTransform(rel, source) {
     // Moving the iPhone parking window used Roads.load(), tearing down every
     // lane and recomputing every highway path twice per resident tile.
     replace('if(n&&$(C,t.camera.position)>64)for(let e of t.world.tiles.values())i.load(e);',
-      'if(n&&($(C,t.camera.position)>64||$parkingRange!==$vehicleDrawDistance(t)))for(let e of t.world.tiles.values())i.refreshParking(e);$parkingRange=$vehicleDrawDistance(t);');
+      'if(n&&($(C,t.camera.position)>64||$parkingRange!==$parkedDrawDistance(t)))for(let e of t.world.tiles.values())i.refreshParking(e);$parkingRange=$parkedDrawDistance(t);');
     const start = source.indexOf("      if (!['primary', 'secondary', 'tertiary', 'residential'].includes(r.cls)");
     const end = source.indexOf('\n    }\n    this.refreshHighways();', start);
     if (start < 0 || end < start) throw new Error('Parking generator anchor changed');
@@ -243,7 +243,8 @@ export function mobilePerformanceAssetTransform(rel, source) {
     const camera = this.ctx.camera.position;
     const dx = Math.max(tile.tx * 256 - camera.x, 0, camera.x - (tile.tx + 1) * 256);
     const dz = Math.max(tile.tz * 256 - camera.z, 0, camera.z - (tile.tz + 1) * 256);
-    if (!isIOS() || dx * dx + dz * dz <= ($vehicleDrawDistance(this.ctx) + 64) ** 2) for (const r of tile.roads) {
+    // Retain a small buffer beyond the draw cutoff until the next refresh.
+    if (!isIOS() || dx * dx + dz * dz <= ($parkedDrawDistance(this.ctx) + 64) ** 2) for (const r of tile.roads) {
 ${parking}
     }
     for (const car of previous.values()) removeBody(this.ctx, car);
@@ -252,7 +253,7 @@ ${parking}
           refreshHighways()`);
     const near = '            if (isIOS() && (x - this.ctx.camera.position.x) ** 2 + (z - this.ctx.camera.position.z) ** 2 > 80 ** 2) continue;';
     replace(near, '');
-    replace("            if (tile.props.some(p => p.kind === 'hydrant'", near.replace('80 ** 2', '($vehicleDrawDistance(this.ctx) + 64) ** 2') + "\n            if (tile.props.some(p => p.kind === 'hydrant'");
+    replace("            if (tile.props.some(p => p.kind === 'hydrant'", near.replace('80 ** 2', '($parkedDrawDistance(this.ctx) + 64) ** 2') + "\n            if (tile.props.some(p => p.kind === 'hydrant'");
     replace('            const car = makeCar(`p:${r.id}:${seed}:${slot * 2 + (side === 1 ? 0 : 1)}`, kind, x, ground(this.ctx, x, z), z,',
       '            const carKey = `p:${r.id}:${seed}:${slot * 2 + (side === 1 ? 0 : 1)}`;\n            const car = previous.get(carKey) ?? makeCar(carKey, kind, x, ground(this.ctx, x, z), z,');
     replace('            record.parked.push(car);', '            previous.delete(car.key);\n            record.parked.push(car);');

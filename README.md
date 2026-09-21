@@ -180,12 +180,14 @@ OSM segments and follows curved lane paths when choosing spawn points. Camera
 views favor roads ahead without excluding the surrounding network. Vehicle mixes
 vary by road type, with fewer taxis and more passenger and delivery vehicles on
 highways. The rendering pools allow more simultaneous cars, including distant
-models on iOS. Mobile vehicle visibility reaches twice the detailed tile range:
+models on iOS. Moving traffic visibility reaches twice the detailed tile range:
 768 m on iPhone and 1,280 m on Android by default, capped at 1,200 / 1,600 m.
 The render-distance slider updates parked cars, moving traffic and their spawn
 radius live. Vehicles require resident road tiles, and traffic counts remain
-controlled by the traffic-density slider. Parked cars beyond iPhone's former
-80 m cutoff use simplified distant models; collision bodies remain local.
+controlled by the traffic-density slider. iPhone parked cars draw within 300 m
+(or the selected detailed range when lower), with a 64 m generation buffer for
+movement between refreshes. Other devices retain their previous parking range.
+Distant parked cars use simplified models; collision bodies remain local.
 Run `cd web && npm run test:traffic` for the Cross Bronx replay.
 
 Traffic signals group poles by road junction and level, so wide intersections
@@ -291,6 +293,13 @@ Run `cd web && npm run test:memory` for repeated landmark travel and resource
 disposal checks against the served client.
 
 ### Street furniture placement
+
+The moving iPhone parking window reuses curb offsets for deterministic parking
+slots, including rejected slots. Camera movement and driving no longer repeat
+the same sidewalk and bumper scans across every resident tile. The cache follows
+tile and road object lifetimes; replacement data gets fresh results. Run
+`node web/tests/parking-streaming.test.mjs` for a sixteen-tile Midtown replay
+covering movement, range changes, car identity and tile replacement.
 
 Signs, litter baskets and other sidewalk furniture are checked against surface
 road widths, intersection roadbed polygons and parking areas. Generated stop signs,

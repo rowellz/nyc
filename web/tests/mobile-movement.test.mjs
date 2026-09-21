@@ -3,14 +3,14 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { assets } from './sveltekit-assets.mjs';
 import { createMobileProps } from '../static/world/assets/mobile-props.js';
-import { vehicleDrawDistance } from '../static/world/assets/traffic-distribution.js';
+import { vehicleDrawDistance, parkedDrawDistance } from '../static/world/assets/traffic-distribution.js';
 import { parkingOffset } from '../static/world/assets/curb-placement.js';
 
 const bundle = readFileSync(new URL('vehicles-_zJz3z3J.js', assets), 'utf8');
 const roadsStart = bundle.indexOf('const node = (x'), roadsEnd = bundle.indexOf('const AVENUE_RADIUS', roadsStart);
 let highwayBuilds = 0, created = 0, removed = 0, insideChecks = 0, ios = true;
 const Roads = vm.runInNewContext(bundle.slice(roadsStart, roadsEnd) + '\nRoads', {
-  $vehicleDrawDistance: vehicleDrawDistance,
+  $vehicleDrawDistance: vehicleDrawDistance, $parkedDrawDistance: parkedDrawDistance,
   $parkingOffset: parkingOffset,
   isIOS: () => ios, TILE_SIZE: 256, isHighway: () => false,
   highwayLanePath: () => { highwayBuilds++; return null; },

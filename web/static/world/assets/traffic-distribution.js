@@ -6,6 +6,13 @@ export function vehicleDrawDistance(ctx) {
     : Math.min(640, quality.drawDistance);
 }
 
+/** Parked cars need a smaller window than moving traffic on iPhone. */
+export function parkedDrawDistance(ctx) {
+  return ctx.quality.level === 'mobile' && ctx.world?.ios
+    ? Math.min(300, ctx.quality.drawDistance, vehicleDrawDistance(ctx))
+    : vehicleDrawDistance(ctx);
+}
+
 export function trafficRadius(ctx) {
   if (ctx.quality.level === 'mobile') return Math.max(100, vehicleDrawDistance(ctx) - 30);
   return Math.max(100, Math.min(620, ctx.quality.drawDistance - 30));
