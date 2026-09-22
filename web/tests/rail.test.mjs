@@ -24,7 +24,8 @@ const { Z: Group, Or: Vector3 } = await import(new URL('textureRelease-2U-gT89r.
 assert.equal(route.stations.length, 13);
 assert(route.length > 8000);
 for (let s=0; s<route.length; s+=0.5) {
-  assert(Math.abs(route.height(s+0.5)-route.height(s))/0.5 <= 0.06001, 'bounded continuous grades');
+  const grade=Math.max(.06,...(route.portalGrades??[]).map(cap=>cap.grade));
+  assert(Math.abs(route.height(s+0.5)-route.height(s))/0.5 <= grade+.00001, 'bounded continuous grades');
 }
 for (const stop of route.stations) {
   assert(Math.hypot(sample(route,stop.s).x-stop.x,sample(route,stop.s).z-stop.z)<0.01);

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { sceneFrameClock } from './scene-frame-clock.mjs';
 import {readFileSync} from 'node:fs';
-import {compileRailMap,solveRailGrades,railStructure} from '../static/world/assets/rail/map-compiler.js';
+import {compileRailMap,solveRailGrades,railStructure,nearestRailPoint} from '../static/world/assets/rail/map-compiler.js';
 import {assets} from './sveltekit-assets.mjs';
 import {CLIENT_REVISION} from '../src/lib/server/client-cache.js';
 const rail=name=>new URL(`rail/${name}.js?v=${CLIENT_REVISION}`,assets);
-const {mappedRoutes,mapStats,routes,sample,layout,holesForTile,waterHolesForTiles}=await import(rail('network'));
+const {mappedRoutes,mapStats,routes,sample,layout,holesForTile,waterHolesForTiles,openPortal}=await import(rail('network'));
+const {railRoadClearance,railRoadTunnels}=await import(rail('road-clearance-data'));
 const {buildTrack,buildStation}=await import(rail('geometry'));
 const {installRail}=await import(rail('runtime'));
 const workerFootprints=await import(rail('footprints'));
@@ -41,7 +42,30 @@ for(const r of mappedRoutes)for(const s of r.stations)for(const distance of [s.s
 const source=JSON.parse(readFileSync(new URL('../static/world/assets/rail/map-features.json',import.meta.url)));
 for(const name of ['IRT Lexington Avenue Line','IND Eighth Avenue Line','IND Queens Boulevard Line'])assert(source.features.some(f=>f.tags.name===name),`import includes ${name}`);
 for(const r of mappedRoutes)for(let i=1;i<r.points.length;i++) {
- const p=r.points[i-1],q=r.points[i];assert(Math.abs(q.y-p.y)<=.05501*Math.hypot(q.x-p.x,q.z-p.z)+.00002,`${r.id} grade`);
+ const grade=Math.max(.055,...(r.portalGrades??[]).map(cap=>cap.grade));
+ assert(grade<=.13001,'portal descent stays within the simulation grade limit');
+ const p=r.points[i-1],q=r.points[i];assert(Math.abs(q.y-p.y)<=(grade+.00001)*Math.hypot(q.x-p.x,q.z-p.z)+.00002,`${r.id} grade`);
+}
+for(const r of routes)for(const [a,b] of railRoadTunnels[r.id]??[]) {
+ for(let distance=a;distance<=b;distance+=2)assert(r.height(distance)<=-6.499,`${r.id} bore stays below its indexed roadway`);
+ for(let i=1;i<r.points.length;i++)if(r.points[i-1].s<=b&&r.points[i].s>=a)
+  assert(!openPortal(r,r.points[i-1],r.points[i]),`${r.id} must retain paving above a covered road crossing, including open-cut routes`);
+}
+// Road ribbons under mapped bridges drive clearance across the whole River
+// Avenue corridor, including the earlier E 157th Street crossing.
+assert(Object.keys(railRoadClearance).length>50,'road clearance is indexed citywide');
+for(const r of routes)for(const [a,b] of railRoadClearance[r.id]??[])
+ for(const distance of [a,(a+b)/2,b])assert(r.height(distance)>=7.49,`${r.id} clears its indexed roadway`);
+const jerome=mappedRoutes.filter(r=>r.name==='IRT Jerome Avenue Line');
+for(const [name,x,z] of [['E 157th Street',4726,-7972],['River Avenue',4771,-8071],['E 161st Street',4827,-8202]]) {
+ let protectedTracks=0;
+ for(const r of jerome) {
+  const s=nearestRailPoint(r.points,x,z);
+  if(s.distance>=18)continue;
+  assert(r.height(s.s)>=7.49,`${r.id} clears ${name}`);
+  protectedTracks++;
+ }
+ assert.equal(protectedTracks,3,`all Jerome Avenue tracks clear ${name}`);
 }
 const station=mappedRoutes.flatMap(r=>r.stations.map(s=>({r,s}))).find(({s})=>s.name.includes('Astoria'));
 assert(station,'a station outside the authored corridors is generated from map features');

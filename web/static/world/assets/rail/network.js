@@ -1,10 +1,11 @@
-import {compactFactor,trackOffset,clearanceHeight} from './corridor.js?v=rail-portal-guards-76';
-import {railClearance} from './clearance-data.js?v=rail-portal-guards-76';
-import {signData} from './sign-data.js?v=rail-portal-guards-76';
-import {passageVolume} from './enclosure.js?v=rail-portal-guards-76';
-import { metroNorthData } from './metro-north-data.js?v=rail-portal-guards-76';
-import { mappedData } from './mapped-data.js?v=rail-portal-guards-76';
-import {accessSurfaceHoles,accessWaterHoles,hubs} from './access.js?v=rail-portal-guards-76';
+import {compactFactor,trackOffset,clearanceHeight,roadClearanceProfile,roadTunnelProfile,roadBoundsProfile,MAX_PORTAL_GRADE} from './corridor.js?v=rail-road-crossings-90';
+import {railClearance} from './clearance-data.js?v=rail-road-crossings-90';
+import {signData} from './sign-data.js?v=rail-road-crossings-90';
+import {passageVolume} from './enclosure.js?v=rail-road-crossings-90';
+import { metroNorthData } from './metro-north-data.js?v=rail-road-crossings-90';
+import { mappedData } from './mapped-data.js?v=rail-road-crossings-90';
+import {railRoadClearance,railRoadTunnels,railRoadPlans} from './road-clearance-data.js?v=rail-road-crossings-90';
+import {accessSurfaceHoles,accessWaterHoles,hubs} from './access.js?v=rail-road-crossings-90';
 // Rail corridors in the world's Bryant Park projection.
 // OSM supplies general track geometry; explicit corridor overrides are below.
 // Elevations and service are simulation data, not surveys or live timetables.
@@ -239,19 +240,69 @@ for(const branch of [hudson,harlem]) {
 }
 parkAvenue.bridgeSpans=[[nearestDistance(parkAvenue.points,...project(-73.9340,40.8112)),nearestDistance(parkAvenue.points,...project(-73.9318,40.8131))]];
 export const authoredRoutes=[route,parkAvenue,hudson,harlem];
+function applyRoadClearance(r,spans) {
+  r.roadBaseHeight=r.height;
+  r.roadBasePoints=r.points;
+  const plan=railRoadPlans[r.id];
+  if(!spans?.length&&!plan)return;
+  const stations=r.stations.map(st=>({...st,length:st.length??r.platformLength??PLATFORM_LENGTH}));
+  if(plan) {
+    r.points=r.points.map(p=>({...p}));
+    const interpolate=(points,s)=>{
+      let lo=0,hi=points.length-1;
+      while(lo+1<hi){const m=(lo+hi)>>1;if(points[m][0]<=s)lo=m;else hi=m;}
+      const a=points[lo],b=points[hi];return lerp(a[1],b[1],clamp((s-a[0])/(b[0]-a[0]||1),0,1));
+    };
+    r.height=roadBoundsProfile(s=>interpolate(plan.base,s),plan.bounds,plan.grade);
+    r.portalGrades=[{grade:MAX_PORTAL_GRADE}];
+    for(const p of r.points) {
+      const offset=interpolate(plan.offsets,p.s);
+      p.x-=p.dz*offset;p.z+=p.dx*offset;
+    }
+    r.points.forEach((p,i)=>{
+      const a=r.points[Math.max(0,i-1)],b=r.points[Math.min(r.points.length-1,i+1)],d=Math.hypot(b.x-a.x,b.z-a.z)||1;
+      p.dx=(b.x-a.x)/d;p.dz=(b.z-a.z)/d;
+    });
+  }else {
+    r.height=roadClearanceProfile(r.height,stations,spans);
+    if(railRoadTunnels[r.id]?.length) {
+      const profile=roadTunnelProfile(r.height,stations,spans,railRoadTunnels[r.id],r.length);
+      r.height=profile.height;r.portalGrades=profile.caps;
+    }
+  }
+  r.points.forEach(p=>p.y=r.height(p.s));
+  if(r.portalGrades?.length) {
+    // Keep the rendered deck/collider on the same descent as sampled trains,
+    // including where a buried-road bound meets the original smooth grade.
+    const refined=[r.points[0]];
+    const split=(a,b,depth=0)=>{
+      const error=Math.max(...[.25,.5,.75].map(t=>Math.abs(r.height(lerp(a.s,b.s,t))-lerp(a.y,b.y,t))));
+      if(error>.002&&depth<10&&b.s-a.s>.01) {
+        const mid=sample(r,(a.s+b.s)/2);mid.structure=a.structure;
+        split(a,mid,depth+1);split(mid,b,depth+1);
+      } else refined.push(b);
+    };
+    for(let i=1;i<r.points.length;i++)split(r.points[i-1],r.points[i]);
+    r.points=refined;
+  }
+  r.stations.forEach(st=>st.y=r.height(st.s));
+}
+for(const r of authoredRoutes)applyRoadClearance(r,railRoadClearance[r.id]);
 export const mappedRoutes=mappedData.routes.map(data=>{
   const points=data.points.map(([x,z,y,s,structure])=>({x,z,y,s,structure:['surface','tunnel','bridge','cutting'][structure]}));
   for(let i=0;i<points.length;i++) {
     const a=points[Math.max(0,i-1)],b=points[Math.min(points.length-1,i+1)],d=Math.hypot(b.x-a.x,b.z-a.z)||1;
     points[i].dx=(b.x-a.x)/d;points[i].dz=(b.z-a.z)/d;
   }
-  const r={...data,mapped:true,points,tracks:[0],platformOffsets:[],island:true,platformLength:200,
+  const r={...data,stations:data.stations.map(st=>({...st})),mapped:true,points,tracks:[0],platformOffsets:[],island:true,platformLength:200,
     label:data.kind==='subway'?'S':'R',color:data.kind==='subway'?'#555e68':'#0039a6'};
+  const basePoints=points.map(p=>({s:p.s,y:p.y}));
   r.height=s=>{
-    let lo=0,hi=points.length-1;
-    while(lo+1<hi){const m=(lo+hi)>>1;if(points[m].s<=s)lo=m;else hi=m;}
-    const a=points[lo],b=points[hi];return lerp(a.y,b.y,clamp((s-a.s)/(b.s-a.s||1),0,1));
+    let lo=0,hi=basePoints.length-1;
+    while(lo+1<hi){const m=(lo+hi)>>1;if(basePoints[m].s<=s)lo=m;else hi=m;}
+    const a=basePoints[lo],b=basePoints[hi];return lerp(a.y,b.y,clamp((s-a.s)/(b.s-a.s||1),0,1));
   };
+  applyRoadClearance(r,railRoadClearance[r.id]);
   return r;
 });
 export const mapStats=mappedData.stats;
@@ -355,8 +406,11 @@ export function ringAt(a,b,width) {
   return [[a.x+a.dz*width,a.z-a.dx*width],[b.x+b.dz*width,b.z-b.dx*width],
     [b.x-b.dz*width,b.z+b.dx*width],[a.x-a.dz*width,a.z+a.dx*width]];
 }
+export function roadTunnelAt(route,a,b) {
+  return Math.max(a.y,b.y)<-5.7&&(railRoadTunnels[route.id]??[]).some(([start,end])=>a.s<=end&&b.s>=start);
+}
 export function openPortal(route,a,b) {
-  return Math.min(a.y,b.y)<.3&&(route.openCut||a.structure==='cutting'||Math.max(a.y,b.y)>-5.5);
+  return !roadTunnelAt(route,a,b)&&Math.min(a.y,b.y)<.3&&(route.openCut||a.structure==='cutting'||Math.max(a.y,b.y)>-5.5);
 }
 export const portalHoles = [];
 export const waterHoles = [];

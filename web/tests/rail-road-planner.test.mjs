@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import {planRoadCrossings,roadBoundsProfile,MAX_PORTAL_GRADE} from '../static/world/assets/rail/corridor.js';
+
+const length=520,base=s=>8-20*s/length;
+const stations=[{s:60,length:80,y:8},{s:480,length:40,y:-12}];
+const crossings=[[130,150],[210,230],[370,390]];
+const bounds=planRoadCrossings(base,stations,crossings,length);
+assert(bounds,'a portal fits after two closely spaced elevated crossings');
+const height=roadBoundsProfile(base,bounds);
+for(const [a,b] of crossings)for(let s=a;s<=b;s++)assert(height(s)>=7.5-1e-6||height(s)<=-6.5+1e-6);
+assert(height(140)>=7.5);assert(height(220)>=7.5);assert(height(380)<=-6.5);
+for(const st of stations)for(let s=st.s-st.length/2;s<=st.s+st.length/2;s++)assert.equal(height(s),st.y);
+for(let s=0;s<length;s+=.25)assert(Math.abs(height(s+.25)-height(s))<=MAX_PORTAL_GRADE*.25+1e-6);
+const reverse=s=>base(length-s),reverseStations=stations.map(st=>({...st,s:length-st.s}));
+const reverseBounds=planRoadCrossings(reverse,reverseStations,crossings.map(([a,b])=>[length-b,length-a]),length);
+assert(reverseBounds,'both track directions find a feasible portal');
+const reverseHeight=roadBoundsProfile(reverse,reverseBounds);
+for(const [a,b] of crossings)for(let s=a;s<=b;s++)assert(reverseHeight(length-s)>=7.5-1e-6||reverseHeight(length-s)<=-6.5+1e-6);
+assert.equal(planRoadCrossings(base,stations,[[130,440]],length),null,'continuous roadway cannot contain a portal between fixed station levels');
+console.log('PASS generic crossing selection, both directions, flat stations, bounded grade and infeasible corridors');

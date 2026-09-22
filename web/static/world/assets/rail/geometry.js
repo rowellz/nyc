@@ -1,9 +1,9 @@
-import {platformSignInfo,combineSignInfo,paintSign,boardPosition} from './signs.js?v=rail-portal-guards-76';
-import {panelMesh,wallPanel} from './enclosure.js?v=rail-portal-guards-76';
+import {platformSignInfo,combineSignInfo,paintSign,boardPosition} from './signs.js?v=rail-road-crossings-90';
+import {panelMesh,wallPanel} from './enclosure.js?v=rail-road-crossings-90';
 import { g as BufferGeometry, h as BufferAttribute, kt as Mesh, Z as Group,
   Pt as MeshStandardMaterial, At as MeshBasicMaterial, y as CanvasTexture,
-  rt as InstancedMesh, Ot as Matrix4 } from '../textureRelease-2U-gT89r.js?v=parked-car-distance-86';
-import { route as defaultRoute, routeById, layout, sample, sampleTrack, stationAt, openPortal, railPassageVolumes, splitStationSegments, PLATFORM_LENGTH, TRAIN_CARS, CAR_LENGTH, CAR_SPACING } from './network.js?v=rail-portal-guards-76';
+  rt as InstancedMesh, Ot as Matrix4 } from '../textureRelease-2U-gT89r.js?v=rail-road-crossings-90';
+import { route as defaultRoute, routeById, layout, sample, sampleTrack, stationAt, openPortal, roadTunnelAt, railPassageVolumes, splitStationSegments, PLATFORM_LENGTH, TRAIN_CARS, CAR_LENGTH, CAR_SPACING } from './network.js?v=rail-road-crossings-90';
 import { supportPlanner } from '../supports.js';
 import {appendAccessGeometrySteps,platformOpening,platformStairAt,hubs,accessPassageVolumes,stationDestinations,transfers,accessesByStation} from './access.js?v=rail-chunk-pacing-79';
 
@@ -136,7 +136,7 @@ export function* buildTrackSteps(segments, roads = [], route=defaultRoute, mobil
     const accessStation=station??entrances.find(e=>mid>=e.start-3&&mid<=e.end+3)?.station;
     const l=layout(route,accessStation,mid),la=layout(route,accessStation,a.s),lc=layout(route,accessStation,c.s);
     const cuts=[...accessPassageVolumes(a,c),...(route.mapped?railPassageVolumes(a,c,route):[])];
-    const underground=p.y<0&&!route.openCut&&a.structure!=='cutting';
+    const underground=p.y<0&&((!route.openCut&&a.structure!=='cutting')||roadTunnelAt(route,a,c));
     // A continuous invert seals the gaps between ballast, platforms and walls.
     if(underground)b.panel(framedRoof(a,c,la.min-.4,la.max+.4,-.65,lc.min-.4,lc.max+.4),.3,'concrete',accessPassageVolumes(a,c));
     const stairwell=entrances.filter(e=>e.island&&mid>=e.start-3&&mid<=e.end+3);

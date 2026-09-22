@@ -1,5 +1,5 @@
 import { cutGround } from '../tunnels.js';
-import { holesForTile } from './footprints.js?v=rail-portal-guards-76';
+import { holesForTile } from './footprints.js?v=rail-road-crossings-90';
 
 /** Cut only street-level paving. An independent bridge above a rail portal
  * keeps its deck and collider. Interpolate every packed material attribute. */

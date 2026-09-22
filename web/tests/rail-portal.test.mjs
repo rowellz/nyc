@@ -5,10 +5,49 @@ import vm from 'node:vm';
 import {assets} from './sveltekit-assets.mjs';
 import {CLIENT_REVISION} from '../src/lib/server/client-cache.js';
 const rail=name=>new URL(`rail/${name}.js?v=${CLIENT_REVISION}`,assets);
-const {parkAvenue:r,sample,layout,route:broadway}=await import(rail('network'));
+const {parkAvenue:r,sample,layout,route:broadway,routes,mappedRoutes,openPortal}=await import(rail('network'));
+const {railRoadTunnels}=await import(rail('road-clearance-data'));
+const {nearestRailPoint}=await import(rail('map-compiler'));
 const {buildTrack}=await import(rail('geometry'));
 const {triangleHeight}=await import(new URL('supports.js',assets));
 const tile=JSON.parse(gunzipSync(readFileSync(new URL('../../public/world/world/tiles/10_-15.json.gz',import.meta.url))));
+
+// Gerard Avenue must pass over a covered bore, including its full carriageway.
+const gerardTile=JSON.parse(gunzipSync(readFileSync(new URL('../../public/world/world/tiles/18_-31.json.gz',import.meta.url))));
+const jerome=mappedRoutes.filter(route=>route.name==='IRT Jerome Avenue Line');
+let coveredSamples=0;
+for(const road of gerardTile.roads.filter(road=>road.name==='Gerard Avenue'))for(let i=1;i<road.pts.length;i++) {
+ const [a,b]=[road.pts[i-1],road.pts[i]],length=Math.hypot(b[0]-a[0],b[1]-a[1]);
+ for(let d=0;d<=length;d+=2) {
+  const t=d/(length||1),x=a[0]+(b[0]-a[0])*t,z=a[1]+(b[1]-a[1])*t;
+  if(z< -7850||z> -7720)continue;
+  for(const route of jerome) {
+   const q=nearestRailPoint(route.points,x,z);
+   if(q.distance>road.width/2+2.5)continue;
+   assert(route.height(q.s)+5.525<-.5,'the full tunnel roof is buried below Gerard');
+   const before=route.points[q.i-1],after=route.points[q.i];
+   assert(!openPortal(route,before,after),'Gerard is not cut into an open rail trench');
+   coveredSamples++;
+  }
+ }
+}
+assert(coveredSamples>20,'check all three tracks across the actual Gerard carriageway');
+
+// A road over a formerly open cutting needs a physical bore roof as well as
+// intact paving. Height constraints alone must not leave the trench open.
+let coveredCuttings=0;
+for(const route of routes)for(const [start,end] of railRoadTunnels[route.id]??[]) {
+ const pair=[...route.segmentsByTile.values()].flat().find(([a,b])=>a.s>=start&&b.s<=end&&(route.openCut||a.structure==='cutting'));
+ if(!pair)continue;
+ const s=(pair[0].s+pair[1].s)/2,p=sample(route,s,layout(route,null,s).center),mesh=buildTrack([pair],[],route,true).collision;
+ let roof=false;
+ for(let i=0;i<mesh.index.length;i+=3) {
+  const hit=triangleHeight([0,1,2].map(j=>mesh.position.slice(mesh.index[i+j]*3,mesh.index[i+j]*3+3)),p.x,p.z);
+  if(hit?.inside&&hit.height>p.y+5&&hit.height<p.y+5.6)roof=true;
+ }
+ assert(roof,`${route.id}: protected cutting has a rendered and collidable roof`);coveredCuttings++;
+}
+assert(coveredCuttings>=3);
 
 // Exercise the served worker on the actual 97th Street sidewalk polygons.
 let response;

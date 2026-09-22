@@ -1,6 +1,6 @@
-import {passageVolume,wallPanel,roofPanel} from './enclosure.js?v=rail-portal-guards-76';
-import {accessData} from './access-data.js?v=rail-portal-guards-76';
-import {onPath,pathFrom,pathFloor,accessRing} from './access-plan.js?v=rail-portal-guards-76';
+import {passageVolume,wallPanel,roofPanel} from './enclosure.js?v=rail-road-crossings-90';
+import {accessData} from './access-data.js?v=rail-road-crossings-90';
+import {onPath,pathFrom,pathFloor,accessRing} from './access-plan.js?v=rail-road-crossings-90';
 export const hubs=new Map(accessData.hubs.map(h=>[h.stationKey,h]));
 const pathsForHub=h=>[...(h.direct?[]:[h.path]),...(h.branches??[]).map(b=>b.path),...(h.links??[])];
 export const transfers=accessData.transfers??[];

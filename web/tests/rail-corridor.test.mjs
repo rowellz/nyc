@@ -73,7 +73,9 @@ for(const obstacle of obstacles) {
   }
  }
 }
-for(let s=0;s<r.length;s+=.5)assert(Math.abs(r.height(s+.5)-r.height(s))/.5<=.06001);
+const maxGrade=Math.max(.06,...(r.portalGrades??[]).map(cap=>cap.grade));
+assert(maxGrade<=.13,'road-constrained portals retain the simulation grade limit');
+for(let s=0;s<r.length;s+=.5)assert(Math.abs(r.height(s+.5)-r.height(s))/.5<=maxGrade+.00001);
 const synthetic=[{start:100,end:150,height:12,approach:400}];
 assert.equal(clearanceHeight(()=>0,125,synthetic),12);
 assert.equal(clearanceHeight(()=>0,-300,synthetic),0);

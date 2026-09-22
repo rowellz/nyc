@@ -61,8 +61,50 @@ const geometry=buildTrack(segments,[],route,true).collision;
 for(let s=route.stations[10].s+72;s<route.stations[11].s-72;s+=9) {
  const p=sample(route,s,2);
  assert(covered(geometry.position,geometry.index,p.x,p.z,p.y-.14),'ballast collision follows the approach');
- assert(Math.abs(route.height(s+.5)-route.height(s))/.5<=.06001,'grade stays under 6%');
+ const grade=Math.max(.06,...(route.portalGrades??[]).map(cap=>cap.grade));
+ assert(Math.abs(route.height(s+.5)-route.height(s))/.5<=grade+.00001,'grade fits the road-constrained portal');
 }
 assert.equal(route.stations[10].y,-12);
 assert.equal(route.stations[11].y,8);
 console.log(`PASS Broadway approach: ${samples} real crossing samples, intact paving, buried roofs, matching worker cutouts and track collision`);
+
+// The northern descent used to skip W 133rd because its original height was
+// neither an elevated bridge nor a fully buried tunnel. Check the whole bore
+// width against both Broadway carriageways, as well as the cross streets.
+const northRoads=new Map();
+for(let x=8;x<=10;x++)for(let z=-30;z<=-28;z++) {
+ const tile=JSON.parse(gunzipSync(readFileSync(new URL(`../../public/world/world/tiles/${x}_${z}.json.gz`,import.meta.url))));
+ for(const road of tile.roads??[])if(road.name==='Broadway'||/^West (13[2356])(?:rd|nd|th) Street$/.test(road.name))northRoads.set(road.id,road);
+}
+const northCrossings=new Set();let northSamples=0;
+for(const road of northRoads.values())for(let i=1;i<road.pts.length;i++) {
+ const a=road.pts[i-1],b=road.pts[i],dx=b[0]-a[0],dz=b[1]-a[1],length=Math.hypot(dx,dz),near=[];
+ for(let s=route.stations[11].s+72;s<route.stations[12].s-72;s+=1) {
+  const l=layout(route,null,s);
+  for(const offset of [l.min-.4,0,l.max+.4]) {
+   const p=sample(route,s,offset),along=((p.x-a[0])*dx+(p.z-a[1])*dz)/length;
+   const across=((p.z-a[1])*dx-(p.x-a[0])*dz)/length;
+   if(along<0||along>length||Math.abs(across)>road.width/2)continue;
+   assert(p.y<=-6.499||p.y>=7.499,`${road.name}: no rail walls or deck in roadway at ${s} (height ${p.y})`);
+   if(road.name==='West 133rd Street')assert(p.y>=7.499,'tracks stay above the entire W 133rd crossing');
+   if(road.name==='West 135th Street')assert(p.y<=-6.499,'descent finishes before W 135th');
+   near.push(p);northCrossings.add(road.name);northSamples++;
+  }
+ }
+ if(!near.length)continue;
+ const normal=[-dz/length*road.width/2,dx/length*road.width/2];
+ const position=Float32Array.from([a,b,b,a].flatMap((p,j)=>[p[0]+normal[0]*(j<2?1:-1),.025,p[1]+normal[1]*(j<2?1:-1)]));
+ const index=[0,1,2,0,2,3],holes=[...new Set(near.flatMap(p=>holesForTile({tx:Math.floor(p.x/256),tz:Math.floor(p.z/256)})))];
+ const cut=cutSurface({position:{array:position,itemSize:3}},index,holes);
+ for(const p of near)assert(covered(cut?.attributes.position.array??position,cut?.index??index,p.x,p.z,.025),`${road.name}: portal leaves road paving and collision intact`);
+}
+for(const name of ['Broadway','West 132nd Street','West 133rd Street','West 135th Street','West 136th Street'])assert(northCrossings.has(name));
+assert(northSamples>100);
+const northSegments=[...route.segmentsByTile.values()].flat().filter(([a,b])=>a.s<route.stations[12].s-72&&b.s>route.stations[11].s+72);
+const northGeometry=buildTrack(northSegments,[],route,true).collision;
+for(let s=route.stations[11].s+72;s<route.stations[12].s-72;s+=9) {
+ const p=sample(route,s,2);
+ assert(covered(northGeometry.position,northGeometry.index,p.x,p.z,p.y-.14),'northern train path matches deck collision');
+}
+assert.equal(route.stations[12].y,-12);
+console.log(`PASS Broadway northern portal: ${northSamples} road samples, full structure clearance, continuous paving and matching collision`);

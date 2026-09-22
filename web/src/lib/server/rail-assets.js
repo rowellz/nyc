@@ -41,7 +41,7 @@ export function railAssetTransform(rel, source) {
   } else if (rel.endsWith('/vehicles-_zJz3z3J.js')) {
     replace('function de(){let e=t.now??0;', 'function de(){if(t.modules.get("rail")?.controlsInteraction())return;let e=t.now??0;');
   } else if (rel.endsWith('/props-coU--UuE.js')) {
-    source="import { functionalEntrance as $functionalEntrance, entranceYaw as $entranceYaw, entranceClosed as $entranceClosed } from './rail/access.js?v=rail-portal-guards-76';\n"+source;
+    source="import { functionalEntrance as $functionalEntrance, entranceYaw as $entranceYaw, entranceClosed as $entranceClosed } from './rail/access.js?v=rail-road-crossings-90';\n"+source;
     replace('case`subway_entrance`:{let e=$(t.roads,l);e&&(f=Math.atan2(-e.dz,e.dx));',
       'case`subway_entrance`:{let e=$(t.roads,l);e&&(f=Math.atan2(-e.dz,e.dx));f=$entranceYaw(l.x,l.z)??f;');
     replace('v(`stairwell`,0,.025)', '(!$functionalEntrance(l.x,l.z)&&v(`stairwell`,0,.025))');

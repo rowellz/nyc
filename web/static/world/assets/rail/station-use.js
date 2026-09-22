@@ -1,6 +1,6 @@
-import {accessesByStation,hubs,entranceDestinations} from './access.js?v=rail-portal-guards-76';
-import {pathFrom,onPath,pathFloor} from './access-plan.js?v=rail-portal-guards-76';
-import {sample,sampleTrack,trainState,CAR_SPACING,TRAIN_CARS} from './network.js?v=rail-portal-guards-76';
+import {accessesByStation,hubs,entranceDestinations} from './access.js?v=rail-road-crossings-90';
+import {pathFrom,onPath,pathFloor} from './access-plan.js?v=rail-road-crossings-90';
+import {sample,sampleTrack,trainState,CAR_SPACING,TRAIN_CARS} from './network.js?v=rail-road-crossings-90';
 export function boardingDoor(item,state,position) {
  if(!state.doors||!state.station)return null;
  const offset=item.service.tracks[item.schedule.direction],side=Math.sign(state.station.offset??item.service.doors[item.schedule.direction]);

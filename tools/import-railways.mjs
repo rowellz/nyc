@@ -24,6 +24,8 @@ const platforms=spawnSync(process.execPath,[new URL('tools/refine-rail-platforms
 if(platforms.status!==0)throw Error('Platform level refinement failed');
 const signs=spawnSync(process.execPath,[new URL('tools/index-subway-signs.mjs',root).pathname,process.argv[2]],{stdio:'inherit'});
 if(signs.status!==0)throw Error('Subway service sign generation failed');
+const roadClearance=spawnSync(process.execPath,[new URL('tools/index-rail-road-clearance.mjs',root).pathname],{stdio:'inherit'});
+if(roadClearance.status!==0)throw Error('Rail road clearance generation failed');
 const access=spawnSync(process.execPath,[new URL('tools/index-station-access.mjs',root).pathname],{stdio:'inherit'});
 if(access.status!==0)throw Error('Station access generation failed');
 const footprints=spawnSync(process.execPath,[new URL('tools/index-rail-footprints.mjs',root).pathname],{stdio:'inherit'});
