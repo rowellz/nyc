@@ -16,6 +16,33 @@ docker compose up --build
 `web` is a SvelteKit app that serves the client, the tiles, the REST API, its
 own pages and the authoritative game loop from one process.
 
+### Geographic elevation
+
+The city includes a bundled 64 m terrain height grid derived from
+[Mapzen Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) and USGS
+3DEP. Elevation is in metres; negative samples are clamped to the existing
+sea-level ground datum, with the water surface remaining at -1.6 m. The map
+requires no external requests or API key during play. Source tile URLs, checksums,
+and processing details are recorded in `web/static/world/elevation-sources.json`.
+3DEP terrain data courtesy of the U.S. Geological Survey.
+
+Nearby terrain, streets, sidewalks, and their colliders use the same triangulated
+height field. Geometry crossing height-grid edges is split before elevation is
+applied, so adjoining tiles and support queries agree. Buildings retain level
+floors and roofs, with foundation skirts extending down to their lots. Distant
+scenery, trees, grass, props, landmark models, spawn points, and rail geometry
+also receive elevation. Rail and road construction keeps its existing local
+height offsets, then converts to terrain elevation when publishing geometry;
+station support, passengers, and train positions use the same conversion.
+
+This is coarse geographic terrain, not surveyed street or railway grades.
+Existing bridge/tunnel clearances remain synthetic, and custom landmarks use
+a single foundation height. Regenerate the offline grid with
+`node tools/import-elevation.mjs` (network access required only for uncached
+source tiles). Run `npm --prefix web run test:elevation` for height sampling,
+tile seams, terrain openings, rendered/collidable paving, a real hill tile,
+and rail publication. Rebuild prepared scenery when deploying this change.
+
 ---
 
 ## What this contains

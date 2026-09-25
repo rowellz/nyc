@@ -24,7 +24,7 @@ export function createRailBudget(ctx, openings) {
   }
   return (candidates, resident) => {
     if(!mobile)return new Set(candidates.map(job=>job.id));
-    const camera=ctx.camera.position,tx=Math.floor(camera.x/128),tz=Math.floor(camera.z/128);
+    const p=ctx.camera.position,camera={x:p.x,y:p.y-(ctx.terrainHeight?.(p.x,p.z)??0),z:p.z},tx=Math.floor(camera.x/128),tz=Math.floor(camera.z/128);
     let entranceDistance=Infinity;
     if(camera.y<24)for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++)
       for(const p of buckets.get(`${tx+dx}_${tz+dz}`)??[])

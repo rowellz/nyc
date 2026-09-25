@@ -1,11 +1,11 @@
-import { Z as Group } from '../textureRelease-2U-gT89r.js?v=rail-road-crossings-90';
-import { route, routes, services, layout, sample, sampleTrack, tileKey, timetable, trainState, TRAIN_LENGTH, surfaceHoles } from './network.js?v=rail-road-crossings-90';
-import { buildTrack, buildStation, buildTrackSteps, buildStationSteps, stationSign, materials, trainModel, stairHeight } from './geometry.js?v=rail-chunk-pacing-79';
-import { t as buildScope } from '../loading-DS_gLujL.js?v=rail-road-crossings-90';
-import {functionalEntrance,entranceYaw,entranceClosed,accessesByStation,hubs,stationPaths,accessSupport,platformOpening,platformFloorOpening} from './access.js?v=rail-road-crossings-90';
-import {createStationUse} from './station-use.js?v=rail-road-crossings-90';
-import {onPath} from './access-plan.js?v=rail-road-crossings-90';
-import {createRailBudget,railBounds} from './mobile-budget.js?v=mobile-rail-budget-55';
+import { Z as Group } from '../textureRelease-2U-gT89r.js?v=terrain-elevation-92';
+import { route, routes, services, layout, sample, sampleTrack, tileKey, timetable, trainState, TRAIN_LENGTH, surfaceHoles } from './network.js?v=terrain-elevation-92';
+import { buildTrack, buildStation, buildTrackSteps, buildStationSteps, stationSign, materials, trainModel, stairHeight } from './geometry.js?v=terrain-elevation-92';
+import { t as buildScope } from '../loading-DS_gLujL.js?v=terrain-elevation-92';
+import {functionalEntrance,entranceYaw,entranceClosed,accessesByStation,hubs,stationPaths,accessSupport,platformOpening,platformFloorOpening} from './access.js?v=terrain-elevation-92';
+import {createStationUse} from './station-use.js?v=terrain-elevation-92';
+import {onPath} from './access-plan.js?v=terrain-elevation-92';
+import {createRailBudget,railBounds} from './mobile-budget.js?v=terrain-elevation-92';
 
 function project(p,a,b) {
   const dx=b.x-a.x,dz=b.z-a.z,d=dx*dx+dz*dz;
@@ -17,6 +17,7 @@ const trackKey=(route,key)=>`${route.id}:${key}`;
 
 export function installRail(ctx) {
   if(ctx.modules.has('rail'))return ctx.modules.get('rail');
+  const height=ctx.terrainHeight??(()=>0);
   const root=new Group();root.name='rail';ctx.worldGroup.add(root);
   const mobile=ctx.quality.level==='mobile';
   const mats=materials(),models={subway:trainModel(mats,'subway',mobile),commuter:trainModel(mats,'commuter',mobile)};
@@ -49,7 +50,7 @@ export function installRail(ctx) {
       jobs.set(job.id,job);stationJobs.push(job);
     }
   }
-  function publish(builder,name,group=builder.build(mats)) {
+  function publish(builder,name,group=builder.build(mats,!!ctx.terrainHeight)) {
     group.name=name;
     const {position,index}=builder.collision;
     if(index.length) {
@@ -87,8 +88,8 @@ export function installRail(ctx) {
         try {
           const roads=job.station?[]:[...new Map([...ctx.world.tiles.values()].flatMap(tile=>tile.streetContext?.roads??tile.roads??[]).map(road=>[road.id,road])).values()];
           const builder=yield* (job.station?buildStationSteps(job.station,job.route):buildTrackSteps(job.segments,roads,job.route,true));
-          group=yield* builder.buildSteps(mats);
-          if(job.station){sign=stationSign(job.station,mats,job.route);group.add(sign.group);yield;}
+          group=yield* builder.buildSteps(mats,!!ctx.terrainHeight);
+          if(job.station){sign=stationSign(job.station,mats,job.route);sign.group.position.y=height(job.station.x,job.station.z);group.add(sign.group);yield;}
           const result=publish(builder,`rail:${key}`,group);
           if(job.station){result.sign=sign;result.job=job;stations.set(key,result);}
           else resident.set(key,result);
@@ -104,7 +105,7 @@ export function installRail(ctx) {
     pending.delete(key);
     if(job.station) {
       const record=publish(buildStation(job.station,job.route),`rail:${key}`),sign=stationSign(job.station,mats,job.route);
-      record.group.add(sign.group);record.sign=sign;record.job=job;stations.set(key,record);
+      sign.group.position.y=height(job.station.x,job.station.z);record.group.add(sign.group);record.sign=sign;record.job=job;stations.set(key,record);
     } else {
       const roads=[...new Map([...ctx.world.tiles.values()].flatMap(tile=>tile.streetContext?.roads??tile.roads??[]).map(road=>[road.id,road])).values()];
       resident.set(key,publish(buildTrack(job.segments,roads,job.route,mobile),`rail:${key}`));
@@ -114,10 +115,11 @@ export function installRail(ctx) {
   function support(x,z,referenceY,fallback) {
     const base=fallback??baseHeight.call(ctx.physics,x,z,referenceY);
     if(disposed||!Number.isFinite(referenceY))return base;
+    const terrain=height(x,z);referenceY-=terrain;
     let best=base,nearest=Infinity;
     const offer=y=>{
       const d=Math.abs(referenceY-y);
-      if(referenceY>=y-.6&&referenceY<y+3.5&&d<nearest){best=y;nearest=d;}
+      if(referenceY>=y-.6&&referenceY<y+3.5&&d<nearest){best=y+terrain;nearest=d;}
     };
     for(const {job:{station,route:r}} of stations.values()) {
       const access=accessSupport(station.key,x,z,referenceY);if(access!==null)offer(access);
@@ -174,7 +176,7 @@ export function installRail(ctx) {
         const {service,schedule}=item,model=models[service.kind];let train=trains.get(item.key);
         if(!train){train=model.create();root.add(train.root);trains.set(item.key,train);}
         if(state.station?.offset!==undefined)train.doorSide=Math.sign(state.station.offset);
-        model.place(train,state,schedule.direction,dt,service.path,service.tracks[schedule.direction],train.doorSide??service.doors[schedule.direction]);
+        model.place(train,state,schedule.direction,dt,service.path,service.tracks[schedule.direction],train.doorSide??service.doors[schedule.direction],height);
       }
       use.update(dt);
     },

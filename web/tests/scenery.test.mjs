@@ -36,8 +36,13 @@ tile.roads=[{id:1,cls:'primary',width:10,pts:[[0,50],[256,50]]},{id:2,cls:'resid
   assert.equal(area,256*256-96*96+32*32,'coastline subtraction preserves islands inside water');
   const mid=compileScenery('0_0',[tile],'mid',tools),far=compileScenery('0_0',[tile],'far',tools);
   assert.equal(mid.buildings,2);assert.equal(far.buildings,1);
-  assert.equal(mid.layers.find(l=>l.kind==='roads').index.length,12,'tunnels never appear as surface strips');
-  assert.equal(far.layers.find(l=>l.kind==='roads').index.length,6,'far roads omit side streets');
+  const roadArea=chunk=>{
+    const layer=chunk.layers.find(l=>l.kind==='roads'),p=layer.position;
+    let area=0;for(let i=0;i<layer.index.length;i+=3){const [a,b,c]=layer.index.slice(i,i+3).map(n=>n*3);area+=Math.abs((p[b]-p[a])*(p[c+2]-p[a+2])-(p[b+2]-p[a+2])*(p[c]-p[a]))/2;}
+    return area;
+  };
+  assert(Math.abs(roadArea(mid)-256*16)<.01,'terrain subdivision retains only the two surface roads');
+  assert(Math.abs(roadArea(far)-256*10)<.01,'far roads omit side streets and tunnels');
   for(const c of [mid,far]) {
     const decoded=prepareSceneryGeometry(decodeScenery(encodeScenery(c)));
     assert.equal(decoded.triangles,c.layers.reduce((n,l)=>n+l.index.length/3,0));
@@ -54,7 +59,7 @@ tile.roads=[{id:1,cls:'primary',width:10,pts:[[0,50],[256,50]]},{id:2,cls:'resid
       assert.deepEqual(decoded.layers[i].features,layer.features);
       assert(decoded.layers[i].position.every(Number.isFinite));
       assert(!('colliders' in decoded.layers[i]));
-      if(layer.kind!=='buildings')assert(decoded.layers[i].normal.every((n,j)=>j%3!==1||n===127),'horizontal faces point up');
+      if(layer.kind!=='buildings')assert(decoded.layers[i].normal.every((n,j)=>j%3!==1||n>0),'terrain faces point upwards on slopes');
     });
   }
   assert.throws(()=>decodeScenery(new ArrayBuffer(3)),/size/);

@@ -1,4 +1,4 @@
-import {signData} from './sign-data.js?v=rail-road-crossings-90';
+import {signData} from './sign-data.js?v=terrain-elevation-92';
 // Platform records carry their own services and travel direction. A station
 // complex's route union is appropriate only at its street entrances.
 export function platformSignInfo(station,route,index) {

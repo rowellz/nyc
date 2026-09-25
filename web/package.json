@@ -9,6 +9,7 @@
     "build": "vite build",
     "prepare:world": "node scripts/prepare-world.mjs",
     "test:startup": "node tests/startup.test.mjs",
+    "test:elevation": "node tests/elevation.test.mjs",
     "preview": "vite preview",
     "start": "node server.js",
     "test": "node tests/protocol.test.mjs",

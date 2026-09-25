@@ -1,9 +1,10 @@
-import {platformSignInfo,combineSignInfo,paintSign,boardPosition} from './signs.js?v=rail-road-crossings-90';
-import {panelMesh,wallPanel} from './enclosure.js?v=rail-road-crossings-90';
+import {platformSignInfo,combineSignInfo,paintSign,boardPosition} from './signs.js?v=terrain-elevation-92';
+import { elevateMesh } from '../elevation.js?v=terrain-elevation-92';
+import {panelMesh,wallPanel} from './enclosure.js?v=terrain-elevation-92';
 import { g as BufferGeometry, h as BufferAttribute, kt as Mesh, Z as Group,
   Pt as MeshStandardMaterial, At as MeshBasicMaterial, y as CanvasTexture,
-  rt as InstancedMesh, Ot as Matrix4 } from '../textureRelease-2U-gT89r.js?v=rail-road-crossings-90';
-import { route as defaultRoute, routeById, layout, sample, sampleTrack, stationAt, openPortal, roadTunnelAt, railPassageVolumes, splitStationSegments, PLATFORM_LENGTH, TRAIN_CARS, CAR_LENGTH, CAR_SPACING } from './network.js?v=rail-road-crossings-90';
+  rt as InstancedMesh, Ot as Matrix4 } from '../textureRelease-2U-gT89r.js?v=terrain-elevation-92';
+import { route as defaultRoute, routeById, layout, sample, sampleTrack, stationAt, openPortal, roadTunnelAt, railPassageVolumes, splitStationSegments, PLATFORM_LENGTH, TRAIN_CARS, CAR_LENGTH, CAR_SPACING } from './network.js?v=terrain-elevation-92';
 import { supportPlanner } from '../supports.js';
 import {appendAccessGeometrySteps,platformOpening,platformStairAt,hubs,accessPassageVolumes,stationDestinations,transfers,accessesByStation} from './access.js?v=rail-chunk-pacing-79';
 
@@ -65,13 +66,21 @@ export class Builder {
       const base=target.position.length/3;target.position.push(...data.position);target.index.push(...data.index.map(i=>i+base));
     }
   }
-  build(materials) {
-    return finish(this.buildSteps(materials));
+  build(materials, terrain = false) {
+    return finish(this.buildSteps(materials, terrain));
   }
-  *buildSteps(materials) {
+  *buildSteps(materials, terrain = false) {
     const group=new Group();
     let complete=false;
     try {
+      if(terrain && !this.elevated) {
+        for(const data of [...this.layers.values(),this.collision]) {
+          const lifted=elevateMesh({position:{array:data.position,itemSize:3}},data.index);
+          data.position=lifted.attributes.position.array;data.index=Array.from(lifted.index);
+          yield;
+        }
+        this.elevated=true;
+      }
       for (const [kind,data] of this.layers) {
         const g=new BufferGeometry(); g.setAttribute('position',new BufferAttribute(Float32Array.from(data.position),3));
         const mesh=new Mesh(g,materials[kind]); mesh.receiveShadow=true; group.add(mesh);
@@ -399,13 +408,13 @@ export function trainModel(materialSet,kind='subway',instanced=false) {
       }
       return {root,cars,batches,dispose(){for(const {mesh} of batches)mesh.dispose();root.removeFromParent();}};
     },
-    place(train,state,direction,dt,route=defaultRoute,trackOffset=direction*2,doorSide=direction) {
+    place(train,state,direction,dt,route=defaultRoute,trackOffset=direction*2,doorSide=direction,height=()=>0) {
       train.open=(train.open??0)+(Number(state.doors)-(train.open??0))*Math.min(1,dt*4);
       train.cars.forEach(({car,panels},i)=>{
         const s=state.s-direction*(i-(TRAIN_CARS-1)/2)*CAR_SPACING;
         const p=sampleTrack(route,s,trackOffset),a=sampleTrack(route,s-4,trackOffset),b=sampleTrack(route,s+4,trackOffset);
-        car.position.set(p.x,p.y,p.z);car.rotation.set(0,Math.atan2(b.x-a.x,b.z-a.z),0);
-        car.rotateX(-Math.atan2(b.y-a.y,Math.hypot(b.x-a.x,b.z-a.z)));
+        car.position.set(p.x,p.y+height(p.x,p.z),p.z);car.rotation.set(0,Math.atan2(b.x-a.x,b.z-a.z),0);
+        car.rotateX(-Math.atan2(b.y-a.y+height(b.x,b.z)-height(a.x,a.z),Math.hypot(b.x-a.x,b.z-a.z)));
         // Side platforms are outside each track. Keep the track-side doors shut.
         panels.forEach((panel,j)=>panel.position.z=(j%2?1:-1)*train.open*0.66
           *Number((j<2?-1:1)===doorSide));

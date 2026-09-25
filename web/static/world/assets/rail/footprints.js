@@ -1,4 +1,4 @@
-import {footprints} from './footprints-data.js?v=rail-road-crossings-90';
+import {footprints} from './footprints-data.js?v=terrain-elevation-92';
 function index(holes) {
  const cells=new Map();
  for(const ring of holes) {

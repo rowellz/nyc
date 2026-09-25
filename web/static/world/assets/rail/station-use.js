@@ -1,18 +1,19 @@
-import {accessesByStation,hubs,entranceDestinations} from './access.js?v=rail-road-crossings-90';
-import {pathFrom,onPath,pathFloor} from './access-plan.js?v=rail-road-crossings-90';
-import {sample,sampleTrack,trainState,CAR_SPACING,TRAIN_CARS} from './network.js?v=rail-road-crossings-90';
-export function boardingDoor(item,state,position) {
+import {accessesByStation,hubs,entranceDestinations} from './access.js?v=terrain-elevation-92';
+import {pathFrom,onPath,pathFloor} from './access-plan.js?v=terrain-elevation-92';
+import {sample,sampleTrack,trainState,CAR_SPACING,TRAIN_CARS} from './network.js?v=terrain-elevation-92';
+export function boardingDoor(item,state,position,height=()=>0) {
  if(!state.doors||!state.station)return null;
  const offset=item.service.tracks[item.schedule.direction],side=Math.sign(state.station.offset??item.service.doors[item.schedule.direction]);
  let nearest=null;
  for(let i=0;i<TRAIN_CARS;i++)for(const door of [-5.7,5.7]) {
   const along=-(i-(TRAIN_CARS-1)/2)*CAR_SPACING*item.schedule.direction;
   const p=sample(item.service.path,state.s+along+door,offset+side*2.5),d=Math.hypot(position.x-p.x,position.z-p.z);
-  if(Math.abs(position.y-p.y-1.15)<.65&&d<2.8&&(!nearest||d<nearest.distance))nearest={distance:d,along};
+  if(Math.abs(position.y-p.y-height(p.x,p.z)-1.15)<.65&&d<2.8&&(!nearest||d<nearest.distance))nearest={distance:d,along};
  }
  return nearest;
 }
 export function createStationUse(ctx,{stationRecords,visibleTrains,readyStation,clock}) {
+ const height=ctx.terrainHeight??(()=>0),absolute=p=>({...p,y:p.y+height(p.x,p.z)});
  const visitors=new Map(),cooldown=new WeakMap(),entryCache=new WeakMap();let passenger=null,elapsed=0,claimUntil=-1,uiClock=0,disposed=false;
  const button=globalThis.document?.body?.appendChild?document.createElement('button'):null;
  if(button){button.style.cssText='position:fixed;bottom:110px;left:50%;transform:translateX(-50%);z-index:35;max-width:85vw;padding:10px 16px;border:1px solid #bdccd4;border-radius:6px;background:#12212eef;color:white;font:14px sans-serif';button.hidden=true;document.body.appendChild(button);button.addEventListener('pointerdown',e=>e.stopPropagation());button.addEventListener('click',e=>{e.stopPropagation();interact();});}
@@ -20,7 +21,7 @@ export function createStationUse(ctx,{stationRecords,visibleTrains,readyStation,
   let best=null;for(const {item,state} of visibleTrains()) {
    const terminal=item.schedule.direction===1?item.service.path.stations.at(-1):item.service.path.stations[0];
    if(state.station?.key===terminal?.key)continue;
-   if(!readyStation(state.station?.key))continue;const door=boardingDoor(item,state,position);
+   if(!readyStation(state.station?.key))continue;const door=boardingDoor(item,state,position,height);
    if(door&&(!best||door.distance<best.door.distance))best={item,state,door};
   }return best;
  }
@@ -28,7 +29,7 @@ export function createStationUse(ctx,{stationRecords,visibleTrains,readyStation,
   const station=state.station;if(!station||!state.doors||!readyStation(station.key))return false;
   const side=Math.sign(station.offset??record.item.service.doors[record.item.schedule.direction]);
   const offset=station.offset??record.item.service.tracks[record.item.schedule.direction]+side*4.4;
-  const p=sample(record.item.service.path,station.s+record.along,offset);
+  const p=absolute(sample(record.item.service.path,station.s+record.along,offset));
   Object.assign(ctx.state.local.state,{x:p.x,y:p.y+1.15,z:p.z,vx:0,vy:0,vz:0});
   passenger=null;ctx.events.emit('localRespawn');return true;
  }
@@ -54,7 +55,7 @@ export function createStationUse(ctx,{stationRecords,visibleTrains,readyStation,
   record.lastS=state.s;
   const terminal=item.schedule.direction===1?item.service.path.stations.at(-1):item.service.path.stations[0];
   if((record.exitRequested||state.station?.key===terminal?.key)&&exitRide(record,state))return false;
-  const p=sampleTrack(item.service.path,state.s+record.along,item.service.tracks[item.schedule.direction]),s=ctx.state.local.state;
+  const p=absolute(sampleTrack(item.service.path,state.s+record.along,item.service.tracks[item.schedule.direction])),s=ctx.state.local.state;
   Object.assign(s,{x:p.x,y:p.y+1.25,z:p.z,vx:p.dx*state.speed*item.schedule.direction,vy:0,vz:p.dz*state.speed*item.schedule.direction});
   return true;
  }
@@ -80,13 +81,13 @@ export function createStationUse(ctx,{stationRecords,visibleTrains,readyStation,
    for(const record of stationRecords())for(const a of navigationEntries(record)) {
     if(a.platformCount&&a.platformIndex!==(p.seed>>>2)%a.platformCount)continue;
     const start=a.path[0],d=Math.hypot(p.x-start.x,p.z-start.z);
-    if(d>=distance||Math.abs(p.gy-start.y)>1||!(a.via??[a.stationKey]).every(readyStation))continue;
+    if(d>=distance||Math.abs(p.gy-height(p.x,p.z)-start.y)>1||!(a.via??[a.stationKey]).every(readyStation))continue;
     if([...visitors.values()].some(v=>v.entrance.id===a.id&&v.distance<8))continue;
     let clear=true;for(let t=0;t<=1;t+=.2)if(manager.walkable&&!manager.walkable(p.x+(start.x-p.x)*t,p.z+(start.z-p.z)*t,p.lane))clear=false;
     if(clear){choice=a;distance=d;}
    }
    if(!choice){cooldown.set(p,elapsed+2);return false;}
-   const points=[{x:p.x,y:p.gy,z:p.z},...choice.path];
+   const points=[{x:p.x,y:p.gy-height(p.x,p.z),z:p.z},...choice.path];
    visit={entrance:choice,path:pathFrom(points),distance:0,direction:1,wait:18+p.seed%24,origin:{x:p.x,z:p.z,y:p.gy},stage:'entering'};
    visitors.set(p,visit);p.stationVisit=true;p.phone=false;p.follow=null;
   }
@@ -104,10 +105,11 @@ export function createStationUse(ctx,{stationRecords,visibleTrains,readyStation,
    // arriving queue. Blend back onto the original sidewalk route at the exit.
    const lane=.44*visit.direction*Math.min(1,next/2);
    point.x-=point.dz*lane;point.z+=point.dx*lane;
-   const blocked=[...visitors].some(([other])=>other!==p&&Math.abs(other.gy-point.y)<1.8&&Math.hypot(other.x-point.x,other.z-point.z)<.65);
+   const worldY=point.y+height(point.x,point.z);
+   const blocked=[...visitors].some(([other])=>other!==p&&Math.abs(other.gy-worldY)<1.8&&Math.hypot(other.x-point.x,other.z-point.z)<.65);
    const player=ctx.state?.local?.state;
-   if(blocked||(player&&!ctx.state.screenshotMode&&Math.abs(player.y-point.y)<1.8&&Math.hypot(player.x-point.x,player.z-point.z)<.8))speed=0;
-   else {visit.distance=next;p.x=point.x;p.z=point.z;p.gy=pathFloor(visit.path,p.x,p.z,1.1,point.y)??point.y;p.yaw=Math.atan2(-point.dx*visit.direction,-point.dz*visit.direction);}
+   if(blocked||(player&&!ctx.state.screenshotMode&&Math.abs(player.y-worldY)<1.8&&Math.hypot(player.x-point.x,player.z-point.z)<.8))speed=0;
+   else {visit.distance=next;p.x=point.x;p.z=point.z;p.gy=(pathFloor(visit.path,p.x,p.z,1.1,point.y)??point.y)+height(p.x,p.z);p.yaw=Math.atan2(-point.dx*visit.direction,-point.dz*visit.direction);}
    if(visit.distance>=visit.path.at(-1).s-.01){visit.stage='waiting';}
    if(visit.direction<0&&visit.distance<=.01){releasePed(p);cooldown.set(p,elapsed+90);p.state='walk';}
   }

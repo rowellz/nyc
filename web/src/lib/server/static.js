@@ -23,6 +23,7 @@ import { urlStateAssetPaths, urlStateAssetTransform } from './url-state-assets.j
 import { railAssetPaths, railAssetTransform } from './rail-assets.js';
 import { createSceneryService } from './scenery.js';
 import { scoreFreeAssetPaths, scoreFreeAssetTransform } from './score-free-assets.js';
+import { elevationAssetTransform } from './elevation-assets.js';
 
 /**
  * In development nothing is cached. The mirrored client is patched in place (see
@@ -144,6 +145,7 @@ export async function serveStatic(relPath, options = {}) {
       body = urlStateAssetTransform(rel, body);
       headers['cache-control'] = 'no-store';
     }
+    body = elevationAssetTransform(rel, body);
     if (options.transform) body = options.transform(body);
     const versioned = versionClientImports(body);
     if (versioned !== body) {

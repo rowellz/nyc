@@ -14,6 +14,7 @@ import crypto from 'node:crypto';
 
 import * as P from '../shared/protocol.js';
 import * as C from '../shared/constants.js';
+import { terrainHeight } from '../../../static/world/assets/elevation.js';
 
 /** main.ts: "The server clamps movement to ~70 m/s, so other players see you slide there." */
 const MAX_SPEED_MPS = 70;
@@ -111,7 +112,7 @@ export function createWorld(options = {}) {
 
   function pickSpawn() {
     const s = C.SPAWN_POINTS[Math.floor(Math.random() * C.SPAWN_POINTS.length)];
-    return { x: s.x, y: 0, z: s.z, yaw: C.headingToYaw(s.yawDeg) };
+    return { x: s.x, y: terrainHeight(s.x, s.z), z: s.z, yaw: C.headingToYaw(s.yawDeg) };
   }
 
   const send = (p, msg) => { if (p.ws.readyState === 1) p.ws.send(JSON.stringify(msg)); };

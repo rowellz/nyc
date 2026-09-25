@@ -5,13 +5,13 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { encodeScenery, CHUNK_TILES, CHUNK_SIZE, SCENERY_VERSION } from '../../../static/world/assets/scenery-format.js';
 import { landmarkShell } from '../../../static/world/assets/landmark-shells.js';
+import { buildingElevation, elevateMesh } from '../../../static/world/assets/elevation.js';
 
 export async function sceneryTools(publicDir) {
   const polygon = await import(pathToFileURL(path.join(publicDir, 'world/assets/polygon-BtfRVykj.js')).href);
-  const { buildingFoundation } = await import(pathToFileURL(path.join(publicDir, 'world/assets/foundations.js')).href);
   const styles = await import(pathToFileURL(path.join(publicDir, 'world/assets/styles-CD9VAM0e.js')).href);
   const roofs = await import(pathToFileURL(path.join(publicDir, 'world/assets/builder-Ct8y1lc-.js')).href);
-  return { buildingParams: styles.i, seedOf: styles.p, roofMaterial: roofs.r, roofPalette: roofs.i, normalize: polygon.i, simplify: polygon.l, triangulate: polygon.u, inside: polygon.o, foundation: buildingFoundation };
+  return { buildingParams: styles.i, seedOf: styles.p, roofMaterial: roofs.r, roofPalette: roofs.i, normalize: polygon.i, simplify: polygon.l, triangulate: polygon.u, inside: polygon.o, foundation: buildingElevation };
 }
 
 export function sceneryChunks(keys) {
@@ -85,7 +85,13 @@ export function compileScenery(key, tiles, tier, tools) {
   const [cx, cz] = key.split('_').map(Number), ox = cx * CHUNK_SIZE, oz = cz * CHUNK_SIZE;
   const layers = ['ground', 'roads', 'buildings'].map(kind => ({ kind, features: [], position: [], normal: [], color: [], owner: [], index: [] }));
   let owner = 0, buildings = 0;
-  const face = (layer, points, tint) => {
+  const face = (layer, points, tint, elevated = false) => {
+    if(layer.kind !== 'buildings' && !elevated) {
+      const index=[];for(let i=1;i<points.length-1;i++)index.push(0,i,i+1);
+      const mesh=elevateMesh({position:{array:points.flat(),itemSize:3}},index),p=mesh.attributes.position.array;
+      for(let i=0;i<mesh.index.length;i+=3)face(layer,Array.from(mesh.index.slice(i,i+3),n=>Array.from(p.slice(n*3,n*3+3))),tint,true);
+      return;
+    }
     const base = layer.position.length / 3;
     const a = points[0], b = points[1], c = points[2];
     const u = b.map((v, i) => v - a[i]), v = c.map((n, i) => n - a[i]);

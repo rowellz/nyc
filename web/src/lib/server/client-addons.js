@@ -70,7 +70,7 @@ export function addonsFor(rel) {
   const scripts = ADDONS[rel];
   if (!scripts || !scripts.length) return undefined;
   let tags = DEV_TAGS ? `${DEV_TAGS}\n${tagsFor(scripts)}` : tagsFor(scripts);
-  if (rel === 'world/index.html') tags += '\n<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" aria-label="Railway map attribution" style="position:fixed;bottom:3px;left:6px;z-index:30;padding:2px 4px;background:#0009;color:#ddd;font:10px sans-serif;text-decoration:none">© OpenStreetMap contributors</a>';
+  if (rel === 'world/index.html') tags += '\n<div style="position:fixed;bottom:3px;left:6px;z-index:30;padding:2px 4px;background:#0009;color:#ddd;font:10px sans-serif"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" style="color:inherit">© OpenStreetMap contributors</a> · <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener" style="color:inherit">Terrain: USGS / Mapzen</a></div>';
   return (html) => {
     // safe.html has no <body> of its own, so fall back to the closing <html>.
     for (const marker of ['</body>', '</html>']) {

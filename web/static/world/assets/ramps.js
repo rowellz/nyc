@@ -1,9 +1,11 @@
 /** Clearance planning across bridge tags and their connected approach roads. */
 import { PEDESTRIAN_HEADROOM, PEDESTRIAN_FLOOR } from './pedestrian-clearance.js';
-// Match the worker's versioned import: a second module instance loses the
-// shared elevation plan and renders elevated approaches again at ground level.
-import { approachProfile, approachCeiling, tunnelNetwork, setApproachElevations, APPROACH_REACH, MAX_APPROACH_GRADE, PORTAL_DEPTH } from './tunnels.js?v=rail-portal-guards-76';
-import { deckEdges } from './edges.js?v=rail-portal-guards-76';
+// Static overrides bypass the server's import rewriting. Inherit the revision
+// used to load this planner so it shares the worker's tunnel elevation cache,
+// including after future client revision changes.
+const revision = new URL(import.meta.url).search;
+const { approachProfile, approachCeiling, tunnelNetwork, setApproachElevations, APPROACH_REACH, MAX_APPROACH_GRADE, PORTAL_DEPTH } = await import(`./tunnels.js${revision}`);
+const { deckEdges } = await import(`./edges.js${revision}`);
 const cache = new WeakMap();
 const VEHICLES = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service']);
 const motorway = r => r.cls === 'motorway' || r.cls === 'trunk';

@@ -6,6 +6,7 @@ import { assets } from './sveltekit-assets.mjs';
 
 const { tunnelNetwork, tunnelWaterHoles, cutGround, syncTunnelTerrain } = await import(new URL('tunnels.js', assets));
 const { triangleHeight } = await import(new URL('supports.js', assets));
+const { Gt: PlaneGeometry } = await import(new URL('textureRelease-2U-gT89r.js', assets));
 const plane = { position: { array: new Float32Array([
   -26000, 0, -26000, 26000, 0, -26000, 26000, 0, 26000, -26000, 0, 26000,
 ]), itemSize: 3 } };
@@ -49,23 +50,8 @@ assert.deepEqual(water.position, { x: 0, y: -1.6, z: 0 }, 'camera movement canno
 
 // Terrain synchronization must work before a camera descends, and restore the
 // original plane when streamed tunnel roads disappear.
-class Attribute {
-  constructor(array, itemSize) { this.array = array; this.itemSize = itemSize; }
-}
-class Geometry {
-  constructor(attributes = plane, index = indices) {
-    this.attributes = Object.fromEntries(Object.entries(attributes).map(([name, a]) =>
-      [name, new Attribute(new Float32Array(a.array), a.itemSize)]));
-    this.index = { array: Uint32Array.from(index) };
-  }
-  clone() { return new Geometry(this.attributes, this.index.array); }
-  getAttribute(name) { return this.attributes[name]; }
-  setAttribute(name, value) { this.attributes[name] = value; }
-  setIndex(value) { this.index.array = Uint32Array.from(value.array ?? value); }
-  computeBoundingSphere() {}
-  dispose() {}
-}
-water.geometry = new Geometry();
+water.geometry = new PlaneGeometry(52000, 52000, 1, 1);
+water.geometry.rotateX(-Math.PI / 2);
 const tile = { key: '16_-41', tx: 16, tz: -41, roads: [bore, approach] };
 const ctx = { world: { tiles: new Map([[tile.key, tile]]) },
   scene: { getObjectByName: name => name === 'env-water' ? water : null },
@@ -75,6 +61,8 @@ const oldRAF = globalThis.requestAnimationFrame, frames = [];
 globalThis.requestAnimationFrame = callback => { frames.push(callback); return 1; };
 syncTunnelTerrain(ctx, tile);
 while (frames.length) frames.shift()();
+assert(water.geometry.index.array instanceof Uint16Array || water.geometry.index.array instanceof Uint32Array,
+  'cut water must retain WebGL-compatible unsigned indices');
 assert(!covered({ attributes: water.geometry.attributes, index: water.geometry.index.array }, 4240, -10400));
 ctx.world.tiles.clear();
 syncTunnelTerrain(ctx, tile);

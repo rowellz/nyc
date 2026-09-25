@@ -1,6 +1,6 @@
-import { t as buildScope } from './loading-DS_gLujL.js?v=parked-car-distance-86';
-import { deckEdges } from './edges.js?v=rail-portal-guards-76';
-import { holesForTile as railHolesForTile, waterHolesForTiles } from './rail/footprints.js?v=rail-portal-guards-76';
+import { t as buildScope } from './loading-DS_gLujL.js?v=terrain-elevation-92';
+import { deckEdges } from './edges.js?v=terrain-elevation-92';
+import { holesForTile as railHolesForTile, waterHolesForTiles } from './rail/footprints.js?v=terrain-elevation-92';
 
 /** Shared by the geometry worker and traffic. Heights are synthetic: OSM layers
  * describe stacking, not surveyed elevations. Keep grades continuous across ways. */
@@ -475,7 +475,8 @@ function recut(mesh, holes) {
   if (!base && !holes.length) return;
   if (!base) { base = mesh.geometry.clone(); terrainBases.set(mesh, base); }
   const next = base.clone();
-  const cut = cutGround(next.attributes, next.index.array, holes);
+  // Rendered ground is already elevated; the footprints are still horizontal.
+  const cut = cutGround(next.attributes, next.index.array, holes, [-Infinity, Infinity]);
   if (cut) {
     const Attribute = next.getAttribute('position').constructor;
     for (const [name, a] of Object.entries(cut.attributes)) next.setAttribute(name, new Attribute(a.array, a.itemSize));
@@ -524,7 +525,7 @@ function syncWater(ctx, mesh, profiles, holes) {
           next.setAttribute(name, new Attribute(a.array, a.itemSize));
           yield;
         }
-        next.setIndex(new Attribute(cut.index, 1));
+        next.setIndex(Array.from(cut.index));
         next.computeBoundingSphere();
         yield;
       }

@@ -4,6 +4,27 @@ import vm from 'node:vm';
 import { gunzipSync } from 'node:zlib';
 import { assets } from './sveltekit-assets.mjs';
 import { serveStatic } from '../src/lib/server/static.js';
+import { CLIENT_REVISION, versionClientImports } from '../src/lib/server/client-cache.js';
+
+// A pinned old query creates a second module instance, even when the server
+// returns identical bytes. The planner and renderer must share one height cache.
+for (const path of ['./tunnels.js', './edges.js', '/world/assets/ramps.js',
+  './tile.worker-Ai2ZdmRL.js', '/world-addons/render-distance.js']) {
+  const expected = `import '${path}?v=${CLIENT_REVISION}';`;
+  for (const suffix of ['', '?v=rail-portal-guards-76', `?v=${CLIENT_REVISION}`]) {
+    assert.equal(versionClientImports(`import '${path}${suffix}';`), expected);
+  }
+  assert.equal(versionClientImports(expected), expected, 'revisioning is idempotent');
+}
+for (const name of ['tile.worker-Ai2ZdmRL.js', 'supports.js']) {
+  const response = await serveStatic(`world/assets/${name}`);
+  assert.equal(response.status, 200);
+  const source = await response.text();
+  const imports = [...source.matchAll(/from ['"]\.\/tunnels\.js([^'"]*)['"]/g)];
+  assert(imports.length, `${name} consumes the shared tunnel network`);
+  assert(imports.every(match => match[1] === `?v=${CLIENT_REVISION}`),
+    `${name} must use the same tunnel module URL as the worker`);
+}
 
 const { triangleHeight } = await import(new URL('supports.js', assets));
 let response;
@@ -38,6 +59,15 @@ const bore = road(1, [[20, 128], [140, 128]], { tunnel: true, bridge: false, lay
 const approach = road(2, [[140, 128], [400, 128]], { bridge: false, layer: 0 });
 const bridge = road(3, [[400, 128], [1000, 128]]);
 const roads = [bore, approach, bridge];
+for (const query of ['', `?v=${CLIENT_REVISION}`, '?v=next-markings-revision']) {
+  const planner = await import(new URL(`ramps.js${query}`, assets));
+  const tunnels = await import(new URL(`tunnels.js${query}`, assets));
+  const context = structuredClone(roads);
+  const env = { tile: { roads: context }, ctx: { world: { roadsNear: () => context } } };
+  planner.clearanceProfile(env, context[2], () => ({ hw: 6, H: 7, hAt: () => 7 }));
+  assert(tunnels.tunnelNetwork(context).get(bridge.id).elevation,
+    `the planner publishes heights to the renderer's module with ${query || 'no revision'}`);
+}
 const tile = { key: '2_0', tx: 2, tz: 0, roads, buildings: [], roadbeds: [], sidewalks: [], medians: [],
   parks: [], water: [], parking: [], plazas: [], crossings: [], trees: [], props: [] };
 const built = await build(tile);

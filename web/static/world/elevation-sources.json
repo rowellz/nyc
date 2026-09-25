@@ -1,0 +1,57 @@
+{
+  "source": "Mapzen Terrain Tiles / USGS 3DEP",
+  "attribution": "3DEP terrain data courtesy of the U.S. Geological Survey.",
+  "registry": "https://registry.opendata.aws/terrain-tiles/",
+  "projection": "Bryant Park local tangent plane",
+  "processing": "Terrarium zoom 12, bilinearly resampled to a 64 metre grid; negative elevations clamped to zero; rounded to decimetres.",
+  "sources": [
+    {
+      "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/1205/1537.png",
+      "sha256": "7acfb879d22ebf8a568be6e956dcd71caba7fd5dd1475c11b8aa847c3205e551"
+    },
+    {
+      "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/1206/1537.png",
+      "sha256": "5c72fc6a01fdbfc45a1e2cf191b8cb480d5382c15f93b68a7e6c3e3f9df0de02"
+    },
+    {
+      "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/1207/1537.png",
+      "sha256": "246db67d807df930abb9433e351ed39a686392db4725b9151c15760328f8e992"
+    },
+    {
+      "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/1205/1538.png",
+      "sha256": "3583e17ba95964aa49d1a014e2215c6856b0d3a01ebbb975b9af1a26bcef2ced"
+    },
+    {
+      "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/1206/1538.png",
+      "sha256": "4778454a50be548a05f7a999d6510658b6d03dfc93625a0d547a3414f6c06989"
+    },
+    {
+      "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/1207/1538.png",
+      "sha256": "a6f46f3b51a5e161b9da8ad66946ead2b7a8e67dae93134de0b5467e46fa8ed4"
+    },
+    {
+      "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/1205/1539.png",
+      "sha256": "483dca14a4eee0bfa68ac970f12fbfc2cff8ff677494a3e9143f924f3efa671d"
+    },
+    {
+      "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/1206/1539.png",
+      "sha256": "f81b946e15b77c97dbbd7be10d918a15a54295e7d4d2131800f353e90c52d2a0"
+    },
+    {
+      "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/1207/1539.png",
+      "sha256": "730e3944c368bea32c4270e7f517944001c41dc2b451026c26b23f1456b811ed"
+    },
+    {
+      "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/1205/1540.png",
+      "sha256": "fb15f446647c6bcfcae4c2f0b7acd3c8980c11897b3d9769e792defbde2710b8"
+    },
+    {
+      "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/1206/1540.png",
+      "sha256": "324047c88eae5532db486dfca26eb1bf46fa646f42d03cbea9adb5d7f0bb94c2"
+    },
+    {
+      "url": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/1207/1540.png",
+      "sha256": "eed3d58c15614d4613f69132d1ffe7aad306cedfd25f1b5d47490ae426945e17"
+    }
+  ]
+}
